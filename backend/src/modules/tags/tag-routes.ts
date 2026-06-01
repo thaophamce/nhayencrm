@@ -139,6 +139,18 @@ export async function registerTagRoutes(app: FastifyInstance): Promise<void> {
     const isZaloReal = tag.source === 'zalo_real' && tag.zaloAccountId && tag.sourceZaloLabelId != null;
     const wantsPushZalo = isZaloReal && (req.body.name !== undefined || req.body.color !== undefined || req.body.emoji !== undefined);
 
+    // Validate color palette cho Zalo Real (SDK accept hex bất kỳ nhưng Zalo App
+    // chỉ render đúng 8 màu palette — non-palette → fallback grey, lệch zalocrm).
+    if (isZaloReal && req.body.color !== undefined) {
+      const ZALO_PALETTE = ['#D91B1B', '#0068FF', '#FF6905', '#4BC377', '#FAC000', '#F31BC8', '#6F3FCF', '#FF6B6B'];
+      if (!ZALO_PALETTE.includes(req.body.color.toUpperCase())) {
+        return reply.code(400).send({
+          error: 'ZALO_COLOR_NOT_IN_PALETTE',
+          message: 'Tag Zalo Real chỉ chấp nhận 8 màu palette: ' + ZALO_PALETTE.join(', '),
+        });
+      }
+    }
+
     // Push Zalo Real: text/color/emoji → SDK updateLabels({labelData, version}).
     // Priority + groupId là CRM-local (Zalo Real không có khái niệm priority/group).
     if (wantsPushZalo) {

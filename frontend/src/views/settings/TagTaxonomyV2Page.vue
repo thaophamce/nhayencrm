@@ -139,9 +139,22 @@
         <input v-model="editForm.name" type="text" placeholder="VIP, Tiềm năng, ..." />
 
         <div class="t2-form-row">
-          <div>
+          <div class="t2-form-color">
             <label>Màu</label>
-            <input v-model="editForm.color" type="color" />
+            <!-- Zalo Real: palette 8 màu cố định (Zalo App chỉ render đúng các màu này) -->
+            <div v-if="editTag?.source === 'zalo_real'" class="t2-palette">
+              <button
+                v-for="c in ZALO_PALETTE"
+                :key="c.hex"
+                type="button"
+                :class="['t2-palette-swatch', { active: editForm.color.toUpperCase() === c.hex.toUpperCase() }]"
+                :style="{ background: c.hex }"
+                :title="c.name + ' (' + c.hex + ')'"
+                @click="editForm.color = c.hex"
+              ></button>
+            </div>
+            <!-- Non-Zalo: full RGB picker -->
+            <input v-else v-model="editForm.color" type="color" />
           </div>
           <div>
             <label>Emoji</label>
@@ -236,6 +249,21 @@ const editForm = ref({ name: '', color: '#90A4AE', emoji: '', priority: 99, sour
 const showMergeDialog = ref(false);
 const mergeSource = ref<TagV2 | null>(null);
 const mergeTargetId = ref<string>('');
+
+// Bảng màu Zalo Real chính thức — verify từ DB production (8 màu unique từ
+// zalo_labels) + Zalo Web UI palette. SDK accept hex bất kỳ, nhưng Zalo App
+// chỉ render đúng 8 màu này; màu non-palette sẽ fallback sang grey hoặc gần
+// nhất. Để zalocrm + Zalo App đồng bộ visual, lock 8 màu cố định.
+const ZALO_PALETTE: Array<{ hex: string; name: string }> = [
+  { hex: '#D91B1B', name: 'Đỏ' },
+  { hex: '#0068FF', name: 'Xanh dương' },
+  { hex: '#FF6905', name: 'Cam' },
+  { hex: '#4BC377', name: 'Xanh lá' },
+  { hex: '#FAC000', name: 'Vàng' },
+  { hex: '#F31BC8', name: 'Hồng' },
+  { hex: '#6F3FCF', name: 'Tím' },
+  { hex: '#FF6B6B', name: 'Đỏ nhạt' },
+];
 
 const SOURCE_META: Record<string, { label: string; color: string; scope: 'friend' | 'crm' }> = {
   zalo_real: { label: 'Zalo Real', color: '#0068FF', scope: 'friend' },
@@ -539,6 +567,22 @@ watch(activeTab, () => {
 .t2-modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 20px; }
 .t2-modal-actions button { padding: 8px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; }
 .t2-modal-actions button:not(.t2-btn-primary) { background: white; color: #41454d; border: 1px solid #dddddd; }
+
+.t2-palette {
+  display: flex; gap: 6px; flex-wrap: wrap;
+  padding: 4px 0;
+}
+.t2-palette-swatch {
+  width: 28px; height: 28px; border-radius: 50%;
+  border: 2px solid transparent; cursor: pointer; padding: 0;
+  transition: transform 0.1s ease, border-color 0.1s ease;
+}
+.t2-palette-swatch:hover { transform: scale(1.1); }
+.t2-palette-swatch.active {
+  border-color: #181d26;
+  box-shadow: 0 0 0 2px white inset;
+}
+.t2-form-color { min-width: 180px; }
 
 .t2-zalo-banner {
   display: flex; gap: 10px; align-items: flex-start;
