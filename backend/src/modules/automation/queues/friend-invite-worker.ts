@@ -34,11 +34,13 @@
 // delay 1 phút) — cap đọc từ ZaloAccount.dailyFriendAddCap (default 30, anh
 // override per-nick trong /settings/channels/zalo).
 
-import { Worker, type Job, type WorkerOptions } from 'bullmq';
+import { Worker, DelayedError, UnrecoverableError, type Job, type WorkerOptions } from 'bullmq';
 import { prisma } from '../../../shared/database/prisma-client.js';
 import { logger } from '../../../shared/utils/logger.js';
 import { getBullMQRedis } from './redis-connection.js';
 import { QUEUE_NAMES, buildFriendInviteJobId } from './queue-registry.js';
+import { runAllGuards, type TriggerGuardConfig, recordNickSend, consumeQuotaAfterSend } from './worker-guards.js';
+import { classifyError } from './error-classify.js';
 
 export interface FriendInviteJobData {
   triggerId: string;
@@ -56,27 +58,22 @@ export interface FriendInviteResult {
 let workerInstance: Worker<FriendInviteJobData, FriendInviteResult> | null = null;
 
 // ════════════════════════════════════════════════════════════════════════
-// Job processor — single tick per job
+// Job processor — single tick per job (M2b full pipeline)
 // ════════════════════════════════════════════════════════════════════════
 async function processJob(
   job: Job<FriendInviteJobData, FriendInviteResult>,
+  token?: string,
 ): Promise<FriendInviteResult> {
-  const { triggerId, entryId, nickId } = job.data;
+  const { triggerId, entryId, nickId, orgId } = job.data;
   const tag = `[friend-invite-worker job=${job.id}]`;
 
-  logger.info(`${tag} processing entry=${entryId} nick=${nickId} trigger=${triggerId}`);
-
-  // M2a: stub — verify pipeline framework works. Full Zalo SDK call + skip
-  // rules check sẽ thêm trong M2b.
-
-  // 1. Load entry để verify state
+  // ── STEP 1: Load entry + verify state ──
   const entry = await prisma.customerListEntry.findUnique({
     where: { id: entryId },
     select: {
       id: true,
       queueStatus: true,
       triggerId: true,
-      claimedByNickId: true,
       phoneE164: true,
       phoneRaw: true,
       zaloUid: true,
@@ -85,41 +82,126 @@ async function processJob(
   });
 
   if (!entry) {
-    logger.warn(`${tag} entry ${entryId} not found, skipping`);
     return { status: 'skipped', reason: 'entry_not_found' };
   }
-
   if (entry.queueStatus !== 'queued_for_pickup' && entry.queueStatus !== 'processing') {
-    logger.warn(
-      `${tag} entry ${entryId} state=${entry.queueStatus}, skipping (already processed?)`,
-    );
     return { status: 'skipped', reason: `state_${entry.queueStatus}` };
   }
-
   if (entry.triggerId !== triggerId) {
-    logger.warn(
-      `${tag} entry ${entryId} triggerId mismatch (db=${entry.triggerId}, job=${triggerId}), skipping`,
-    );
     return { status: 'skipped', reason: 'trigger_mismatch' };
   }
+  if (!entry.contactId) {
+    return { status: 'skipped', reason: 'no_contact_id' };
+  }
 
-  // M2a stub: log dispatch intent + mark entry processed
-  // M2b sẽ thêm: hour check, Lua quota, recency check, sendFriendRequest Zalo SDK.
-  logger.info(
-    `${tag} [M2a STUB] would dispatch sendFriendRequest(nick=${nickId}, phone=${entry.phoneE164 ?? entry.phoneRaw}, uid=${entry.zaloUid})`,
-  );
+  // ── STEP 2: Load trigger config + nick caps ──
+  const [trigger, nick] = await Promise.all([
+    prisma.automationTrigger.findUnique({
+      where: { id: triggerId },
+      select: {
+        id: true,
+        orgId: true,
+        createdById: true,
+        sendHourStart: true,
+        sendHourEnd: true,
+        recencySkipDays: true,
+        multiNickThreshold: true,
+        minFriendReqGapMs: true,
+        state: true,
+      },
+    }),
+    prisma.zaloAccount.findUnique({
+      where: { id: nickId },
+      select: {
+        id: true,
+        dailyFriendAddCap: true,
+        status: true,
+      },
+    }),
+  ]);
 
-  // Mark entry processed (placeholder để M2b thay bằng pool-query.markEntrySent)
-  await prisma.customerListEntry.update({
-    where: { id: entryId },
-    data: {
-      queueStatus: 'processed',
-      lockedAt: null,
-      claimedByNickId: nickId,
-    },
+  if (!trigger) return { status: 'skipped', reason: 'trigger_not_found' };
+  if (trigger.state !== 'active') return { status: 'skipped', reason: `trigger_${trigger.state}` };
+  if (!nick) return { status: 'skipped', reason: 'nick_not_found' };
+  if (nick.status !== 'connected') {
+    return { status: 'skipped', reason: `nick_${nick.status}` };
+  }
+
+  // ── STEP 3: Run 5 guards ──
+  const triggerCfg: TriggerGuardConfig = {
+    triggerId: trigger.id,
+    sendHourStart: trigger.sendHourStart,
+    sendHourEnd: trigger.sendHourEnd,
+    recencySkipDays: trigger.recencySkipDays,
+    multiNickThreshold: trigger.multiNickThreshold,
+    minFriendReqGapMs: trigger.minFriendReqGapMs,
+    triggerOwnerUserId: trigger.createdById,
+    orgId: trigger.orgId,
+  };
+
+  const guard = await runAllGuards({
+    contactId: entry.contactId,
+    nickId,
+    triggerCfg,
+    nickCap: nick.dailyFriendAddCap,
   });
 
-  return { status: 'sent', reason: 'm2a_stub' };
+  if (!guard.passed) {
+    // Defer hoặc skip permanent dựa vào deferUntilMs
+    if (guard.deferUntilMs && guard.deferUntilMs > Date.now() && token) {
+      await job.moveToDelayed(guard.deferUntilMs, token);
+      throw new DelayedError();
+    }
+    // Permanent skip (recency / multi-nick)
+    await prisma.customerListEntry.update({
+      where: { id: entryId },
+      data: {
+        queueStatus: guard.reason?.startsWith('multi_nick') ? 'skipped_friend_cap' :
+                     guard.reason?.startsWith('cross_nick_recency') ? 'skipped_recency' :
+                     'skipped_status',
+      },
+    });
+    return { status: 'skipped', reason: guard.reason };
+  }
+
+  // ── STEP 4: Dispatch Zalo SDK (M2b STILL STUB — actual call sẽ wire trong M3 với
+  //           pool-query.markEntrySent + welcome-probe enqueue) ──
+  // M2b: framework đầy đủ guards, nhưng chưa wire Zalo SDK + outbox INSERT.
+  // M3 sẽ thay đoạn này bằng:
+  //   const zaloResult = await sendFriendRequestViaSDK(nick, entry);
+  //   const result = classifyError(...) or markEntrySent(...);
+  logger.info(
+    `${tag} guards PASS contact=${entry.contactId} nick=${nickId} ` +
+    `phone=${entry.phoneE164 ?? entry.phoneRaw} — [M2b STUB] would dispatch sendFriendRequest`,
+  );
+
+  // Simulate success — M3 sẽ wire actual SDK + classifyError
+  try {
+    // ── STEP 5: After successful send ──
+    await consumeQuotaAfterSend(nickId, nick.dailyFriendAddCap);
+    await recordNickSend(nickId);
+
+    await prisma.customerListEntry.update({
+      where: { id: entryId },
+      data: { queueStatus: 'processed', lockedAt: null, claimedByNickId: nickId },
+    });
+
+    return { status: 'sent', reason: 'm2b_guards_pass' };
+  } catch (err) {
+    // T4A retry classification
+    const classified = classifyError(err);
+    logger.error(`${tag} error: ${classified.classification} — ${classified.message}`);
+
+    if (classified.classification === 'permanent') {
+      await prisma.customerListEntry.update({
+        where: { id: entryId },
+        data: { queueStatus: 'failed_permanent' },
+      });
+      throw new UnrecoverableError(`Permanent: ${classified.errorCode}`);
+    }
+    // Transient + unknown → throw → BullMQ retry attempts
+    throw err;
+  }
 }
 
 // ════════════════════════════════════════════════════════════════════════
