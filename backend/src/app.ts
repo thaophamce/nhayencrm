@@ -73,6 +73,7 @@ import { templateRoutes } from './modules/automation/template-routes.js';
 import { blockRoutes } from './modules/automation/blocks/block-routes.js';
 import { blockFolderRoutes } from './modules/automation/blocks/block-folder-routes.js';
 import { sequenceRoutes } from './modules/automation/sequences/sequence-routes.js';
+import { registerSequenceStatsRoutes } from './modules/automation/sequences/stats-routes.js';
 import { triggerRoutes } from './modules/automation/triggers/trigger-routes.js';
 import { friendInviteRoutes } from './modules/automation/friend-invite/friend-invite-routes.js';
 import { startFriendInviteSweepers, stopFriendInviteSweepers } from './modules/automation/friend-invite/sweepers.js';
@@ -234,6 +235,8 @@ async function bootstrap() {
   await app.register(blockRoutes);
   await app.register(blockFolderRoutes);
   await app.register(sequenceRoutes);
+  // Luồng Mục Tiêu M6 Stats Wave A
+  await registerSequenceStatsRoutes(app);
   await app.register(triggerRoutes);
   await app.register(friendInviteRoutes);
   await app.register(broadcastRoutes);
