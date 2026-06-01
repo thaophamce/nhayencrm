@@ -340,6 +340,25 @@ async function bootstrap() {
       // Phase F — Broadcast scheduler: poll automation_broadcasts scheduled→running
       const { startBroadcastScheduler } = await import('./modules/automation/broadcasts/broadcast-scheduler.js');
       startBroadcastScheduler();
+
+      // ── Luồng Mục Tiêu Day 1+2 — BullMQ workers + sweeper + stats cron ──
+      // Start AFTER engine để workers nhận event hooks từ M5 wire
+      try {
+        const { startFriendInviteWorker } = await import('./modules/automation/queues/friend-invite-worker.js');
+        const { startSequenceStepWorker, startOutboxSweeper } = await import('./modules/automation/queues/sequence-step-worker.js');
+        const { startInternalNotifyWorker } = await import('./modules/automation/queues/internal-notify-worker.js');
+        const { startStatsReconcileCron } = await import('./modules/automation/queues/stats-reconcile-cron.js');
+
+        startFriendInviteWorker();
+        startSequenceStepWorker();
+        startInternalNotifyWorker();
+        startOutboxSweeper(5 * 60_000); // 5 phút sweep cycle (v4 Fix #1)
+        startStatsReconcileCron();      // 02:30 VN daily reconcile drift
+        logger.info('[luong-muc-tieu] BullMQ workers + sweeper + cron started');
+      } catch (err) {
+        logger.error(`[luong-muc-tieu] failed to start workers: ${(err as Error).message}`);
+        // Non-fatal: legacy task-worker vẫn hoạt động
+      }
       // Tệp khách hàng — enrichment worker + reverse-update event handlers
       startListEnrichmentWorker();
       registerCustomerListEventHandlers();
