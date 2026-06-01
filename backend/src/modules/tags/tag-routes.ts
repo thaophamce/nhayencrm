@@ -46,7 +46,7 @@ export async function registerTagRoutes(app: FastifyInstance): Promise<void> {
   // Tag definitions
   // ─────────────────────────────────────────────────────────────────────
 
-  app.get('/', async (req: FastifyRequest<{ Querystring: { scope?: string; q?: string; cursor?: string; limit?: string; recount?: string } }>, reply: FastifyReply) => {
+  app.get('/', async (req: FastifyRequest<{ Querystring: { scope?: string; q?: string; cursor?: string; limit?: string; recount?: string; zaloAccountId?: string } }>, reply: FastifyReply) => {
     const user = req.user!;
     const scope = (req.query.scope ?? 'friend') as TagScope;
     if (scope !== 'friend' && scope !== 'crm') {
@@ -58,14 +58,56 @@ export async function registerTagRoutes(app: FastifyInstance): Promise<void> {
       return reply.send({ recount: result.updated });
     }
 
-    const tags = await searchTags({
-      orgId: user.orgId,
-      scope,
-      q: req.query.q ?? '',
-      limit: req.query.limit ? parseInt(req.query.limit, 10) : 20,
-      cursor: req.query.cursor,
+    // Search tags + include ZaloAccount cho FE render slug nick-prefix + filter theo nick.
+    const limit = Math.min(req.query.limit ? parseInt(req.query.limit, 10) : 20, 500);
+    const tags = await prisma.tag.findMany({
+      where: {
+        orgId: user.orgId,
+        scope,
+        archivedAt: null,
+        ...(req.query.zaloAccountId ? { zaloAccountId: req.query.zaloAccountId } : {}),
+        ...(req.query.q
+          ? {
+              OR: [
+                { name: { contains: req.query.q, mode: 'insensitive' } },
+                { slug: { contains: req.query.q } },
+              ],
+            }
+          : {}),
+      },
+      orderBy: [{ priority: 'asc' }, { usageCount: 'desc' }, { name: 'asc' }],
+      take: limit,
+      skip: req.query.cursor ? 1 : 0,
+      ...(req.query.cursor ? { cursor: { id: req.query.cursor } } : {}),
     });
-    return reply.send({ tags });
+
+    // Bulk fetch ZaloAccount cho tags có zaloAccountId. Avoid N+1.
+    const zaloAccountIds = Array.from(new Set(tags.map((t) => t.zaloAccountId).filter((id): id is string => !!id)));
+    const zaloAccounts = zaloAccountIds.length
+      ? await prisma.zaloAccount.findMany({
+          where: { id: { in: zaloAccountIds } },
+          select: { id: true, displayName: true, phone: true, avatarUrl: true },
+        })
+      : [];
+    const accMap = new Map(zaloAccounts.map((a) => [a.id, a]));
+
+    const enriched = tags.map((t) => ({
+      ...t,
+      zaloAccount: t.zaloAccountId ? accMap.get(t.zaloAccountId) ?? null : null,
+    }));
+
+    return reply.send({ tags: enriched });
+  });
+
+  // GET /tags/zalo-accounts — list nick zalo của org cho filter dropdown (Friend tab)
+  app.get('/zalo-accounts', async (req: FastifyRequest, reply: FastifyReply) => {
+    const user = req.user!;
+    const accounts = await prisma.zaloAccount.findMany({
+      where: { orgId: user.orgId },
+      select: { id: true, displayName: true, phone: true, avatarUrl: true, status: true },
+      orderBy: { displayName: 'asc' },
+    });
+    return reply.send({ accounts });
   });
 
   app.post('/', async (req: FastifyRequest<{ Body: { name: string; scope: TagScope; source: TagSource; color?: string; emoji?: string; groupId?: string } }>, reply: FastifyReply) => {
@@ -89,23 +131,53 @@ export async function registerTagRoutes(app: FastifyInstance): Promise<void> {
     }
   });
 
-  app.patch('/:id', async (req: FastifyRequest<{ Params: { id: string }; Body: { color?: string; emoji?: string; groupId?: string | null; priority?: number } }>, reply: FastifyReply) => {
+  app.patch('/:id', async (req: FastifyRequest<{ Params: { id: string }; Body: { name?: string; color?: string; emoji?: string; groupId?: string | null; priority?: number } }>, reply: FastifyReply) => {
     const user = req.user!;
     const tag = await prisma.tag.findUnique({ where: { id: req.params.id } });
     if (!tag || tag.orgId !== user.orgId) return reply.code(404).send({ error: 'TAG_NOT_FOUND' });
-    if (tag.source === 'zalo_real' && req.body.color === undefined && req.body.emoji === undefined && req.body.groupId === undefined) {
-      return reply.code(400).send({ error: 'ZALO_REAL_NAME_READONLY', message: 'Tên sync từ Zalo Real, đổi trên Zalo app' });
+
+    const isZaloReal = tag.source === 'zalo_real' && tag.zaloAccountId && tag.sourceZaloLabelId != null;
+    const wantsPushZalo = isZaloReal && (req.body.name !== undefined || req.body.color !== undefined || req.body.emoji !== undefined);
+
+    // Push Zalo Real: text/color/emoji → SDK updateLabels({labelData, version}).
+    // Priority + groupId là CRM-local (Zalo Real không có khái niệm priority/group).
+    if (wantsPushZalo) {
+      try {
+        const { zaloPool } = await import('../zalo/zalo-pool.js');
+        const api = zaloPool.getApi(tag.zaloAccountId!);
+        if (!api || typeof api.updateLabels !== 'function') {
+          return reply.code(503).send({ error: 'ZALO_NOT_CONNECTED', message: 'Nick Zalo chưa kết nối — không thể đổi tag' });
+        }
+        const current = await api.getLabels();
+        const labelData = (current?.labelData || []).map((l: { id: number | string; text: string; color: string; emoji?: string }) => {
+          if (Number(l.id) !== tag.sourceZaloLabelId) return l;
+          return {
+            ...l,
+            text: req.body.name ?? l.text,
+            color: req.body.color ?? l.color,
+            emoji: req.body.emoji ?? l.emoji,
+          };
+        });
+        await api.updateLabels({ labelData, version: current?.version || 0 });
+        logger.info(`[tag-routes] Pushed Zalo update for Tag ${tag.id} (zaloLabelId=${tag.sourceZaloLabelId})`);
+      } catch (err) {
+        logger.error('[tag-routes] Push Zalo failed:', err);
+        return reply.code(502).send({ error: 'ZALO_PUSH_FAILED', message: (err as Error).message });
+      }
     }
+
+    const newSlug = req.body.name ? (await import('../../shared/tag-slug.js')).slugifyTag(req.body.name) : undefined;
     const updated = await prisma.tag.update({
       where: { id: tag.id },
       data: {
+        ...(req.body.name !== undefined ? { name: req.body.name, slug: newSlug ?? tag.slug } : {}),
         ...(req.body.color !== undefined ? { color: req.body.color } : {}),
         ...(req.body.emoji !== undefined ? { emoji: req.body.emoji } : {}),
         ...(req.body.groupId !== undefined ? { groupId: req.body.groupId } : {}),
         ...(req.body.priority !== undefined ? { priority: req.body.priority } : {}),
       },
     });
-    return reply.send({ tag: updated });
+    return reply.send({ tag: updated, pushedZalo: wantsPushZalo });
   });
 
   app.delete('/:id', async (req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
