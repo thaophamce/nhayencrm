@@ -166,8 +166,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
-import { api } from '@/services/api';
+import { ref, computed, onMounted, watch } from 'vue';
+import { api } from '@/api';
 
 interface TagV2 {
   id: string;
@@ -253,8 +253,12 @@ function getSourceColor(src: string): string {
 async function loadTags() {
   loading.value = true;
   try {
-    const res = await api.get('/api/v1/tags', { params: { scope: activeTab.value, limit: 100 } });
-    tags.value = res.data.tags ?? [];
+    // Load cả Friend + CRM để hiển thị count đúng ở cả 2 tab (1 fetch / scope, dedupe).
+    const [friendRes, crmRes] = await Promise.all([
+      api.get('/tags', { params: { scope: 'friend', limit: 200 } }),
+      api.get('/tags', { params: { scope: 'crm', limit: 200 } }),
+    ]);
+    tags.value = [...(friendRes.data.tags ?? []), ...(crmRes.data.tags ?? [])];
   } catch (err) {
     console.error('[TagTaxonomyV2] load error', err);
   } finally {
@@ -269,7 +273,7 @@ function onSearchChange() {
 async function recountUsage() {
   loading.value = true;
   try {
-    await api.get('/api/v1/tags', { params: { recount: 1, scope: activeTab.value } });
+    await api.get('/tags', { params: { recount: 1, scope: activeTab.value } });
     await loadTags();
   } finally {
     loading.value = false;
@@ -288,7 +292,7 @@ function openCreateDialog() {
 async function createTag() {
   if (!newTag.value.name) return;
   try {
-    await api.post('/api/v1/tags', {
+    await api.post('/tags', {
       name: newTag.value.name,
       scope: activeTab.value,
       source: newTag.value.source,
@@ -303,7 +307,7 @@ async function createTag() {
 
 async function updateColor(tagId: string, color: string) {
   try {
-    await api.patch(`/api/v1/tags/${tagId}`, { color });
+    await api.patch(`/tags/${tagId}`, { color });
     await loadTags();
   } catch (err) {
     alert('Đổi màu thất bại');
@@ -313,7 +317,7 @@ async function updateColor(tagId: string, color: string) {
 async function archiveTag(tagId: string) {
   if (!confirm('Archive tag này? Junction sẽ giữ nguyên nhưng tag không xuất hiện trong autocomplete.')) return;
   try {
-    await api.delete(`/api/v1/tags/${tagId}`);
+    await api.delete(`/tags/${tagId}`);
     await loadTags();
   } catch (err) {
     alert('Archive thất bại');
@@ -347,6 +351,11 @@ async function confirmMerge() {
 }
 
 onMounted(loadTags);
+// Reload tags khi switch tab Friend/CRM
+watch(activeTab, () => {
+  filterSource.value = null;
+  loadTags();
+});
 </script>
 
 <style scoped>
