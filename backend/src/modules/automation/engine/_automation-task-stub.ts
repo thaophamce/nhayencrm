@@ -40,7 +40,7 @@ import { logger } from '../../../shared/utils/logger.js';
 
 const warn = (op: string) => {
   if (process.env.NODE_ENV !== 'test') {
-    logger.warn(`[automation-task-stub] ${op} called — AutomationTask model dropped. Rewrite in M2-M4 BullMQ queue.`);
+    logger.debug(`[automation-task-stub] ${op} called — AutomationTask model dropped. Rewrite in M2-M4 BullMQ queue.`);
   }
 };
 
