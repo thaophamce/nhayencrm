@@ -21,7 +21,7 @@
         </div>
         <div class="sidebar-header__body">
           <div class="sidebar-title">Marketing</div>
-          <div class="sidebar-subtitle">Mục tiêu · Luồng kịch bản</div>
+          <div class="sidebar-subtitle">Mục tiêu · Luồng · Khối</div>
         </div>
         <button class="drawer-close" @click="drawerOpen = false" aria-label="Đóng menu">
           <v-icon size="20">mdi-close</v-icon>
@@ -48,7 +48,7 @@
         <div class="sidebar-foot-card">
           <div class="sidebar-foot-card__title">Marketing</div>
           <p class="sidebar-foot-card__desc">
-            Tạo Mục tiêu · Theo dõi · Gửi tin hàng loạt.
+            Tạo Mục tiêu · Luồng kịch bản · Khối nội dung · Gửi tin hàng loạt.
             Kênh: Zalo cá nhân.
           </p>
         </div>
@@ -70,12 +70,14 @@ const route = useRoute();
 const drawerOpen = ref(false);
 
 const navItems = [
-  // Wave 4 (2026-06-02) — IA "Mục tiêu là trung tâm" — 5 mục, CTA Tạo Mục tiêu mới nổi bật
-  { to: '/automation/muc-tieu/tao-moi', label: 'Tạo Mục tiêu mới',  icon: 'mdi-plus-circle',        isPrimary: true },
+  // Wave 4.1 (2026-06-02) — Anh chốt: tách Luồng và Khối thành 2 menu riêng.
+  // Khối = nội dung dùng hàng ngày (sale gửi 1-1 + ghép vào Luồng), KHÔNG phải admin-only.
+  { to: '/automation/muc-tieu/tao-moi', label: 'Tạo Mục tiêu mới',   icon: 'mdi-plus-circle',         isPrimary: true },
   { to: '/automation/muc-tieu',         label: 'Mục tiêu đang chạy', icon: 'mdi-target' },
+  { to: '/marketing/sequences',         label: 'Luồng kịch bản',     icon: 'mdi-format-list-numbered' },
+  { to: '/marketing/blocks',            label: 'Khối nội dung',      icon: 'mdi-puzzle' },
   { to: '/marketing/broadcasts',        label: 'Gửi tin hàng loạt',  icon: 'mdi-bullhorn' },
   { to: '/marketing/lists',             label: 'Tệp khách hàng',     icon: 'mdi-folder-account' },
-  { to: '/marketing/sequences',         label: 'Kho mẫu kịch bản',   icon: 'mdi-format-list-numbered' },
 ];
 
 const activeNavLabel = computed(() => {
