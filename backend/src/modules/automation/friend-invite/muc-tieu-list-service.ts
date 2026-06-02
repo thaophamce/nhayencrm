@@ -133,8 +133,11 @@ function normalizeState(
 
 /**
  * Trả danh sách Mục tiêu (friend_invite_to_list trigger) cho 1 org kèm
- * counters + progress + lastActivity. Skip `cancelled` mặc định để UI list
- * "đang chạy / đã xong" sạch — admin xem cancelled qua filter explicit.
+ * counters + progress + lastActivity.
+ *
+ * Anh chốt 2026-06-02: hiển thị MỌI state (kể cả cancelled) khi filter="all".
+ * Sale cần UI ĐÚNG, không phải UI "sạch" — cancelled hữu ích để biết tại sao
+ * 1 KH bị giam (vd: entries bị trigger cancelled cũ chiếm trigger_id).
  */
 export async function listMucTieuForOrg(
   orgId: string,
@@ -168,8 +171,9 @@ export async function listMucTieuForOrg(
     cancelled: 0,
   };
   for (const g of stateGroups) {
-    // "all" excludes cancelled to match the default list view (skip cancelled).
-    if (g.state !== 'cancelled') statusCounts.all += g._count.id;
+    // Anh chốt 2026-06-02: "all" hiển thị MỌI Mục tiêu (kể cả cancelled) — sale cần thấy
+    // sự thật, không phải UI "sạch". Cancelled hữu ích để biết tại sao 1 KH bị giam.
+    statusCounts.all += g._count.id;
     if (g.state === 'active') statusCounts.active += g._count.id;
     else if (g.state === 'paused') statusCounts.paused += g._count.id;
     else if (g.state === 'completed') statusCounts.completed += g._count.id;
@@ -199,10 +203,10 @@ export async function listMucTieuForOrg(
     listWhere.scheduledAt = null;
   } else if (statusFilter) {
     listWhere.state = statusFilter;
-  } else {
-    // Default: skip cancelled (matches statusCounts.all)
-    listWhere.state = { not: 'cancelled' };
   }
+  // Default (no statusFilter): KHÔNG skip gì cả — hiển thị tất cả Mục tiêu
+  // (Anh chốt 2026-06-02: UI đúng > UI sạch). Cancelled chip hiển thị trên FE
+  // với badge xám để phân biệt visual, nhưng KHÔNG ẩn khỏi danh sách "Tất cả".
 
   // Search matches trigger.name OR customerList.name. CustomerList is referenced
   // via segmentSpec.listId (JSON path) — we can't JOIN directly here, so we
