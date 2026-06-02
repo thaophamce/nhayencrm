@@ -24,6 +24,7 @@ import { applyFriendTransition } from '../../zalo/friend-event-handler.js';
 import { nickWorkerLockKey } from './fnv1a.js';
 import { claimNextEntry, markEntrySent, releaseEntryFailed } from './pool-query.js';
 import { logEvent } from './event-log-service.js';
+import { checkMultiNickThreshold } from '../queues/worker-guards.js';
 
 // Test mode: 1 phút cố định (anh chốt cho test loop)
 // Prod mode: 20-40 phút random (anh chốt design)
@@ -314,13 +315,46 @@ async function runTick(nickId: string): Promise<void> {
     );
 
     // Load trigger for greeting template + successor sequence (snapshot at dispatch time)
+    // Wave 4 #D 2026-06-02 — also load multiNickThreshold + owner cho runtime guard.
+    // UI cho phép chỉnh threshold sau khi trigger active → precompute đã chạy không
+    // thể re-filter pool. Runtime check ở đây bám theo giá trị mới nhất trong DB.
     const trigger = await prisma.automationTrigger.findUnique({
       where: { id: entry.triggerId },
-      select: { greetingTemplate: true, successorSequenceId: true, segmentSpec: true },
+      select: {
+        greetingTemplate: true,
+        successorSequenceId: true,
+        segmentSpec: true,
+        multiNickThreshold: true,
+        createdById: true,
+        orgId: true,
+      },
     });
     if (!trigger) {
       await releaseEntryFailed({ entryId: entry.id, nickId, reason: 'trigger not found' });
       return;
+    }
+
+    // ── Multi-nick threshold runtime guard ──
+    // Apply chỉ khi threshold > 0 (0 = OFF) VÀ entry đã có contactId (CSV mới
+    // chưa resolve Contact thì bỏ qua — precompute đã filter theo contact_id rồi).
+    // Reuse checkMultiNickThreshold (worker-guards.ts) — dept-aware Privacy v2
+    // count friends scoped tới allowedNickIds theo role + DepartmentMember tree.
+    if (trigger.multiNickThreshold > 0 && entry.contactId) {
+      const mnGuard = await checkMultiNickThreshold(entry.contactId, {
+        multiNickThreshold: trigger.multiNickThreshold,
+        triggerOwnerUserId: trigger.createdById,
+        orgId: trigger.orgId,
+      });
+      if (!mnGuard.passed) {
+        await prisma.customerListEntry.update({
+          where: { id: entry.id },
+          data: { queueStatus: 'skipped_friend_cap', lockedAt: null, claimedByNickId: null },
+        });
+        logger.info(
+          `[nick-worker] ${nickId} entry=${entry.id} skipped_friend_cap reason=${mnGuard.reason} threshold=${trigger.multiNickThreshold}`,
+        );
+        return;
+      }
     }
 
     // Load sale user fullName for {sale} variable (last word VN convention)
