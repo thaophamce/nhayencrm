@@ -403,8 +403,9 @@
           <div v-if="aiSentiment?.reason" class="sentiment-reason">{{ aiSentiment.reason }}</div>
         </section>
 
-        <!-- Automation cards (per-nick — backend chưa có schema, ẩn nếu rỗng) -->
-        <AutomationCardList :cards="automationCards" @action="onAutomationAction" @attach="onAttachAutomation" />
+        <!-- Automation cards cũ đã migrate sang Tab FOLLOW-UP (M9 Luồng Mục Tiêu 2026-06-02) -->
+        <!-- Xem AutomationCardList ở tab FOLLOW-UP line 469 thay vì render tại tab Profile -->
+        <!--<AutomationCardList :cards="automationCards" @action="onAutomationAction" @attach="onAttachAutomation" />-->
 
         <!-- Lịch hẹn -->
         <ChatAppointments
@@ -465,16 +466,31 @@
       </div>
     </div>
 
-    <!-- ════════ TAB FOLLOW-UP (placeholder) ════════ -->
-    <div v-if="mainTab === 'followup'" class="main-tab-body">
-      <div class="main-tab-placeholder">
+    <!-- ════════ TAB FOLLOW-UP — Luồng Mục Tiêu M9 wire 2026-06-02 ════════ -->
+    <div v-if="mainTab === 'followup'" class="main-tab-body main-tab-body--no-padding">
+      <AutomationCardList
+        v-if="contact?.id"
+        ref="automationCardListRef"
+        :contact-id="contact.id"
+        @add-flow="openAddFlowModal"
+      />
+      <div v-else class="main-tab-placeholder">
         <div class="mtp-icon">🎯</div>
         <h3>Luồng bám đuổi</h3>
-        <p>Quản lý Mục tiêu & luồng tự động bám đuổi KH này.</p>
-        <div class="mtp-coming">🚧 Đang phát triển — link tới Mục tiêu chứa KH</div>
-        <a class="mtp-link" href="/marketing/muc-tieu" target="_blank">→ Mở Mục tiêu</a>
+        <p>Chưa chọn khách hàng để xem các luồng đang chạy.</p>
       </div>
     </div>
+
+    <!-- Modal "+ Gắn thêm luồng" — mount qua Teleport để overlay full viewport -->
+    <AddFlowModal
+      v-if="showAddFlowModal && contact"
+      :contact-id="contact.id"
+      :contact-name="contact.fullName || contact.crmName || ''"
+      :nick-id="props.activeZaloAccountId || ''"
+      :nick-name="props.activeZaloAccountName || ''"
+      @close="closeAddFlowModal"
+      @enrolled="onEnrolled"
+    />
 
     <!-- ════════ Bottom 4-tab strip (Profile / Automation / AI / Follow-up) ════════ -->
     <nav class="bottom-tabs" role="tablist" aria-label="Chuyển tab chính">
@@ -535,7 +551,8 @@ import { useChatContactPanel } from '@/composables/use-chat-contact-panel';
 import ChatAppointments from './ChatAppointments.vue';
 import AiSummaryCard from '@/components/ai/ai-summary-card.vue';
 import AiSentimentBadge from '@/components/ai/ai-sentiment-badge.vue';
-import AutomationCardList, { type AutomationCard } from './AutomationCardList.vue';
+import AutomationCardList from './AutomationCardList.vue';
+import AddFlowModal from './AddFlowModal.vue';
 import Avatar from '@/components/ui/Avatar.vue';
 import CareStatusBadge from '@/components/ui/CareStatusBadge.vue';
 import type { CareStatusValue } from '@/constants/care-status';
@@ -802,13 +819,27 @@ const filledExtras = computed(() => [form.phone2, form.phone3].filter(Boolean).l
 // Tag CRM hệ thống đã chuyển sang TagCrmBar trên chat input (Cột 3).
 // Zalo Real labels chuyển sang dropdown trong header Cột 3 (MessageThread).
 
-// ════════ Automation cards (placeholder — chờ backend) ════════
-const automationCards = computed<AutomationCard[]>(() => {
-  // Khi backend bổ sung endpoint /contacts/:id/automations sẽ map vào đây.
-  return [];
-});
-function onAutomationAction(_id: string, _kind: string) { /* TODO wire to API */ }
-function onAttachAutomation() { toast.warning('Gắn automation: chờ backend schema delta'); }
+// ════════ Tab FOLLOW-UP — Luồng Mục Tiêu M9 (2026-06-02) ════════
+// AutomationCardList tự fetch /api/v1/contacts/:cid/automation-status
+// + tự poll 30s với Page Visibility API. Modal "+ Gắn thêm luồng" qua AddFlowModal.
+const automationCardListRef = ref<InstanceType<typeof AutomationCardList> | null>(null);
+const showAddFlowModal = ref(false);
+
+function openAddFlowModal(): void {
+  showAddFlowModal.value = true;
+}
+
+function closeAddFlowModal(): void {
+  showAddFlowModal.value = false;
+}
+
+function onEnrolled(): void {
+  showAddFlowModal.value = false;
+  // Refresh card list để hiện luồng mới enroll
+  if (automationCardListRef.value?.refetch) {
+    void automationCardListRef.value.refetch();
+  }
+}
 
 // ════════ Hồ sơ KH tổng hợp (phase sau) ════════
 // Tạm thời chỉ navigate sang route /contacts/:id/profile (skeleton view).
@@ -834,14 +865,12 @@ const senderNickName = computed<string | null>(() =>
 // ════════ Tab badges ════════
 const crmBadgeCount = computed(() => teammatesFiltered.value.length || 0);
 const activityBadgeCount = computed(() => {
-  let n = 0;
-  if (automationCards.value.length) n += automationCards.value.length;
-  if (contactAppointments.value.length) n += contactAppointments.value.length;
-  return n || null;
+  // Migrate sang Tab FOLLOW-UP (2026-06-02) — không còn track automation count ở tab Activity legacy
+  return contactAppointments.value.length || null;
 });
 
 const hasAnyActivity = computed(() =>
-  !!(props.aiSummary || props.aiSentiment || automationCards.value.length || contactAppointments.value.length),
+  !!(props.aiSummary || props.aiSentiment || contactAppointments.value.length),
 );
 
 const toast = useToast();
@@ -2053,6 +2082,13 @@ async function onRegenerateHandoff() {
   display: flex;
   align-items: center;
   justify-content: center;
+}
+/* FOLLOW-UP tab — AutomationCardList tự handle padding (16px nội bộ) + align-start */
+.main-tab-body.main-tab-body--no-padding {
+  padding: 0;
+  display: block;
+  align-items: stretch;
+  justify-content: stretch;
 }
 .main-tab-placeholder {
   text-align: center;

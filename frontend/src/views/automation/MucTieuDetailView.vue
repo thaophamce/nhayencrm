@@ -31,28 +31,34 @@
           </p>
         </div>
         <div class="actions">
-          <button
-            v-if="data.trigger.state === 'active'"
-            class="btn"
-            @click="pause"
-          >
-            ⏸ Tạm dừng
-          </button>
-          <button
-            v-else-if="data.trigger.state === 'paused'"
-            class="btn"
-            @click="resume"
-          >
-            ▶ Tiếp tục
-          </button>
+          <!-- M13 2026-06-02 — State-machine buttons. BE state enum:
+               draft | active | paused | cancelling | cancelled | completed.
+               (UI gộp cancelled/completed → 'stopped' nhóm hiển thị.) -->
+          <template v-if="data.trigger.state === 'active'">
+            <button class="btn" @click="pause">⏸ Tạm dừng 24h</button>
+            <button class="btn btn-danger" @click="onCancel">⏹ Dừng hẳn</button>
+          </template>
+          <template v-else-if="data.trigger.state === 'paused'">
+            <button class="btn btn-primary" @click="resume">▶ Tiếp tục</button>
+            <button class="btn btn-danger" @click="onCancel">⏹ Dừng hẳn</button>
+          </template>
+          <template v-else-if="data.trigger.state === 'draft'">
+            <button class="btn btn-primary" @click="onActivate">▶ Kích hoạt</button>
+            <button class="btn btn-danger" @click="onCancel">🗑 Xoá</button>
+          </template>
+          <template v-else-if="data.trigger.state === 'cancelling'">
+            <button class="btn" disabled>⏳ Đang huỷ…</button>
+          </template>
+          <template v-else>
+            <!-- cancelled | completed → chỉ xem lịch sử + sao chép -->
+            <button class="btn" @click="setTab('log')">📊 Xem lịch sử</button>
+          </template>
           <button class="btn" @click="onEdit">✏ Sửa</button>
           <div class="menu-wrap" ref="menuWrapRef">
             <button class="btn btn-icon" title="Tác vụ khác" @click.stop="menuOpen = !menuOpen">⋯</button>
             <div v-show="menuOpen" class="menu">
               <div class="menu-item" @click="onDuplicate">📋 Sao chép</div>
               <div class="menu-item" @click="exportExcel">📤 Xuất Excel</div>
-              <div class="menu-divider"></div>
-              <div class="menu-item danger" @click="onCancel">🛑 Dừng vĩnh viễn</div>
             </div>
           </div>
         </div>
@@ -108,7 +114,15 @@
             >
               <span class="mon-icon">{{ ev.icon }}</span>
               <span class="mon-time">{{ ev.timeLabel }}</span>
-              <span class="mon-text">{{ ev.text }}</span>
+              <span class="mon-text">
+                <!-- Fix #3b (2026-06-02) — Anh yêu cầu show rõ KH nào + nick nào làm gì -->
+                <strong v-if="ev.rowIndex != null" class="mon-row-idx">#{{ ev.rowIndex }}</strong>
+                {{ ev.text }}
+                <span v-if="ev.customerName || ev.nickName" class="mon-meta">
+                  — {{ ev.customerName || 'KH' }}
+                  <span v-if="ev.nickName" class="mon-nick">↔ nick {{ ev.nickName }}</span>
+                </span>
+              </span>
             </div>
             <div v-if="monitorEvents.length === 0" class="mon-empty">
               Chưa có sự kiện nào — feed sẽ xuất hiện ở đây khi worker chạy.
@@ -147,6 +161,97 @@
             Dự kiến xong <strong>{{ etaInfo.finishLabel }}</strong>
           </span>
         </div>
+
+        <!-- ============ M13: QUY TẮC GỬI AN TOÀN (read-only) ============ -->
+        <!-- 7 tile từ trigger.safetyRules. concurrencyPerNickPerMinute ẩn (wizard B3 không expose). -->
+        <!-- Fallback: nếu BE chưa rebuild (safetyRules undefined) → empty-state "Chưa cấu hình". -->
+        <section class="safety-card" aria-label="Quy tắc gửi an toàn">
+          <header class="safety-head">
+            <h3>🛡 Quy tắc gửi an toàn</h3>
+            <button class="btn btn-sm" @click="onEdit">✏ Sửa</button>
+          </header>
+          <div v-if="data.trigger.safetyRules" class="safety-grid">
+            <div class="safety-tile">
+              <div class="st-icon">⏰</div>
+              <div class="st-body">
+                <div class="st-label">Giờ làm việc</div>
+                <div class="st-value">
+                  {{ pad2(data.trigger.safetyRules.sendHourStart) }}:00 –
+                  {{ pad2(data.trigger.safetyRules.sendHourEnd) }}:00
+                </div>
+                <div class="st-hint">Chỉ gửi trong khoảng giờ VN này</div>
+              </div>
+            </div>
+            <div class="safety-tile">
+              <div class="st-icon">⏱</div>
+              <div class="st-body">
+                <div class="st-label">Khoảng cách gửi</div>
+                <div class="st-value">
+                  {{ Math.round(data.trigger.safetyRules.minFriendReqGapMs / 1000) }} giây
+                </div>
+                <div class="st-hint">Tối thiểu giữa 2 lời mời / nick</div>
+              </div>
+            </div>
+            <div class="safety-tile">
+              <div class="st-icon">📅</div>
+              <div class="st-body">
+                <div class="st-label">Lọc recency</div>
+                <div class="st-value">
+                  {{ data.trigger.safetyRules.recencySkipDays === 0
+                      ? 'Tắt'
+                      : `${data.trigger.safetyRules.recencySkipDays} ngày` }}
+                </div>
+                <div class="st-hint">Bỏ KH vừa tương tác nick khác</div>
+              </div>
+            </div>
+            <div class="safety-tile">
+              <div class="st-icon">👥</div>
+              <div class="st-body">
+                <div class="st-label">Multi-nick threshold</div>
+                <div class="st-value">
+                  {{ data.trigger.safetyRules.multiNickThreshold === 0
+                      ? 'Tắt'
+                      : `> ${data.trigger.safetyRules.multiNickThreshold} nick` }}
+                </div>
+                <div class="st-hint">Bỏ KH đã friend quá nhiều nick</div>
+              </div>
+            </div>
+            <div class="safety-tile">
+              <div class="st-icon">🤝</div>
+              <div class="st-body">
+                <div class="st-label">Delay sau friend-request</div>
+                <div class="st-value">
+                  {{ data.trigger.safetyRules.sequenceStartDelayMinutes }} phút
+                </div>
+                <div class="st-hint">Chờ trước khi bắt đầu chuỗi</div>
+              </div>
+            </div>
+            <div class="safety-tile">
+              <div class="st-icon">⏸</div>
+              <div class="st-body">
+                <div class="st-label">Pause khi KH reply</div>
+                <div class="st-value">
+                  {{ data.trigger.safetyRules.pauseOnActivityHours }} giờ
+                </div>
+                <div class="st-hint">Reset chuỗi khi KH có tương tác</div>
+              </div>
+            </div>
+            <div class="safety-tile">
+              <div class="st-icon">⚡</div>
+              <div class="st-body">
+                <div class="st-label">Concurrency</div>
+                <div class="st-value">
+                  {{ data.trigger.safetyRules.concurrencyPerNickPerMinute }} / phút / nick
+                </div>
+                <div class="st-hint">Trần xử lý song song mỗi nick</div>
+              </div>
+            </div>
+          </div>
+          <div v-else class="safety-empty">
+            <span>Chưa cấu hình quy tắc gửi an toàn.</span>
+            <a href="#" @click.prevent="onEdit">Mở wizard để thiết lập →</a>
+          </div>
+        </section>
 
         <!-- ============ 4 BIG STAT CARDS ============ -->
         <div class="stats-row">
@@ -684,6 +789,20 @@ interface Entry {
   lastInviteNickId?: string | null;
 }
 
+// M13 2026-06-02 — 8 safety-rule columns BE return từ GET /:id/dashboard.
+// Card "Quy tắc gửi an toàn" read-only hiển thị 7 trong 8 (concurrency ẩn vì
+// wizard B3 không expose). Defer Wave 4: nút "Sửa" mở wizard edit.
+interface SafetyRules {
+  sendHourStart: number;             // 0-23 (giờ làm việc bắt đầu, VN)
+  sendHourEnd: number;               // 0-23 (giờ làm việc kết thúc)
+  sequenceStartDelayMinutes: number; // delay sau friend-request → step 1
+  pauseOnActivityHours: number;      // pause khi KH reply (giờ)
+  multiNickThreshold: number;        // 0 = không filter
+  concurrencyPerNickPerMinute: number;
+  recencySkipDays: number;           // 0 = không filter
+  minFriendReqGapMs: number;         // ms giữa 2 friend-request per nick
+}
+
 interface DashboardData {
   trigger: {
     id: string;
@@ -694,6 +813,8 @@ interface DashboardData {
     successorSequence: { id: string; name: string; stepsCount: number } | null;
     createdAt: string;
     createdBy?: { id: string; fullName: string } | null;
+    // M13 — optional cho backward compat (deploy lệch BE chưa rebuild).
+    safetyRules?: SafetyRules | null;
   };
   counters: Record<string, number>;
   nicks: NickStat[];
@@ -714,6 +835,10 @@ interface LiveEvent {
   text: string;
   tone?: 'stop' | 'block' | 'lead' | 'warn' | null;
   isNew?: boolean;
+  // Fix #3b (2026-06-02) — BE đã trả 3 field này nhưng FE quên render.
+  nickName?: string | null;
+  customerName?: string | null;
+  rowIndex?: number | null;
 }
 
 interface LogEvent {
@@ -1022,20 +1147,61 @@ async function setEntryFilter(key: EntryFilterKey): Promise<void> {
   await load();
 }
 
+// M13 2026-06-02 — Action handlers cho state-machine buttons.
+// BE endpoint thực tế: /pause (vô hạn) /resume /cancel (terminal) /activate (draft→active).
+// Note: "Tạm dừng 24h" hiện chỉ map sang /pause vô hạn — BE chưa có TTL param
+// (đề xuất Wave 4: thêm cột pausedUntil + cron sweep auto-resume). User phải bấm
+// "Tiếp tục" thủ công. Wording label giữ "24h" để khớp spec M13.
 async function pause(): Promise<void> {
-  if (!confirm('Tạm dừng Mục tiêu này? Worker sẽ dừng.')) return;
-  await api.post(`/automation/triggers/${triggerId}/pause`);
-  await load();
+  if (!confirm('Tạm dừng Mục tiêu này? Worker sẽ dừng tất cả lượt gửi mời / chuỗi.')) return;
+  try {
+    await api.post(`/automation/triggers/${triggerId}/pause`);
+    await load();
+  } catch (err) {
+    console.error('[muc-tieu-detail] pause failed', err);
+    alert('Không thể tạm dừng — vui lòng thử lại.');
+  }
 }
 async function resume(): Promise<void> {
-  await api.post(`/automation/triggers/${triggerId}/resume`);
-  await load();
+  try {
+    await api.post(`/automation/triggers/${triggerId}/resume`);
+    await load();
+  } catch (err) {
+    console.error('[muc-tieu-detail] resume failed', err);
+    alert('Không thể tiếp tục — vui lòng thử lại.');
+  }
 }
 async function onCancel(): Promise<void> {
   menuOpen.value = false;
-  if (!confirm('Dừng vĩnh viễn Mục tiêu? Các KH chưa gửi sẽ bị bỏ. KHÔNG quay lại được.')) return;
-  await api.post(`/automation/triggers/${triggerId}/cancel`);
-  await load();
+  // draft → wording "xoá" / active|paused → "dừng vĩnh viễn"
+  const state = data.value?.trigger.state ?? '';
+  const msg =
+    state === 'draft'
+      ? 'Xoá Mục tiêu nháp này? Hành động KHÔNG quay lại được.'
+      : 'Dừng vĩnh viễn Mục tiêu? Các KH chưa gửi sẽ bị bỏ. KHÔNG quay lại được.';
+  if (!confirm(msg)) return;
+  try {
+    await api.post(`/automation/triggers/${triggerId}/cancel`);
+    if (state === 'draft') {
+      router.push('/automation/muc-tieu');
+      return;
+    }
+    await load();
+  } catch (err) {
+    console.error('[muc-tieu-detail] cancel failed', err);
+    alert('Không thể dừng Mục tiêu — vui lòng thử lại.');
+  }
+}
+// M13 — draft → active. BE T4 2026-05-30 đã có /activate endpoint (now hoặc scheduled).
+async function onActivate(): Promise<void> {
+  if (!confirm('Kích hoạt Mục tiêu này? Worker sẽ bắt đầu gửi lời mời theo cấu hình.')) return;
+  try {
+    await api.post(`/automation/triggers/${triggerId}/activate`);
+    await load();
+  } catch (err) {
+    console.error('[muc-tieu-detail] activate failed', err);
+    alert('Không thể kích hoạt — kiểm tra cấu hình rồi thử lại.');
+  }
 }
 function onEdit(): void {
   // Defer Wave 4 — mở wizard edit
@@ -1123,10 +1289,16 @@ async function pollMonitor(): Promise<void> {
     if (lastMonitorSince) params.since = lastMonitorSince;
     try {
       const r = await api.get(`/automation/triggers/${triggerId}/events/live`, { params });
-      const fresh = (r.data?.events ?? []) as Array<Omit<LiveEvent, 'isNew' | 'timeLabel' | 'icon' | 'text' | 'tone'> & {
+      const fresh = (r.data?.events ?? []) as Array<{
+        id: string;
+        at: string;
+        type: string;
         icon?: string;
         text?: string;
         tone?: LiveEvent['tone'];
+        nickName?: string | null;
+        customerName?: string | null;
+        rowIndex?: number | null;
       }>;
       mergeEvents(
         fresh.map((ev) => ({
@@ -1137,6 +1309,10 @@ async function pollMonitor(): Promise<void> {
           icon: ev.icon ?? '🤝',
           text: ev.text ?? '',
           tone: ev.tone ?? null,
+          // Fix #3b (2026-06-02) — map 3 field BE đã trả về (trước đây bị drop).
+          nickName: ev.nickName ?? null,
+          customerName: ev.customerName ?? null,
+          rowIndex: ev.rowIndex ?? null,
           isNew: true,
         })),
       );
@@ -1154,8 +1330,10 @@ async function pollMonitor(): Promise<void> {
 
 function mergeEvents(fresh: LiveEvent[]): void {
   if (fresh.length === 0) return;
-  // Newest first; cap at 20
-  monitorEvents.value = [...fresh.reverse(), ...monitorEvents.value].slice(0, 20);
+  // Newest first; cap at 20.
+  // Fix #2 (2026-06-02): BỎ .reverse() — BE đã orderBy desc nên fresh[0] = mới nhất.
+  // .reverse() trước đó đảo thành cũ → cũ lên đầu Monitor, mới xuống cuối (SAI).
+  monitorEvents.value = [...fresh, ...monitorEvents.value].slice(0, 20);
   lastMonitorSince = fresh[0]?.at ?? lastMonitorSince;
   // Auto-scroll to top if user hasn't scrolled down
   if (!userScrolledAway.value) {
@@ -1228,6 +1406,11 @@ function stateLabel(state: string): string {
 
 function formatNum(n: number | undefined | null): string {
   return (n ?? 0).toLocaleString('vi-VN');
+}
+// M13 — zero-pad 1 chữ số cho giờ HH:00 trong card "Quy tắc gửi an toàn".
+function pad2(n: number | undefined | null): string {
+  const v = Math.max(0, Math.min(23, n ?? 0));
+  return v < 10 ? `0${v}` : String(v);
 }
 function pct(num: number | undefined | null, denom: number | undefined | null): string {
   const a = num ?? 0;
@@ -1510,6 +1693,8 @@ onMounted(() => {
 
   // BE /events/live đã ship Day 4 — KHÔNG seed mock nữa.
   // Monitor sẽ render empty state "Chưa có sự kiện nào" cho tới khi worker emit event thật.
+  // Fix #5 (2026-06-02): gọi pollMonitor() NGAY khi mount để Anh không phải chờ 5s tick đầu.
+  void pollMonitor();
   monitorTimer = setInterval(pollMonitor, 5000);
 
   if (currentTab.value === 'log') void loadLog();
@@ -1611,6 +1796,17 @@ onUnmounted(() => {
 .btn[disabled] { opacity: 0.5; cursor: not-allowed; }
 .btn-primary { background: var(--primary); color: white; border-color: var(--primary); }
 .btn-primary:hover { background: var(--primary-hover); border-color: var(--primary-hover); }
+/* M13 — destructive action (Dừng hẳn / Xoá). Outline đỏ, fill khi hover. */
+.btn-danger {
+  color: var(--danger, #de350b);
+  border-color: #ffbdad;
+  background: white;
+}
+.btn-danger:hover {
+  background: var(--danger, #de350b);
+  border-color: var(--danger, #de350b);
+  color: white;
+}
 .btn-icon { padding: 8px 10px; }
 .btn-sm { padding: 5px 10px; font-size: 12px; border-radius: 4px; }
 
@@ -1769,6 +1965,21 @@ onUnmounted(() => {
 .mon-row.t-block  .mon-icon { color: var(--text-2); }
 .mon-row.t-lead   .mon-icon { color: var(--purple); }
 .mon-row.t-warn   .mon-icon { color: var(--warning); }
+/* Fix #3b (2026-06-02) — Monitor enrichment: row index pill + meta (KH ↔ nick) */
+.mon-row .mon-row-idx {
+  display: inline-block;
+  min-width: 22px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--bg-soft);
+  color: var(--text-2);
+  font-size: 11px;
+  font-weight: 600;
+  text-align: center;
+  margin-right: 4px;
+}
+.mon-row .mon-meta { color: var(--text-3); font-size: 11px; margin-left: 4px; }
+.mon-row .mon-nick { color: var(--primary); font-weight: 500; }
 .mon-empty { padding: 28px 14px; color: var(--text-3); font-style: italic; text-align: center; font-size: 12px; }
 
 /* eta */
@@ -1785,6 +1996,82 @@ onUnmounted(() => {
 .eta-bar .eta-icon { font-size: 16px; }
 .eta-bar strong { color: var(--primary); font-weight: 700; }
 .eta-bar .eta-sep { color: var(--text-mute); }
+
+/* M13 2026-06-02 — Card "Quy tắc gửi an toàn" (read-only).
+   Airtable-style: light bg, grid 4 col HD / 7 col Full-HD, tile mỗi rule. */
+.safety-card {
+  margin-top: 14px;
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: var(--shadow-1);
+}
+.safety-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.safety-head h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-1);
+}
+.safety-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1px;
+  background: var(--border);
+}
+@media (min-width: 1600px) {
+  .safety-grid { grid-template-columns: repeat(7, 1fr); }
+}
+.safety-tile {
+  display: flex;
+  gap: 10px;
+  padding: 12px 14px;
+  background: white;
+  align-items: flex-start;
+}
+.safety-tile .st-icon {
+  font-size: 18px;
+  line-height: 1;
+  flex: 0 0 auto;
+  padding-top: 2px;
+}
+.safety-tile .st-body { min-width: 0; flex: 1; }
+.safety-tile .st-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 4px;
+}
+.safety-tile .st-value {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-1);
+  line-height: 1.2;
+}
+.safety-tile .st-hint {
+  font-size: 11px;
+  color: var(--text-3);
+  margin-top: 3px;
+}
+.safety-empty {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px;
+  color: var(--text-3);
+  font-size: 13px;
+}
+.safety-empty a { color: var(--primary); text-decoration: none; font-weight: 600; }
+.safety-empty a:hover { text-decoration: underline; }
 
 /* stats */
 .stats-row {

@@ -73,6 +73,9 @@ import { templateRoutes } from './modules/automation/template-routes.js';
 import { blockRoutes } from './modules/automation/blocks/block-routes.js';
 import { blockFolderRoutes } from './modules/automation/blocks/block-folder-routes.js';
 import { sequenceRoutes } from './modules/automation/sequences/sequence-routes.js';
+import { registerSequenceStatsRoutes } from './modules/automation/sequences/stats-routes.js';
+import { registerBullBoardRoutes } from './modules/automation/queues/bull-board-routes.js';
+import { registerManualControlRoutes } from './modules/automation/queues/manual-control-routes.js';
 import { triggerRoutes } from './modules/automation/triggers/trigger-routes.js';
 import { friendInviteRoutes } from './modules/automation/friend-invite/friend-invite-routes.js';
 import { startFriendInviteSweepers, stopFriendInviteSweepers } from './modules/automation/friend-invite/sweepers.js';
@@ -240,6 +243,12 @@ async function bootstrap() {
   await app.register(blockRoutes);
   await app.register(blockFolderRoutes);
   await app.register(sequenceRoutes);
+  // Luồng Mục Tiêu M6 Stats Wave A
+  await registerSequenceStatsRoutes(app);
+  // Luồng Mục Tiêu M7 Bull Board admin UI
+  await registerBullBoardRoutes(app);
+  // Luồng Mục Tiêu M9 manual control endpoints
+  await registerManualControlRoutes(app);
   await app.register(triggerRoutes);
   await app.register(friendInviteRoutes);
   await app.register(broadcastRoutes);
@@ -350,6 +359,25 @@ async function bootstrap() {
       // Phase F — Broadcast scheduler: poll automation_broadcasts scheduled→running
       const { startBroadcastScheduler } = await import('./modules/automation/broadcasts/broadcast-scheduler.js');
       startBroadcastScheduler();
+
+      // ── Luồng Mục Tiêu Day 1+2 — BullMQ workers + sweeper + stats cron ──
+      // Start AFTER engine để workers nhận event hooks từ M5 wire
+      try {
+        const { startFriendInviteWorker } = await import('./modules/automation/queues/friend-invite-worker.js');
+        const { startSequenceStepWorker, startOutboxSweeper } = await import('./modules/automation/queues/sequence-step-worker.js');
+        const { startInternalNotifyWorker } = await import('./modules/automation/queues/internal-notify-worker.js');
+        const { startStatsReconcileCron } = await import('./modules/automation/queues/stats-reconcile-cron.js');
+
+        startFriendInviteWorker();
+        startSequenceStepWorker();
+        startInternalNotifyWorker();
+        startOutboxSweeper(5 * 60_000); // 5 phút sweep cycle (v4 Fix #1)
+        startStatsReconcileCron();      // 02:30 VN daily reconcile drift
+        logger.info('[luong-muc-tieu] BullMQ workers + sweeper + cron started');
+      } catch (err) {
+        logger.error(`[luong-muc-tieu] failed to start workers: ${(err as Error).message}`);
+        // Non-fatal: legacy task-worker vẫn hoạt động
+      }
       // Tệp khách hàng — enrichment worker + reverse-update event handlers
       startListEnrichmentWorker();
       registerCustomerListEventHandlers();

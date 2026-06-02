@@ -35,9 +35,22 @@
 
         <!-- M55 2026-05-30: Sender attribution cho multi-sale cùng chăm.
              Bubble self (tin sale gửi qua CRM) — nếu repliedByUserId !== viewer
-             → hiện badge "Sale X gửi" để phân biệt với tin mình gửi. -->
+             → hiện badge "Sale X gửi" để phân biệt với tin mình gửi.
+             ── Luồng Mục Tiêu M11 (2026-06-02): nếu message có sentVia (M11 source
+             identity), MessageSourceBadge sẽ cover case này với 5 variant đầy đủ
+             (Sale CRM / Sale Native / Bot Automation / Bot AI / Bot System).
+             Logic ưu tiên: M11 badge nếu có metadata.sender hoặc sentVia != 'user';
+             fallback M55 .other-sale-tag cho legacy multi-sale case. -->
+        <MessageSourceBadge
+          v-if="message.sentVia || message.metadata?.sender"
+          :message="message"
+          :prev-message="prevMessage ?? null"
+          @open-sequence="(sid) => emit('open-sequence', sid)"
+          @explain-native="emit('explain-native')"
+          @audit-ai="emit('audit-ai')"
+        />
         <div
-          v-if="isSelf && otherSaleSenderName"
+          v-else-if="isSelf && otherSaleSenderName"
           class="other-sale-tag"
           :title="`Tin do ${otherSaleSenderName} gửi`"
         >
@@ -289,6 +302,7 @@ import SpecialMessageRenderer from '@/components/chat/special-message-renderer.v
 import ReactionDisplay from '@/components/chat/reaction-display.vue';
 import ReactionPicker from '@/components/chat/reaction-picker.vue';
 import Avatar from '@/components/ui/Avatar.vue';
+import MessageSourceBadge from '@/components/chat/MessageSourceBadge.vue';
 
 const props = defineProps<{
   message: Message;
@@ -303,6 +317,8 @@ const props = defineProps<{
   /** Tin OUTGOING cuối cùng — chỉ tin này hiện receipt chip (Zalo native UX,
    *  chốt 2026-05-22). Tin cuối seen ⇒ ngầm hiểu mọi tin trên cũng seen. */
   isLastSelf?: boolean;
+  /** Luồng Mục Tiêu M11: message liền trước cho group consecutive logic badge */
+  prevMessage?: Message | null;
   /** M55 2026-05-30 — viewer userId để phân biệt "tin mình gửi" vs "tin sale khác cùng chăm gửi" */
   currentUserId?: string | null;
 }>();
@@ -317,6 +333,10 @@ const emit = defineEmits<{
   'open-profile': [uid: string];
   'open-reaction-detail': [payload: { reactions: any[]; message: Message }];
   'jump-to-reply': [msgId: string];
+  // Luồng Mục Tiêu M11 source badge events
+  'open-sequence': [sequenceId: string];
+  'explain-native': [];
+  'audit-ai': [];
 }>();
 
 // M55 2026-05-30 — Sender attribution: hiện tên sale khác cùng chăm nếu tin

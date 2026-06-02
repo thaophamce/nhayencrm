@@ -19,6 +19,11 @@ import { logger } from '../../../shared/utils/logger.js';
 import { DEFAULT_RUNTIME_RULES, type SequenceStep } from '../sequences/types.js';
 import type { AutomationEvent } from './types.js';
 import { sanitizeContactCriteria, sanitizeManualContactIds } from './segment-sanitizer.js';
+import { automationTaskStub as _automationTaskStub } from './_automation-task-stub.js';
+import {
+  buildSequenceStepJobId,
+  getSequenceStepQueue,
+} from '../queues/queue-registry.js';
 
 export interface MaterializeResult {
   campaignsCreated: number;
@@ -191,7 +196,7 @@ export async function materializeFromEvent(
       const baseNow = Date.now();
 
       for (const contactId of contactIds) {
-        const existing = await prisma.automationTask.findFirst({
+        const existing = await ((prisma as any).automationTask ?? _automationTaskStub).findFirst({
           where: { campaignId: blockCampaign.id, contactId },
           select: { id: true },
         });
@@ -202,7 +207,7 @@ export async function materializeFromEvent(
         }
         const jitter = jitterMin + Math.random() * Math.max(0, jitterMax - jitterMin);
         const scheduledAt = new Date(baseNow + jitter);
-        await prisma.automationTask.create({
+        await ((prisma as any).automationTask ?? _automationTaskStub).create({
           data: {
             id: randomUUID(),
             orgId: event.orgId,
@@ -303,7 +308,7 @@ export async function materializeFromEvent(
     // 7. For each contact: idempotent enrollment — skip if already has task for this campaign
     const now = Date.now();
     for (const contactId of contactIds) {
-      const existing = await prisma.automationTask.findFirst({
+      const existing = await ((prisma as any).automationTask ?? _automationTaskStub).findFirst({
         where: { campaignId: campaign.id, contactId },
         select: { id: true },
       });
@@ -317,7 +322,7 @@ export async function materializeFromEvent(
       // "Active" = task state in (queued, running) trong sequence-bound campaign khác (≠ campaign hiện tại)
       // cùng org. Đảm bảo 1 KH không bị fire song song nhiều Luồng cùng lúc.
       // Default: skip. Sau này có thể đổi sang queue nếu anh muốn override per-Sequence.
-      const activeInOther = await prisma.automationTask.findFirst({
+      const activeInOther = await ((prisma as any).automationTask ?? _automationTaskStub).findFirst({
         where: {
           orgId: event.orgId,
           contactId,
@@ -339,7 +344,7 @@ export async function materializeFromEvent(
       const jitter = jitterMin + Math.random() * Math.max(0, jitterMax - jitterMin);
       const scheduledAt = new Date(now + firstStep.delayMinutes * 60 * 1000 + jitter);
 
-      await prisma.automationTask.create({
+      await ((prisma as any).automationTask ?? _automationTaskStub).create({
         data: {
           id: randomUUID(),
           orgId: event.orgId,
@@ -457,60 +462,171 @@ export async function materializeSequenceForContact(
     });
   }
 
-  // 5. Idempotency: skip enroll if contact đã có task trong campaign này
-  const existing = await prisma.automationTask.findFirst({
-    where: { campaignId: campaign.id, contactId: input.contactId },
-    select: { id: true },
-  });
-  if (existing) {
-    return { campaignId: campaign.id, tasksEnqueued: 0, skipped: true, reason: 'contact already enrolled' };
+  // 5. Fail-fast nếu chưa có nick continuity — worker sẽ skip nick_not_found,
+  //    surface upstream để outbox-drainer log lastErrorMessage rõ ràng.
+  if (!input.assignedNickId) {
+    logger.warn(
+      `[materializer] friend-invite enroll skipped — no assignedNickId: trigger=${input.triggerId} contact=${input.contactId} originTask=${input.originTaskId}`,
+    );
+    return { campaignId: campaign.id, tasksEnqueued: 0, skipped: true, reason: 'no_assigned_nick' };
   }
 
-  // 6. Skip sequence mutex check (Friend Invite explicit override — anh đã chốt
+  // 6. Idempotency: probe BullMQ for step-0 job — replaces the dead AutomationTask
+  //    stub lookup. Any state (waiting/delayed/active/completed/failed) counts as
+  //    "already enrolled" — avoids re-enqueue spam from outbox-drainer retries.
+  const stepZeroJobId = buildSequenceStepJobId(input.triggerId, input.contactId, 0);
+  const queue = getSequenceStepQueue();
+  try {
+    const existingJob = await queue.getJob(stepZeroJobId);
+    if (existingJob) {
+      const state = await existingJob.getState().catch(() => 'unknown');
+      logger.info(
+        `[materializer] friend-invite dedup: step-0 job ${stepZeroJobId} already exists state=${state}`,
+      );
+      return {
+        campaignId: campaign.id,
+        tasksEnqueued: 0,
+        skipped: true,
+        reason: 'already_enqueued',
+      };
+    }
+  } catch (err) {
+    // getJob() should not throw, but guard against Redis blips. Fall through —
+    // BullMQ jobId dedup at .add() time is the second line of defense.
+    logger.warn(
+      `[materializer] friend-invite getJob probe failed (will rely on add-dedup): ${(err as Error).message}`,
+    );
+  }
+
+  // 7. Skip sequence mutex check (Friend Invite explicit override — anh đã chốt
   //    KH reject vẫn bám đuổi, KHÔNG cancel; sequence mutex chỉ áp dụng cho
   //    generic event-driven enrollment, KHÔNG cho friend-invite programmatic).
 
-  // 7. Load first step's block (snapshot content)
+  // 8. Load first step's block snapshot — early-skip if archived. Worker re-checks
+  //    block existence at STEP 4 (sequence-step-worker.ts:244-257), so this is a
+  //    UX surface for outbox-drainer (clearer lastErrorMessage than nick_not_found).
   const firstStep = steps[0];
   const firstBlock = await prisma.block.findFirst({
     where: { id: firstStep.blockId, orgId: input.orgId },
-    select: { id: true, content: true, archivedAt: true },
+    select: { id: true, archivedAt: true },
   });
   if (!firstBlock || firstBlock.archivedAt) {
-    return { campaignId: campaign.id, tasksEnqueued: 0, skipped: true, reason: `first block ${firstStep.blockId} missing or archived` };
+    return {
+      campaignId: campaign.id,
+      tasksEnqueued: 0,
+      skipped: true,
+      reason: `first_block_${firstStep.blockId}_missing_or_archived`,
+    };
   }
 
-  // 8. Schedule first step with jitter (use rules từ campaign snapshot — frozen at first call)
-  const campaignRules = (campaign.rulesSnapshot as Record<string, unknown>) ?? rulesSnapshot;
-  const jitterMin =
-    ((campaignRules as { randomDelayPerSend?: { min?: number } }).randomDelayPerSend?.min ?? 0) *
-    60 *
-    1000;
-  const jitterMax =
-    ((campaignRules as { randomDelayPerSend?: { max?: number } }).randomDelayPerSend?.max ?? 0) *
-    60 *
-    1000;
-  const jitter = jitterMin + Math.random() * Math.max(0, jitterMax - jitterMin);
-  const scheduledAt = new Date(Date.now() + firstStep.delayMinutes * 60 * 1000 + jitter);
-
-  await prisma.automationTask.create({
-    data: {
-      id: randomUUID(),
-      orgId: input.orgId,
-      campaignId: campaign.id,
-      contactId: input.contactId,
-      sequenceId: input.sequenceId,
-      currentStepIdx: 0,
-      currentBlockId: firstBlock.id,
-      blockSnapshot: firstBlock.content as object,
-      assignedNickId: input.assignedNickId,
-      scheduledAt,
-      state: 'queued',
-    },
+  // 9. Load trigger to read sequenceStartDelayMinutes (wizard B3 source of truth
+  //    for "delay sau khi gửi lời mời → step 1 bám đuổi"). This matches the
+  //    onFriendAccepted event-hook path (event-hooks.ts:168) — single source of
+  //    truth across both enrollment paths.
+  const trigger = await prisma.automationTrigger.findUnique({
+    where: { id: input.triggerId },
+    select: { sequenceStartDelayMinutes: true, state: true, enabled: true },
   });
 
+  if (!trigger) {
+    return {
+      campaignId: campaign.id,
+      tasksEnqueued: 0,
+      skipped: true,
+      reason: 'trigger_not_found',
+    };
+  }
+
+  if (!trigger.enabled || trigger.state !== 'active') {
+    logger.warn(
+      `[materializer] friend-invite enroll skipped — trigger inactive: id=${input.triggerId} enabled=${trigger.enabled} state=${trigger.state}`,
+    );
+    return {
+      campaignId: campaign.id,
+      tasksEnqueued: 0,
+      skipped: true,
+      reason: `trigger_${trigger.enabled ? trigger.state : 'disabled'}`,
+    };
+  }
+
+  // 10. Enqueue step 0 via BullMQ. jobId pattern DASH `${triggerId}-${contactId}-0`
+  //     matches the worker's chain (sequence-step-worker.ts enqueueNextStep) so
+  //     the lazy chain handoff is seamless.
+  //
+  //     Delay = trigger.sequenceStartDelayMinutes (wizard B3). The worker
+  //     loads steps[0] fresh from DB at execution time, so we do NOT need to
+  //     pass blockSnapshot here — worker re-fetches at STEP 4.
+  const delayMs = Math.max(0, trigger.sequenceStartDelayMinutes * 60_000);
+
+  try {
+    await queue.add(
+      'sequence-step',
+      {
+        triggerId: input.triggerId,
+        contactId: input.contactId,
+        sequenceId: input.sequenceId,
+        nickId: input.assignedNickId,
+        orgId: input.orgId,
+        stepIdx: 0,
+        totalSteps: steps.length,
+      },
+      {
+        jobId: stepZeroJobId,
+        delay: delayMs,
+        attempts: 3,
+        backoff: { type: 'exponential', delay: 30_000 },
+      },
+    );
+    logger.info(
+      `[sequence-step-worker] [materializer] enqueued STEP 0 friend-invite: trigger=${input.triggerId} ` +
+        `contact=${input.contactId} nick=${input.assignedNickId} sequence=${input.sequenceId} ` +
+        `jobId=${stepZeroJobId} delay=${delayMs}ms startDelayMin=${trigger.sequenceStartDelayMinutes} ` +
+        `totalSteps=${steps.length} originTask=${input.originTaskId}`,
+    );
+  } catch (err) {
+    // BullMQ jobId dedup — duplicate is benign (outbox-drainer retry race).
+    const msg = (err as Error).message ?? '';
+    if (msg.includes('exists') || msg.includes('duplicate')) {
+      logger.info(
+        `[sequence-step-worker] [materializer] dedup at add(): ${stepZeroJobId} already enqueued`,
+      );
+      return {
+        campaignId: campaign.id,
+        tasksEnqueued: 0,
+        skipped: true,
+        reason: 'already_enqueued',
+      };
+    }
+    throw err;
+  }
+
+  // 11. Audit log — replaces the silent stub.create(). Lets outbox-drainer and
+  //     UI Timeline see enrollment events. Uses 'sequence_enrolled' event type
+  //     (distinct from 'sequence_step_sent' which fires only after send success).
+  await prisma.automationEventLog
+    .create({
+      data: {
+        orgId: input.orgId,
+        triggerId: input.triggerId,
+        contactId: input.contactId,
+        nickId: input.assignedNickId,
+        eventType: 'sequence_enrolled',
+        detail:
+          `campaign=${campaign.id} sequence=${input.sequenceId} ` +
+          `jobId=${stepZeroJobId} delayMin=${trigger.sequenceStartDelayMinutes} ` +
+          `originTask=${input.originTaskId}`,
+      },
+    })
+    .catch((err) => {
+      logger.warn(
+        `[sequence-step-worker] [materializer] event_log write failed: ${(err as Error).message}`,
+      );
+    });
+
   logger.info(
-    `[materializer] friend-invite sequence enrolled: trigger=${input.triggerId} contact=${input.contactId} nick=${input.assignedNickId} campaign=${campaign.id} originTask=${input.originTaskId}`,
+    `[materializer] friend-invite sequence enrolled: trigger=${input.triggerId} ` +
+      `contact=${input.contactId} nick=${input.assignedNickId} campaign=${campaign.id} ` +
+      `originTask=${input.originTaskId}`,
   );
 
   return { campaignId: campaign.id, tasksEnqueued: 1, skipped: false };

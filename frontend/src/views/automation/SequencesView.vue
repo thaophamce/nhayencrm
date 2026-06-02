@@ -88,11 +88,24 @@
               inset
               class="seq-topbar__switch"
             />
+            <v-btn
+              v-if="editing.id"
+              size="small"
+              variant="tonal"
+              color="primary"
+              @click="openStats"
+            >
+              <v-icon start>mdi-chart-bar</v-icon>
+              Thống kê
+            </v-btn>
             <v-menu v-if="editing.id">
               <template #activator="{ props }">
                 <v-btn icon="mdi-dots-vertical" size="small" variant="text" v-bind="props" />
               </template>
               <v-list density="compact">
+                <v-list-item @click="openStats" prepend-icon="mdi-chart-bar">
+                  <v-list-item-title>Xem Thống kê</v-list-item-title>
+                </v-list-item>
                 <v-list-item @click="onDuplicate" prepend-icon="mdi-content-copy">
                   <v-list-item-title>Nhân bản luồng</v-list-item-title>
                 </v-list-item>
@@ -255,10 +268,12 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
+import { useRouter } from 'vue-router';
 import { sequencesApi, blocksApi } from '@/api/automation';
 import type { AutomationSequence, SequenceStep, SequenceRuntimeRules, Block } from '@/api/automation/types';
 import SequenceStepEditor from '@/components/automation/phase7/SequenceStepEditor.vue';
 
+const router = useRouter();
 const sequences = ref<AutomationSequence[]>([]);
 const availableBlocks = ref<Block[]>([]);
 const selectedSeqId = ref<string | null>(null);
@@ -450,6 +465,11 @@ async function onDuplicate() {
   const copy = await sequencesApi.duplicateSequence(editing.value.id);
   await loadAll();
   selectSequence(copy.id);
+}
+
+function openStats() {
+  if (!editing.value?.id) return;
+  router.push({ name: 'Marketing.SequenceStats', params: { id: editing.value.id } });
 }
 
 async function onDelete() {

@@ -17,6 +17,8 @@ import { normalizePhone } from '../../shared/utils/phone.js';
 import { triggerVirtualChatAiReply } from '../ai/ai-virtual-chat-service.js';
 // M55 2026-05-30 — Auto-attach collaborator khi sale gửi tin virtual conv
 import { attachContactCollaboratorByUser } from '../contacts/contact-scope.js';
+// FIX A 2026-06-02 — AutomationTask model dropped post-M0 BullMQ rebuild; stub fallback
+import { automationTaskStub as _automationTaskStub } from '../automation/engine/_automation-task-stub.js';
 
 type QueryParams = Record<string, string>;
 
@@ -686,7 +688,7 @@ export async function chatRoutes(app: FastifyInstance) {
                 prisma.conversation.updateMany({ where: { contactId: conv.contactId }, data: { contactId: canonical.id } }),
                 prisma.friend.updateMany({ where: { contactId: conv.contactId }, data: { contactId: canonical.id } }),
                 prisma.friendRequestOutbox.updateMany({ where: { contactId: conv.contactId }, data: { contactId: canonical.id } }),
-                prisma.automationTask.updateMany({ where: { contactId: conv.contactId }, data: { contactId: canonical.id } }),
+                ((prisma as any).automationTask ?? _automationTaskStub).updateMany({ where: { contactId: conv.contactId }, data: { contactId: canonical.id } }),
                 prisma.customerListEntry.updateMany({ where: { contactId: conv.contactId }, data: { contactId: canonical.id } }),
                 prisma.contact.update({ where: { id: conv.contactId }, data: { mergedInto: canonical.id, phoneNormalized: null, phone: null, updatedAt: new Date() } }),
               ]);

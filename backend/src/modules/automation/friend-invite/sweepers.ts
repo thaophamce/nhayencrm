@@ -58,7 +58,21 @@ async function runStuckSweeper(): Promise<void> {
 }
 
 /**
- * Trigger completion sweeper — flip state='completed' khi pool empty.
+ * Trigger completion sweeper — flip state='completed' khi:
+ *   1) Pool friend-request empty (all entries processed/skipped/failed)
+ *   2) AND all outbox WELCOME_PROBE rows đã materialize sequence (hoặc fail vĩnh viễn)
+ *   3) AND all automation_campaigns của trigger đã state='completed' (sequence steps hết)
+ *
+ * Fix #6 v2 (2026-06-02): version 1 chỉ check tới enroll (sequenceMaterializedAt SET) →
+ * trigger flip 'completed' NGAY khi enqueue jobs vào BullMQ delayed, dù step 1/2/3 chưa
+ * fire. Sale thấy "Hoàn tất" trong khi sequence còn 60p delay chờ step 1.
+ *
+ * Fix v2: thêm condition #3 — campaign.state phải 'completed' (sequence-step-worker flip
+ * sau khi xử lý step cuối cùng). Trigger chỉ thực sự "hoàn tất" khi cả friend-invite +
+ * welcome + toàn bộ sequence steps xong.
+ *
+ * Edge case: trigger không có successor_sequence (friend-only, no bám đuổi) → campaign
+ * không tồn tại → condition #3 trivially true (NOT EXISTS pending campaign).
  */
 async function runTriggerCompletionSweeper(): Promise<void> {
   try {
@@ -76,9 +90,25 @@ async function runTriggerCompletionSweeper(): Promise<void> {
           HAVING COUNT(e.id) > 0
             AND COUNT(*) FILTER (WHERE e.queue_status IN ('queued_for_pickup', 'processing')) = 0
         )
+        AND NOT EXISTS (
+          -- Còn outbox WELCOME_PROBE chưa enroll sequence (chưa fail vĩnh viễn)
+          SELECT 1 FROM friend_request_outbox o
+          WHERE o.trigger_id = automation_triggers.id
+            AND o.kind = 'WELCOME_PROBE'
+            AND o.sequence_materialized_at IS NULL
+            AND o.attempt_count < 5
+            AND o.successor_sequence_id IS NOT NULL
+        )
+        AND NOT EXISTS (
+          -- Fix v2 (2026-06-02): còn automation_campaigns đang 'active' của trigger này
+          -- (sequence-step-worker chưa xử lý hết step cuối → chưa flip campaign.state='completed').
+          SELECT 1 FROM automation_campaigns c
+          WHERE c.trigger_id = automation_triggers.id
+            AND c.state = 'active'
+        )
     `;
     if (result > 0) {
-      logger.info(`[trigger-sweeper] flipped ${result} triggers to state='completed'`);
+      logger.info(`[trigger-sweeper] flipped ${result} triggers to state='completed' (pool empty + welcome enrolled + all sequence campaigns done)`);
     }
   } catch (err) {
     logger.error('[trigger-sweeper] error:', err);
@@ -120,10 +150,13 @@ async function runOutboxDrainer(): Promise<void> {
   try {
     // Pick rows with sequence_materialized_at IS NULL, exclude rows already 5 attempts (alert state)
     // Wave 2: Gate sequence enrollment by welcome success. KH chặn tin lạ (BLOCKED_STRANGER) hoặc fail cứng (HARD_FAIL) sẽ KHÔNG enroll.
+    // Fix #1 (2026-06-02): thêm DUPLICATE_SKIP — khi KH đã nhận welcome từ trigger trước
+    // (cùng nick+contact), welcome-probe skip nhưng VẪN phải enroll sequence bám đuổi mới.
+    // Không enroll = trigger mới chạy nhưng sequence không bao giờ tới step 1.
     const rows = await prisma.friendRequestOutbox.findMany({
       where: {
         kind: 'WELCOME_PROBE',
-        welcomeOutcome: { in: ['SENT_STRANGER', 'SENT_FRIEND'] },
+        welcomeOutcome: { in: ['SENT_STRANGER', 'SENT_FRIEND', 'DUPLICATE_SKIP'] },
         sequenceMaterializedAt: null,
         successorSequenceId: { not: null },
         attemptCount: { lt: 5 },

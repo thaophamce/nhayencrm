@@ -24,10 +24,14 @@ services:
       - AUTOMATION_STUB_MODE=${AUTOMATION_STUB_MODE:-false}
       # Friend Invite Queue test mode: 60s tick delay instead of 20-40min.
       - FRIEND_INVITE_TEST_MODE=${FRIEND_INVITE_TEST_MODE:-true}
+      # ── Luồng Mục Tiêu M1 (2026-06-01) ── BullMQ Redis URL
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379}
     depends_on:
       db:
         condition: service_healthy
       minio:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     volumes:
       - file_storage:/var/lib/zalo-crm/files
@@ -63,7 +67,16 @@ services:
     image: redis:7-alpine
     container_name: zalo-crm-redis
     restart: unless-stopped
-    command: redis-server --maxmemory 64mb --maxmemory-policy allkeys-lru
+    # ── Luồng Mục Tiêu M1 (2026-06-01) ──
+    # AOF every 1s (Issue #5 5A — crash recovery survive: BullMQ jobs delayed/waiting
+    # persist even if container kill -9). Verified POC spike 5/5 PASS 2026-06-01.
+    # maxmemory 256MB cho 35K jobs cumulative (memory scale_target: 5K KH/day × 7 days).
+    command: >
+      redis-server
+      --appendonly yes
+      --appendfsync everysec
+      --maxmemory 256mb
+      --maxmemory-policy noeviction
     volumes:
       - redis_data:/data
     ports:
@@ -73,8 +86,7 @@ services:
       interval: 10s
       timeout: 3s
       retries: 3
-    profiles:
-      - redis
+    # profiles: redis  ← REMOVED M1 2026-06-01: Redis là dependency cứng của BullMQ
 
   minio:
     image: minio/minio:latest
