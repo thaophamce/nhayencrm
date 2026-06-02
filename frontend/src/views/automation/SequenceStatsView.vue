@@ -71,7 +71,7 @@
       <div class="kpi-grid">
         <div class="kpi-card">
           <div class="kpi-label">📨 Đã enroll</div>
-          <div class="kpi-value">{{ formatNum(overview.enrolled30d) }}</div>
+          <div class="kpi-value">{{ formatNum(overview.enroll30d) }}</div>
           <div class="kpi-sub">
             contact <span class="delta">+{{ formatNum(overview.enroll24h) }} / 24h</span>
           </div>
@@ -400,7 +400,7 @@ const sequenceName = computed(() => overview.value?.sequenceName ?? 'Đang tải
 
 const activeCount = computed(() => {
   if (!overview.value) return 0;
-  return Math.max(0, overview.value.enrolled30d - overview.value.completedCached - droppedCount.value);
+  return Math.max(0, overview.value.enroll30d - overview.value.completedCached - droppedCount.value);
 });
 const activePercent = computed(() => percentOfEnroll(activeCount.value));
 const completedPercent = computed(() =>
@@ -461,8 +461,8 @@ function formatNum(n: number): string {
 }
 
 function percentOfEnroll(n: number): number {
-  if (!overview.value || overview.value.enrolled30d === 0) return 0;
-  return Math.round((n / overview.value.enrolled30d) * 100);
+  if (!overview.value || overview.value.enroll30d === 0) return 0;
+  return Math.round((n / overview.value.enroll30d) * 100);
 }
 
 function rangeLabel(r: string): string {
