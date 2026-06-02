@@ -13,6 +13,8 @@ import { syncReminderFromMessage } from '../contacts/reminder-sync.js';
 import { uploadBuffer } from '../../shared/storage/minio-client.js';
 import { config } from '../../config/index.js';
 import { logEvent as logAutomationEvent } from '../automation/friend-invite/event-log-service.js';
+// FIX A 2026-06-02 — AutomationTask model dropped post-M0 BullMQ rebuild; stub fallback
+import { automationTaskStub as _automationTaskStub } from '../automation/engine/_automation-task-stub.js';
 
 export interface IncomingMessage {
   accountId: string;
@@ -598,7 +600,7 @@ export async function handleIncomingMessage(
               });
               const sequenceIds = [trigger?.sequenceId, trigger?.successorSequenceId].filter(Boolean) as string[];
               if (sequenceIds.length > 0) {
-                const stopped = await (prisma as any).automationTask.updateMany({
+                const stopped = await ((prisma as any).automationTask ?? _automationTaskStub).updateMany({
                   where: {
                     contactId,
                     sequenceId: { in: sequenceIds },

@@ -19,6 +19,7 @@ import {
   type PreviewInput,
 } from './preview-eta-service.js';
 import { listMucTieuForOrg } from './muc-tieu-list-service.js';
+import { automationTaskStub as _automationTaskStub } from '../engine/_automation-task-stub.js';
 
 const BASE = '/api/v1/automation/triggers';
 
@@ -870,7 +871,7 @@ export async function friendInviteRoutes(app: FastifyInstance): Promise<void> {
     // (a) Active queued/running tasks → deterministic current step per contact.
     const activeTasks =
       contactIds.length > 0
-        ? await (prisma as any).automationTask.findMany({
+        ? await ((prisma as any).automationTask ?? _automationTaskStub).findMany({
             where: {
               orgId: user.orgId,
               contactId: { in: contactIds },
@@ -908,7 +909,7 @@ export async function friendInviteRoutes(app: FastifyInstance): Promise<void> {
     // (b) Aggregate over ALL tasks for lastSentAt + fallback currentStepIdx (when no active task).
     const allTasks =
       contactIds.length > 0
-        ? await (prisma as any).automationTask.findMany({
+        ? await ((prisma as any).automationTask ?? _automationTaskStub).findMany({
             where: {
               orgId: user.orgId,
               contactId: { in: contactIds },

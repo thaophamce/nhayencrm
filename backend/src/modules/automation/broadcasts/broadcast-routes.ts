@@ -23,6 +23,7 @@ import { requireRole } from '../../auth/role-middleware.js';
 import { logger } from '../../../shared/utils/logger.js';
 import { sanitizeContactCriteria, sanitizeManualContactIds } from '../engine/segment-sanitizer.js';
 import { getOwnerScope, applyOwnerScope } from '../../rbac/owner-scope.js';
+import { automationTaskStub as _automationTaskStub } from '../engine/_automation-task-stub.js';
 
 const BASE = '/api/v1/automation/broadcasts';
 
@@ -348,7 +349,7 @@ export async function broadcastRoutes(app: FastifyInstance): Promise<void> {
         where: { broadcastId: id, state: { in: ['active', 'paused'] } },
         data: { state: 'cancelled', completedAt: new Date() },
       }),
-      (prisma as any).automationTask.updateMany({
+      ((prisma as any).automationTask ?? _automationTaskStub).updateMany({
         where: {
           campaign: { broadcastId: id },
           state: 'queued',

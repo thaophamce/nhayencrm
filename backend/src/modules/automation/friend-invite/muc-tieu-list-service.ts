@@ -24,6 +24,7 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '../../../shared/database/prisma-client.js';
 import { logger } from '../../../shared/utils/logger.js';
 import { isFriendInviteSegmentSpec } from './skip-precompute.js';
+import { automationTaskStub as _automationTaskStub } from '../engine/_automation-task-stub.js';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -350,7 +351,7 @@ export async function listMucTieuForOrg(
       // Distinct qua groupBy để tránh đếm trùng khi 1 KH có nhiều task row cho sequence.
       let completedKHCount = 0;
       if (acceptedContactIds.length > 0 && t.sequenceId) {
-        const doneGroups = await (prisma as any).automationTask.groupBy({
+        const doneGroups = await ((prisma as any).automationTask ?? _automationTaskStub).groupBy({
           by: ['contactId'],
           where: {
             orgId,
@@ -428,7 +429,7 @@ async function safeTaskSkipReasonCount(
   reason: 'reply' | 'block',
 ): Promise<number> {
   try {
-    return await (prisma as any).automationTask.count({
+    return await ((prisma as any).automationTask ?? _automationTaskStub).count({
       where: {
         orgId,
         skipReason: reason,

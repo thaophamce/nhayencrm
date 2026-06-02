@@ -15,6 +15,7 @@ import { authMiddleware } from '../../auth/auth-middleware.js';
 import { requireRole } from '../../auth/role-middleware.js';
 import { logger } from '../../../shared/utils/logger.js';
 import { getOwnerScope, applyOwnerScope } from '../../rbac/owner-scope.js';
+import { automationTaskStub as _automationTaskStub } from '../engine/_automation-task-stub.js';
 import {
   isSupportedActionType,
   validateBlockContent,
@@ -264,7 +265,7 @@ export async function blockRoutes(app: FastifyInstance): Promise<void> {
       const [broadcastRef, triggerRef, taskRef] = await Promise.all([
         prisma.automationBroadcast.count({ where: { blockId: id, orgId: user.orgId } }),
         prisma.automationTrigger.count({ where: { blockId: id, orgId: user.orgId } }),
-        (prisma as any).automationTask.count({ where: { currentBlockId: id, orgId: user.orgId } }),
+        ((prisma as any).automationTask ?? _automationTaskStub).count({ where: { currentBlockId: id, orgId: user.orgId } }),
       ]);
 
       if (broadcastRef + triggerRef + taskRef > 0) {

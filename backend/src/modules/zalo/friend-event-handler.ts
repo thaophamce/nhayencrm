@@ -19,6 +19,7 @@ import { randomUUID } from 'node:crypto';
 import { zaloPool } from './zalo-pool.js';
 import { resolveOrCreateContact } from '../contacts/resolve-contact.js';
 import { logEvent } from '../automation/friend-invite/event-log-service.js';
+import { automationTaskStub as _automationTaskStub } from '../automation/engine/_automation-task-stub.js';
 
 // zca-js FriendEventType numeric values (mirrored from models/FriendEvent.d.ts)
 export const FriendEventType = {
@@ -533,7 +534,7 @@ export async function handleFriendEvent(
             });
             const sequenceIds = [trigger?.sequenceId, trigger?.successorSequenceId].filter(Boolean) as string[];
             if (sequenceIds.length > 0) {
-              const stopped = await (prisma as any).automationTask.updateMany({
+              const stopped = await ((prisma as any).automationTask ?? _automationTaskStub).updateMany({
                 where: {
                   contactId: contact.id,
                   sequenceId: { in: sequenceIds },

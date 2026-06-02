@@ -8,6 +8,7 @@ import { randomUUID } from 'node:crypto';
 import { prisma } from '../../../shared/database/prisma-client.js';
 import { logger } from '../../../shared/utils/logger.js';
 import { sanitizeContactCriteria, sanitizeManualContactIds } from '../engine/segment-sanitizer.js';
+import { automationTaskStub as _automationTaskStub } from '../engine/_automation-task-stub.js';
 
 interface BroadcastRow {
   id: string;
@@ -115,7 +116,7 @@ export async function resolveAndEnqueue(bc: BroadcastRow): Promise<{ recipients:
 
   const CHUNK = 500;
   for (let i = 0; i < tasksData.length; i += CHUNK) {
-    await (prisma as any).automationTask.createMany({
+    await ((prisma as any).automationTask ?? _automationTaskStub).createMany({
       data: tasksData.slice(i, i + CHUNK),
     });
   }

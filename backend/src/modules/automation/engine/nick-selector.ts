@@ -16,6 +16,7 @@
 
 import { prisma } from '../../../shared/database/prisma-client.js';
 import type { BlockActionType } from '../blocks/types.js';
+import { automationTaskStub as _automationTaskStub } from './_automation-task-stub.js';
 
 export interface NickSelection {
   nickId: string;
@@ -115,7 +116,7 @@ export async function pickNickForTask(args: {
       if (nick.dailyFriendAddCap <= 0) {
         return { nickId: nick.id, reason: 'cap_aware' };
       }
-      const todayCount = await (prisma as any).automationTask.count({
+      const todayCount = await ((prisma as any).automationTask ?? _automationTaskStub).count({
         where: {
           assignedNickId: nick.id,
           state: 'done',
