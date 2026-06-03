@@ -2452,6 +2452,10 @@ watch(() => props.editingMessage?.id, async (id) => {
   .msg-counts { gap: 5px; font-size: 11px; }
   .ch-actions { gap: 4px; }
   .btn-action { padding: 5px 8px; font-size: 11px; gap: 3px; }
+  /* Giữ hover-reveal cho btn-remove-friend — KHÔNG đè padding lúc collapsed */
+  .btn-remove-friend { padding-left: 0; padding-right: 0; }
+  .friend-hover-group:hover .btn-remove-friend,
+  .btn-remove-friend:focus-visible { padding-left: 8px; padding-right: 8px; }
   .btn-action .sub-meta { display: none; }
   .zlbl-trigger { padding: 3px 7px !important; font-size: 11px !important; }
   .zlbl-current-name, .zlbl-empty { max-width: 90px; }
@@ -2463,6 +2467,10 @@ watch(() => props.editingMessage?.id, async (id) => {
   .ch-row-2 :deep(.nick-avatar-lock) { display: none; }
   .nick-name { max-width: 80px; }
   .btn-action { padding: 5px 7px; }
+  /* Giữ hover-reveal — KHÔNG đè padding lúc collapsed */
+  .btn-remove-friend { padding-left: 0; padding-right: 0; }
+  .friend-hover-group:hover .btn-remove-friend,
+  .btn-remove-friend:focus-visible { padding-left: 7px; padding-right: 7px; }
 }
 
 /* Row 1: Name | Gender icon | Care status */
