@@ -425,12 +425,18 @@ export async function zinstantProxyRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // Fix 2026-06-03: cùng bug như batch — thêm preHandler authMiddleware
+  // ── Fix 2026-06-03 (Anh báo): thêm ?force=1 để bypass cache → load SDK
+  //    profile mới nhất, đồng bộ Contact.gender + avatarUrl ngay khi sale
+  //    mở dialog user info ở /chat. Anh chốt: mỗi lần open dialog → refresh
+  //    background → update Contact nếu khác.
   app.get('/api/v1/zalo-user-info/:uid', { preHandler: authMiddleware }, async (request: FastifyRequest, reply: FastifyReply) => {
     const { uid } = request.params as { uid: string };
+    const { force } = request.query as { force?: string };
+    const bypassCache = force === '1' || force === 'true';
     if (!uid) return reply.status(400).send({ error: 'uid required' });
 
     const cached = userInfoCache.get(uid);
-    if (cached && cached.expiresAt > Date.now()) {
+    if (!bypassCache && cached && cached.expiresAt > Date.now()) {
       return reply.header('Cache-Control', 'private, max-age=600').send(cached.data);
     }
 
@@ -516,6 +522,44 @@ export async function zinstantProxyRoutes(app: FastifyInstance): Promise<void> {
         oaStatus: profile.oa_status ?? profile.oaStatus ?? null,
       };
       userInfoCache.set(uid, { data, expiresAt: Date.now() + USER_INFO_TTL_MS });
+
+      // ── Fix 2026-06-03 (Anh báo): update Contact gender + avatar nếu khác ──
+      // SDK trả gender: 0=male, 1=female, -1=unknown. Map sang enum Contact.gender.
+      // Update Contact theo zaloUid nếu data SDK mới hơn data DB (gender hoặc avatar khác).
+      // Fire-and-forget, không block response.
+      void (async () => {
+        try {
+          const genderMap: Record<number, 'male' | 'female' | null> = {
+            0: 'male',
+            1: 'female',
+          };
+          const sdkGender = genderMap[data.gender] ?? null;
+          const sdkAvatar = data.avatarBig || data.avatar || null;
+          const sdkZaloName = data.zaloName || null;
+
+          const contact = await prisma.contact.findFirst({
+            where: { orgId: userForScope.orgId, zaloUid: uid },
+            select: { id: true, gender: true, avatarUrl: true, zaloName: true },
+          });
+          if (!contact) return;
+
+          const updateData: Record<string, unknown> = {};
+          if (sdkGender && contact.gender !== sdkGender) updateData.gender = sdkGender;
+          if (sdkAvatar && contact.avatarUrl !== sdkAvatar) updateData.avatarUrl = sdkAvatar;
+          if (sdkZaloName && contact.zaloName !== sdkZaloName) updateData.zaloName = sdkZaloName;
+
+          if (Object.keys(updateData).length > 0) {
+            await prisma.contact.update({
+              where: { id: contact.id },
+              data: updateData,
+            });
+            logger.info(`[user-info] refresh updated Contact ${contact.id} fields: ${Object.keys(updateData).join(',')}`);
+          }
+        } catch (updateErr) {
+          logger.warn(`[user-info] Contact refresh update failed for ${uid}:`, updateErr);
+        }
+      })();
+
       return reply.header('Cache-Control', 'private, max-age=600').send(data);
     } catch (err) {
       logger.warn(`[user-info] fetch error for ${uid}:`, err);

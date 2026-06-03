@@ -2423,6 +2423,73 @@ watch(() => props.editingMessage?.id, async (id) => {
   display: flex; flex-direction: column; gap: 5px;
 }
 
+/* ── Responsive 1366×768 HD-first (Anh báo 2026-06-03) ──
+   Anh báo: ở 1366 header vỡ 4 dòng. Mục tiêu: max 3 dòng compact, không vỡ
+   ngoài bubble. Strategy:
+     1. Compact padding/gap → tiết kiệm pixel
+     2. Cho phép wrap có kiểm soát: ch-row-1 sang 2 dòng nếu cần (max 2),
+        ch-row-2 1 dòng
+     3. Rút label phụ (cnt-scope, sub-meta btn) → giữ icon
+     4. Buttons action compact: icon-only ở 1366, full text ở 1920+ */
+@media (max-width: 1440px) {
+  .chat-header {
+    padding: 8px 12px;
+    gap: 10px;
+  }
+  .ch-info { gap: 3px; }
+  .ch-row-1 {
+    flex-wrap: wrap;
+    gap: 6px;
+    overflow: visible;
+  }
+  .ch-name {
+    font-size: 15px;
+    max-width: 240px;
+  }
+  .ch-cung-cham-chip { font-size: 10.5px; padding: 1px 6px; }
+  .ch-gender-chip {
+    font-size: 11px;
+    padding: 2px 7px 2px 4px;
+  }
+  .ch-gender-chip .gender-svg { width: 14px; height: 14px; }
+  .ch-gender-chip .gender-label { display: none; }
+  /* nick-name compact */
+  .ch-row-2 { font-size: 11px; gap: 5px; }
+  .nick-name { max-width: 120px; font-size: 11.5px; }
+  /* "per nick này" label ẩn ở HD, giữ icon đếm */
+  .msg-counts .cnt-scope { display: none; }
+  .msg-counts { gap: 5px; font-size: 11px; }
+  /* Action buttons compact: ẩn sub-meta (days label), giữ icon + text chính */
+  .ch-actions { gap: 4px; }
+  .btn-action {
+    padding: 5px 8px;
+    font-size: 11px;
+    gap: 3px;
+  }
+  .btn-action .sub-meta { display: none; }
+  /* Zalo label dropdown compact */
+  .zlbl-trigger {
+    padding: 3px 7px !important;
+    font-size: 11px !important;
+  }
+  .zlbl-current-name, .zlbl-empty { max-width: 90px; }
+}
+
+/* Cực HẸP 1280×720 — fallback xa hơn theo memory feedback_hd_first_ui */
+@media (max-width: 1300px) {
+  .chat-header { padding: 7px 10px; gap: 8px; }
+  .ch-name { font-size: 14px; max-width: 180px; }
+  /* Avatar 46 → 40 để gọn */
+  .chat-header > :first-child { transform: scale(0.92); transform-origin: left center; }
+  /* Ẩn nick avatar small để Row 2 đỡ chật */
+  .ch-row-2 :deep(.nick-avatar-lock) { display: none; }
+  .nick-name { max-width: 90px; }
+  /* Action icon-only — ẩn text, giữ icon */
+  .btn-action {
+    padding: 5px 7px;
+  }
+}
+
 /* Row 1: Name | Gender icon | Care status */
 .ch-row-1 {
   display: flex; align-items: center; gap: 8px;
