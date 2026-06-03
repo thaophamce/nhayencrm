@@ -119,7 +119,7 @@ export function useZaloPresence(
     if (!state.value.showStatus) return null; // privacy — hide entirely
     if (state.value.lastOnline === null) return null;
     const mins = Math.floor((Date.now() - state.value.lastOnline) / 60_000);
-    if (state.value.isOnline || mins < 5) return 'Đang online';
+    if (state.value.isOnline || mins < 5) return 'Online';
     if (mins < 60) return `Online ${mins}p trước`;
     const hours = Math.floor(mins / 60);
     if (hours < 24) return `Online ${hours}h trước`;

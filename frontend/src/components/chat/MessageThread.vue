@@ -2452,10 +2452,6 @@ watch(() => props.editingMessage?.id, async (id) => {
   .msg-counts { gap: 5px; font-size: 11px; }
   .ch-actions { gap: 4px; }
   .btn-action { padding: 5px 8px; font-size: 11px; gap: 3px; }
-  /* Giữ hover-reveal cho btn-remove-friend — KHÔNG đè padding lúc collapsed */
-  .btn-remove-friend { padding-left: 0; padding-right: 0; }
-  .friend-hover-group:hover .btn-remove-friend,
-  .btn-remove-friend:focus-visible { padding-left: 8px; padding-right: 8px; }
   .btn-action .sub-meta { display: none; }
   .zlbl-trigger { padding: 3px 7px !important; font-size: 11px !important; }
   .zlbl-current-name, .zlbl-empty { max-width: 90px; }
@@ -2467,10 +2463,6 @@ watch(() => props.editingMessage?.id, async (id) => {
   .ch-row-2 :deep(.nick-avatar-lock) { display: none; }
   .nick-name { max-width: 80px; }
   .btn-action { padding: 5px 7px; }
-  /* Giữ hover-reveal — KHÔNG đè padding lúc collapsed */
-  .btn-remove-friend { padding-left: 0; padding-right: 0; }
-  .friend-hover-group:hover .btn-remove-friend,
-  .btn-remove-friend:focus-visible { padding-left: 7px; padding-right: 7px; }
 }
 
 /* Row 1: Name | Gender icon | Care status */
@@ -2757,33 +2749,34 @@ watch(() => props.editingMessage?.id, async (id) => {
   border-color: rgba(239, 68, 68, 0.6);
   color: #991b1b;
 }
-/* Hover group: hover bất kỳ chỗ nào trong group → reveal nút Huỷ KB */
+/* 2026-06-03 Anh chốt: hover-reveal VERTICAL (xổ xuống dưới), KHÔNG đẩy ngang.
+   .friend-hover-group là anchor; .btn-remove-friend absolute top:100% slide-down. */
 .friend-hover-group {
   display: inline-flex;
-  gap: 5px;
   align-items: center;
+  position: relative; /* anchor cho btn-remove-friend absolute */
 }
 .btn-remove-friend {
+  position: absolute;
+  top: calc(100% + 4px); /* dưới Đã KB 4px */
+  left: 0;
   background: rgba(239, 68, 68, 0.10);
   color: #b91c1c;
   border-color: rgba(239, 68, 68, 0.35);
   font-weight: 500;
-  opacity: 0;
-  max-width: 0;
-  padding-left: 0;
-  padding-right: 0;
-  border-width: 0;
-  overflow: hidden;
-  transition: opacity 0.18s ease, max-width 0.22s ease, padding 0.18s ease, border-width 0.18s ease;
   white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-4px);
+  transition: opacity 0.16s ease, transform 0.18s ease;
+  z-index: 5;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
 }
 .friend-hover-group:hover .btn-remove-friend,
 .btn-remove-friend:focus-visible {
   opacity: 1;
-  max-width: 140px;
-  padding-left: 8px;
-  padding-right: 8px;
-  border-width: 1px;
+  pointer-events: auto;
+  transform: translateY(0);
 }
 .btn-remove-friend:hover:not(:disabled) {
   background: rgba(239, 68, 68, 0.22);
