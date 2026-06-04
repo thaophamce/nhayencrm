@@ -389,7 +389,8 @@ void initials; void avatarStyle; // legacy helpers kept for ref after table refa
 
 <style scoped>
 .lists-view {
-  padding: 24px 28px 80px;
+  /* 2026-06-04 v2 — Unified Marketing theme */
+  padding: var(--at-s-lg, 24px);
   max-width: 100%;
 }
 

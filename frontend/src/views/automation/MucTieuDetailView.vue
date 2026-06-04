@@ -146,10 +146,10 @@
               <thead>
                 <tr>
                   <th class="col-time">⏱ Giờ VN</th>
-                  <th class="col-phase">Loại sự kiện</th>
-                  <th class="col-kh">👤 Khách hàng</th>
                   <th class="col-nick">📱 Nick chăm</th>
-                  <th class="col-status">Trạng thái</th>
+                  <th class="col-kh">👤 Khách hàng</th>
+                  <th class="col-phase">Loại sự kiện</th>
+                  <th class="col-status">Chi tiết</th>
                   <th class="col-ago">Cách đây</th>
                 </tr>
               </thead>
@@ -160,22 +160,22 @@
                   :class="[{ 'is-new': ev.isNew }]"
                 >
                   <td class="col-time">{{ ev.timeLabel }}</td>
+                  <td class="col-nick">
+                    <span class="nick-dot" :class="nickDotClass(ev.nickName)"></span>
+                    <span class="nick-name">{{ ev.nickName || '—' }}</span>
+                  </td>
+                  <td class="col-kh">
+                    <span v-if="ev.rowIndex != null" class="row-idx">#{{ ev.rowIndex }}</span>
+                    <span class="kh-name">{{ ev.customerName || '—' }}</span>
+                  </td>
                   <td class="col-phase">
                     <span class="phase-pill" :class="'phase-' + phaseTone(ev.type)">
                       <span class="phase-ico">{{ ev.icon }}</span>
                       {{ phaseLabel(ev.type) }}
                     </span>
                   </td>
-                  <td class="col-kh">
-                    <span v-if="ev.rowIndex != null" class="row-idx">#{{ ev.rowIndex }}</span>
-                    <span class="kh-name">{{ ev.customerName || '—' }}</span>
-                  </td>
-                  <td class="col-nick">
-                    <span class="nick-dot" :class="nickDotClass(ev.nickName)"></span>
-                    <span class="nick-name">{{ ev.nickName || '—' }}</span>
-                  </td>
                   <td class="col-status">
-                    <span class="tone-chip" :class="'tone-' + (ev.tone || 'info')" v-html="ev.text"></span>
+                    <span class="detail-text">{{ detailText(ev) }}</span>
                   </td>
                   <td class="col-ago">{{ shortAgo(ev.at) }}</td>
                 </tr>
@@ -631,16 +631,12 @@
                   <span v-else class="muted">—</span>
                 </td>
                 <td>
-                  <div class="step-bar">
-                    <span class="step-dots">
-                      <span
-                        v-for="(d, k) in stepDots(e)"
-                        :key="k"
-                        class="step-dot"
-                        :class="d"
-                      ></span>
-                    </span>
-                    <span class="step-label">{{ stepText(e) }}</span>
+                  <!-- 2026-06-04 — Anh chốt 2 dòng: D1 = x/y tiến độ chuỗi có màu
+                       (3/3 xanh lá+Hoàn tất / đang gửi vàng / KH reply giữa chừng đỏ),
+                       D2 = trạng thái kết bạn Phase 1 (Đang chờ KB / Đã kết bạn...). -->
+                  <div class="step-cell">
+                    <div class="step-line1" :class="stepProgressClass(e)">{{ stepProgressLabel(e) }}</div>
+                    <div class="step-line2">{{ phase1Label(e) }}</div>
                   </div>
                 </td>
                 <td>
@@ -650,18 +646,36 @@
                     {{ entryStatusLabel(e) }}
                   </span>
                 </td>
-                <td class="col-update">{{ relativeTime(e.lastSentAt ?? e.updatedAt) }}</td>
+                <td class="col-update">
+                  <!-- ĐÃ GỬI (tin đã tới khách) — icon ✅ + bước + mốc giờ -->
+                  <div v-if="e.lastSentAt" class="send-cell">
+                    <div class="send-l1 send-sent">
+                      <span class="send-ico">✅ Đã gửi</span>
+                      <span v-if="lastSentInfo(e).stepLabel" class="send-step">{{ lastSentInfo(e).stepLabel }}</span>
+                    </div>
+                    <div class="send-l2">{{ lastSentInfo(e).label }}</div>
+                  </div>
+                  <span v-else class="muted">—</span>
+                </td>
                 <td class="col-next">
-                  <span
-                    v-if="nextRunInfo(e).isDue"
-                    class="estatus reply"
-                    title="Tới giờ chạy nhưng đang chờ pickup"
-                  >
-                    Đến hạn
-                  </span>
-                  <span v-else :class="nextRunInfo(e).muted ? 'muted' : ''">
-                    {{ nextRunInfo(e).label }}
-                  </span>
+                  <!-- ĐÃ HẸN (chưa gửi) / Đến hạn / Đã xong -->
+                  <div v-if="nextRunInfo(e).isDue" class="send-cell">
+                    <div class="send-l1 send-due" title="Tới giờ chạy nhưng đang chờ pickup">
+                      <span class="send-ico">🔴 Đến hạn</span>
+                      <span v-if="nextRunInfo(e).stepLabel" class="send-step">{{ nextRunInfo(e).stepLabel }}</span>
+                    </div>
+                  </div>
+                  <div v-else-if="nextRunInfo(e).icon === '⏳'" class="send-cell">
+                    <div class="send-l1 send-scheduled">
+                      <span class="send-ico">⏳ Đã hẹn</span>
+                      <span v-if="nextRunInfo(e).stepLabel" class="send-step">{{ nextRunInfo(e).stepLabel }}</span>
+                    </div>
+                    <div class="send-l2">{{ nextRunInfo(e).label }}</div>
+                  </div>
+                  <div v-else-if="nextRunInfo(e).icon === '✓'" class="send-cell">
+                    <div class="send-l1 send-done">{{ nextRunInfo(e).label }}</div>
+                  </div>
+                  <span v-else class="muted">{{ nextRunInfo(e).label }}</span>
                 </td>
               </tr>
               <tr v-if="!filteredEntries.length">
@@ -753,9 +767,9 @@
                     />
                   </th>
                   <th class="col-time">⏱ Thời gian</th>
-                  <th class="col-phase">Loại sự kiện</th>
+                  <th class="col-nick">📱 Nick chăm</th>
                   <th class="col-kh">👤 Khách hàng</th>
-                  <th class="col-nick">📱 Nick</th>
+                  <th class="col-phase">Loại sự kiện</th>
                   <th class="col-status">Trạng thái</th>
                   <th class="col-detail">📝 Chi tiết</th>
                   <th class="col-action">⚙</th>
@@ -775,8 +789,16 @@
                     />
                   </td>
                   <td class="col-time">
+                    <!-- 2026-06-04 — bỏ dòng 2 "X giờ trước" (shortAgo) cho gọn, chỉ giữ ngày giờ -->
                     <div class="time-main">{{ formatLogTime(ev.at) }}</div>
-                    <div class="time-rel">{{ shortAgo(ev.at) }}</div>
+                  </td>
+                  <td class="col-nick">
+                    <span class="nick-dot" :class="nickDotClass(ev.nickName)"></span>
+                    <span class="nick-name">{{ ev.nickName || '—' }}</span>
+                  </td>
+                  <td class="col-kh">
+                    <span v-if="ev.rowIndex != null" class="row-idx">#{{ ev.rowIndex }}</span>
+                    <span class="kh-name">{{ ev.customerName || '—' }}</span>
                   </td>
                   <td class="col-phase">
                     <span class="phase-pill" :class="'phase-' + phaseTone(ev.type)">
@@ -784,21 +806,13 @@
                       {{ phaseLabel(ev.type) }}
                     </span>
                   </td>
-                  <td class="col-kh">
-                    <span v-if="ev.rowIndex != null" class="row-idx">#{{ ev.rowIndex }}</span>
-                    <span class="kh-name">{{ ev.customerName || '—' }}</span>
-                  </td>
-                  <td class="col-nick">
-                    <span class="nick-dot" :class="nickDotClass(ev.nickName)"></span>
-                    <span class="nick-name">{{ ev.nickName || '—' }}</span>
-                  </td>
                   <td class="col-status">
                     <span class="estatus" :class="logStatusClass(ev)">
                       {{ logStatusLabel(ev) }}
                     </span>
                   </td>
                   <td class="col-detail">
-                    <span class="detail-text">{{ ev.detail || '—' }}</span>
+                    <span class="detail-text">{{ detailText(ev, true) }}</span>
                   </td>
                   <td class="col-action">
                     <button
@@ -940,6 +954,9 @@ interface Entry {
   contactId?: string | null;
   progressLabel?: string | null;
   lastInviteNickId?: string | null;
+  // I5 2026-06-03 — cờ pause per-contact (Redis) cho cột Trạng thái + đếm ngược.
+  pauseRemainingMs?: number | null;
+  pauseReason?: string | null;
 }
 
 // M13 2026-06-02 — 8 safety-rule columns BE return từ GET /:id/dashboard.
@@ -995,6 +1012,9 @@ interface LiveEvent {
   nickName?: string | null;
   customerName?: string | null;
   rowIndex?: number | null;
+  // I6 2026-06-03 — detail + metadata cho detailText() dựng chi tiết cụ thể.
+  detail?: unknown;
+  metadata?: unknown;
 }
 
 interface LogEvent {
@@ -1006,6 +1026,8 @@ interface LogEvent {
   rowIndex: number | null;
   status: string | null;
   detail: string | null;
+  // I6 2026-06-03 — metadata cho detailText() chi tiết.
+  metadata?: unknown;
 }
 
 // ===================================================================
@@ -1244,12 +1266,18 @@ const phase1 = computed(() => {
 const phase2 = computed(() => {
   const c = data.value?.counters ?? {};
   const welcome = c.welcome_sent ?? c.welcome ?? 0;
-  const running = c.in_sequence ?? c.processing ?? 0;
-  const done = c.sequence_completed ?? c.completed ?? 0;
+  const running = c.enrollingSequence ?? c.in_sequence ?? c.processing ?? 0;
+  // FIX 2026-06-04: "Hoàn tất" = completedSequence (BE đếm distinct KH đã gửi bước
+  // cuối). Trước đây đọc key sai (sequence_completed/completed không tồn tại) → luôn 0
+  // dù KH đã gửi đủ 3/3.
+  const done = c.completedSequence ?? c.sequence_completed ?? c.completed ?? 0;
   const reply = c.customer_reply ?? c.replied ?? 0;
   const block = c.customer_block ?? c.blocked ?? 0;
   const lead = c.converted_lead ?? 0;
-  const stopped = reply + block + lead;
+  // FIX 2026-06-04: "Dừng" CHỈ gồm KH chặn nick (block) — tín hiệu chấm dứt thật.
+  // Trước đây gom cả reply (tạm dừng, tín hiệu TỐT) + lead (đã thành Lead = hoàn tất
+  // đẹp) vào "Dừng" → "Dừng=2" sai. reply + lead tách riêng, KHÔNG tính là dừng.
+  const stopped = block;
   return { welcome, running, done, stopped, reply, block, lead };
 });
 
@@ -1652,13 +1680,15 @@ async function pollMonitor(): Promise<void> {
         nickName?: string | null;
         customerName?: string | null;
         rowIndex?: number | null;
+        detail?: unknown;
+        metadata?: unknown;
       }>;
       mergeEvents(
         fresh.map((ev) => ({
           id: ev.id,
           at: ev.at,
           type: ev.type,
-          timeLabel: hhmmss(ev.at),
+          timeLabel: dmyhms(ev.at),
           icon: ev.icon ?? '🤝',
           text: ev.text ?? '',
           tone: ev.tone ?? null,
@@ -1666,6 +1696,9 @@ async function pollMonitor(): Promise<void> {
           nickName: ev.nickName ?? null,
           customerName: ev.customerName ?? null,
           rowIndex: ev.rowIndex ?? null,
+          // I6 2026-06-03 — detail + metadata cho detailText() dựng chi tiết "Gửi bước 2/4".
+          detail: ev.detail ?? null,
+          metadata: ev.metadata ?? null,
           isNew: true,
         })),
       );
@@ -1909,17 +1942,38 @@ function initialsFromName(s: string | null): string {
 
 // Phase Friend Invite UI 2026-05-30 — derivedStatus → label + chip class.
 // BE deriveKHFinalState trả 5 enum: pending_friend | phase1_done | in_sequence | sequence_done | stopped.
+// I1 2026-06-03 — Cột Trạng thái CHỈ lo Phase 2 (chuỗi bám đuổi). Anh chốt 7 nhãn,
+// 2 nhóm gốc: tạm dừng (chạy lại) vs dừng hẳn. KH Reply + KH Block + Không có Zalo
+// giữ nhãn RIÊNG cho sale dễ thấy. Phase 1 (Chưa/Đã kết bạn) đã chuyển sang cột
+// "Bước hiện tại" → ở đây hiện '—'.
 function entryStatusLabel(e: Entry): string {
   const ds = e.derivedStatus ?? null;
-  if (ds === 'pending_friend') return '🟡 Chờ kết bạn';
-  if (ds === 'phase1_done') return '🟢 Đã kết bạn';
+  const qs = e.queueStatus;
+
+  // Nhãn RIÊNG ưu tiên cao (signal mạnh, đọc từ queueStatus).
+  if (qs === 'customer_block') return '🚫 KH Block';
+  if (qs === 'skipped_no_zalo' || e.hasZalo === false) return '🔴 Không có Zalo';
+
+  // Pause flag (Redis): KH Reply (nhãn riêng) vs Tạm dừng (reaction/manual/nick-hold).
+  // pauseRemainingMs > 0 = đang tạm dừng sẽ chạy lại → đếm ngược ở pauseCountdown().
+  if (e.pauseRemainingMs && e.pauseRemainingMs > 0) {
+    if (e.pauseReason === 'customer_reply' || qs === 'customer_reply') {
+      return `🛑 KH Reply ${pauseCountdown(e)}`;
+    }
+    return `🔶 Tạm dừng ${pauseCountdown(e)}`;
+  }
+  if (qs === 'customer_reply') return '🛑 KH Reply';
+
+  // Phase 1 → cột Bước hiện tại lo, cột Trạng thái để '—'.
+  if (ds === 'pending_friend' || ds === 'phase1_done') return '—';
+
   if (ds === 'in_sequence') {
     const cur = e.currentStepIdx ?? 0;
     const total = e.sequenceTotalSteps ?? data.value?.trigger.successorSequence?.stepsCount ?? 0;
     if (total > 0) return `🔵 Bám đuổi (${cur + 1}/${total})`;
     return '🔵 Bám đuổi';
   }
-  if (ds === 'sequence_done') return '✅ Hoàn tất';
+  if (ds === 'sequence_done' || qs === 'converted_lead') return '✅ Hoàn tất';
   if (ds === 'stopped') return '🛑 Dừng';
   // Fallback cũ (payload không có derivedStatus)
   return statusChipLabel(e.queueStatus, e.hasZalo);
@@ -1927,43 +1981,112 @@ function entryStatusLabel(e: Entry): string {
 
 function entryStatusClass(e: Entry): string {
   const ds = e.derivedStatus ?? null;
-  if (ds === 'pending_friend') return 'cho-crm';
-  if (ds === 'phase1_done') return 'running';
+  const qs = e.queueStatus;
+  if (qs === 'customer_block') return 'block';
+  if (qs === 'skipped_no_zalo' || e.hasZalo === false) return 'no-zalo';
+  if (e.pauseRemainingMs && e.pauseRemainingMs > 0) {
+    return (e.pauseReason === 'customer_reply' || qs === 'customer_reply') ? 'reply' : 'paused';
+  }
+  if (qs === 'customer_reply') return 'reply';
+  if (ds === 'pending_friend' || ds === 'phase1_done') return 'muted';
   if (ds === 'in_sequence') return 'in-seq';
-  if (ds === 'sequence_done') return 'done';
+  if (ds === 'sequence_done' || qs === 'converted_lead') return 'done';
   if (ds === 'stopped') return 'reply';
   return statusChipClass(e.queueStatus, e.hasZalo);
 }
 
+// I5 2026-06-03 — đếm ngược "còn Xh Ym" cho nhãn tạm dừng từ pauseRemainingMs (BE).
+function pauseCountdown(e: Entry): string {
+  const ms = e.pauseRemainingMs ?? 0;
+  if (ms <= 0) return '';
+  const totalMin = Math.round(ms / 60000);
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  if (h > 0) return `(còn ${h}h${m > 0 ? ` ${m}m` : ''})`;
+  return `(còn ${m}m)`;
+}
+
 // Tính cột "Lần gửi tiếp theo" — null=—; future=relative; past+pending → Đến hạn.
+// dd/MM HH:mm (bỏ năm, bỏ giây — gọn cho cột hẹp). Reuse formatInOrgTz rồi strip /yyyy.
+function dmHm(iso: string | null | undefined): string {
+  if (!iso) return '—';
+  const full = formatInOrgTz(iso, undefined, {}); // dd/MM/yyyy HH:mm
+  if (full === '—') return '—';
+  return full.replace(/^(\d{2}\/\d{2})\/\d{4} /, '$1 ');
+}
+
+// 2026-06-04 (Anh chốt) — Tổng số bước của chuỗi cho 1 entry.
+function totalStepsOf(e: Entry): number {
+  return e.sequenceTotalSteps ?? data.value?.trigger.successorSequence?.stepsCount ?? 0;
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// 2026-06-04 — Anh chốt: phân biệt rõ "ĐÃ HẸN" vs "ĐÃ GỬI" trong bảng Khách hàng.
+//
+// Kiến trúc dữ liệu (BE friend-invite-routes.ts):
+//   • currentStepIdx + nextRunAt = bước SẮP GỬI, đang nằm CHỜ trong queue (ĐÃ HẸN).
+//   • lastSentAt = thời điểm bước ĐÃ GỬI gần nhất (event sequence_step_sent).
+//   • Lazy chain: gửi xong bước N → mới hẹn bước N+1. Nên bước vừa gửi = currentStepIdx - 1.
+// ════════════════════════════════════════════════════════════════════════
+
+// Cột "Lần gửi gần nhất" — bước ĐÃ GỬI thật (tin đã tới khách). icon ✅.
+function lastSentInfo(e: Entry): { label: string; stepLabel: string | null; muted: boolean } {
+  if (!e.lastSentAt) return { label: '—', stepLabel: null, muted: true };
+  const total = totalStepsOf(e);
+  // Bước vừa gửi = currentStepIdx - 1 (vì đã hẹn bước currentStepIdx kế tiếp).
+  // Nếu không còn currentStepIdx (chuỗi xong) → bước cuối = total.
+  let sentStep: number | null = null;
+  if (e.currentStepIdx !== null && e.currentStepIdx !== undefined && e.currentStepIdx > 0) {
+    sentStep = e.currentStepIdx; // bước vừa gửi (1-based) = idx (vì idx kế = currentStepIdx, 0-based)
+  } else if (e.derivedStatus === 'sequence_done' && total) {
+    sentStep = total;
+  }
+  const stepLabel = sentStep && total ? `Bước ${sentStep}/${total}` : null;
+  return {
+    label: formatInOrgTz(e.lastSentAt, undefined, { withSeconds: true }),
+    stepLabel,
+    muted: false,
+  };
+}
+
+// Cột "Lần gửi tiếp theo" — bước ĐÃ HẸN (chưa gửi) / Đến hạn / Đã xong.
 function nextRunInfo(e: Entry): {
   label: string;
+  stepLabel: string | null;
+  icon: string;
   isDue: boolean;
   muted: boolean;
 } {
+  const total = totalStepsOf(e);
+  // 2026-06-04 — Anh chốt: KH hoàn tất chuỗi (không còn bước nào) → "Đã xong"
+  // thay vì "—" (trống trông như lỗi). sequence_done = đã gửi hết bước cuối.
+  if (e.derivedStatus === 'sequence_done') {
+    return { label: 'Đã xong', stepLabel: null, icon: '✓', isDue: false, muted: true };
+  }
   const iso = e.nextRunAt ?? null;
-  if (!iso) return { label: '—', isDue: false, muted: true };
+  if (!iso) {
+    // Không còn job kế tiếp + đã gửi ít nhất 1 bước → coi như xong chuỗi.
+    if (e.lastSentAt) return { label: 'Đã xong', stepLabel: null, icon: '✓', isDue: false, muted: true };
+    return { label: '—', stepLabel: null, icon: '', isDue: false, muted: true };
+  }
   const ts = new Date(iso).getTime();
-  if (Number.isNaN(ts)) return { label: '—', isDue: false, muted: true };
+  if (Number.isNaN(ts)) return { label: '—', stepLabel: null, icon: '', isDue: false, muted: true };
+  // Bước đã hẹn = currentStepIdx (0-based) → hiển thị 1-based = idx+1.
+  const nextStep =
+    e.currentStepIdx !== null && e.currentStepIdx !== undefined ? e.currentStepIdx + 1 : null;
+  const stepLabel = nextStep && total ? `Bước ${nextStep}/${total}` : null;
   const diff = ts - Date.now();
-  // Past + entry chưa hoàn tất → "Đến hạn" badge đỏ
+  // Past + entry chưa hoàn tất → "Đến hạn" badge đỏ (đã tới giờ nhưng chờ pickup).
   if (diff <= 0) {
     const ds = e.derivedStatus ?? null;
     const pending =
       ds === 'pending_friend' || ds === 'phase1_done' || ds === 'in_sequence' ||
       (ds == null && e.queueStatus !== 'completed' && e.queueStatus !== 'processed');
-    if (pending) return { label: 'Đến hạn', isDue: true, muted: false };
-    return { label: '—', isDue: false, muted: true };
+    if (pending) return { label: 'Đến hạn', stepLabel, icon: '🔴', isDue: true, muted: false };
+    return { label: '—', stepLabel: null, icon: '', isDue: false, muted: true };
   }
-  // Future → "trong X phút / X giờ / X ngày"
-  const sec = Math.round(diff / 1000);
-  if (sec < 60) return { label: `trong ${sec}s`, isDue: false, muted: false };
-  const min = Math.round(sec / 60);
-  if (min < 60) return { label: `trong ${min} phút`, isDue: false, muted: false };
-  const hr = Math.round(min / 60);
-  if (hr < 24) return { label: `trong ${hr} giờ`, isDue: false, muted: false };
-  const day = Math.round(hr / 24);
-  return { label: `trong ${day} ngày`, isDue: false, muted: false };
+  // ĐÃ HẸN (chưa tới giờ) — icon ⏳ + mốc giờ dd/MM HH:mm.
+  return { label: dmHm(iso), stepLabel, icon: '⏳', isDue: false, muted: false };
 }
 
 // Avatar Zalo URL có thể 404 / expire (Zalo CDN ngắn hạn) — fallback hide image
@@ -1999,15 +2122,53 @@ function statusChipLabel(qs: string | null, hasZalo: boolean | null): string {
   return qs ?? '—';
 }
 
-function stepText(e: Entry): string {
-  // P0-3 2026-05-30 — prefer BE-deterministic progressLabel (active task earliest scheduledAt).
-  if (e.progressLabel) return e.progressLabel;
-  const total = data.value?.trigger.successorSequence?.stepsCount ?? 0;
-  if (e.currentStepIdx === null) {
-    if (e.queueStatus === 'skipped_no_zalo' || e.hasZalo === false) return '—';
-    return total ? `Step 0/${total}` : '—';
+// ════════════════════════════════════════════════════════════════════════
+// 2026-06-04 — Cột "Bước hiện tại" 2 dòng (Anh chốt)
+// ════════════════════════════════════════════════════════════════════════
+// DÒNG 1 — tiến độ chuỗi x/y + màu:
+//   • Đã gửi đủ y/y  → "y/y ✅ Hoàn tất"  (xanh lá)
+//   • KH reply giữa chừng (chưa đủ) → "x/y" (đỏ)
+//   • Đang gửi dở     → "x/y" (vàng)
+//   • Chưa vào chuỗi  → "0/y" (xám) hoặc "—" nếu no-zalo
+function stepProgressLabel(e: Entry): string {
+  const total = e.sequenceTotalSteps ?? data.value?.trigger.successorSequence?.stepsCount ?? 0;
+  if (e.queueStatus === 'skipped_no_zalo' || e.hasZalo === false) return '—';
+  // Hoàn tất: BE trả derivedStatus='sequence_done' HOẶC đã gửi bước cuối.
+  if (e.derivedStatus === 'sequence_done') {
+    return total ? `${total}/${total} ✅ Hoàn tất` : 'Hoàn tất';
   }
-  return total ? `Step ${e.currentStepIdx + 1}/${total}` : `Step ${e.currentStepIdx + 1}`;
+  // Đang trong chuỗi: currentStepIdx 0-based → bước hiện tại = idx+1.
+  if (e.currentStepIdx !== null && e.currentStepIdx !== undefined) {
+    return total ? `${e.currentStepIdx + 1}/${total}` : `${e.currentStepIdx + 1}`;
+  }
+  // Chưa có bước nào (mới kết bạn, chưa vào chuỗi).
+  return total ? `0/${total}` : '—';
+}
+
+// Màu dòng 1 theo trạng thái tiến độ.
+function stepProgressClass(e: Entry): string {
+  if (e.queueStatus === 'skipped_no_zalo' || e.hasZalo === false) return 'step-muted';
+  if (e.derivedStatus === 'sequence_done') return 'step-done';   // xanh lá
+  // KH reply / pause giữa chừng → đỏ (đang dở mà KH tương tác/dừng).
+  if (e.queueStatus === 'customer_reply' || (e.pauseRemainingMs && e.pauseRemainingMs > 0)) {
+    return 'step-reply'; // đỏ
+  }
+  if (e.currentStepIdx !== null && e.currentStepIdx !== undefined) return 'step-sending'; // vàng (đang gửi)
+  return 'step-muted';
+}
+
+// DÒNG 2 — trạng thái kết bạn Phase 1.
+function phase1Label(e: Entry): string {
+  if (e.queueStatus === 'skipped_no_zalo' || e.hasZalo === false) return 'Không có Zalo';
+  const ds = e.derivedStatus ?? null;
+  if (ds === 'pending_friend') {
+    if (e.queueStatus === 'processed') return 'Đã gửi · chờ duyệt';
+    return 'Đang chờ kết bạn';
+  }
+  // phase1_done / in_sequence / sequence_done → đều đã kết bạn (hoặc đã là bạn / stranger).
+  if (ds === 'phase1_done' || ds === 'in_sequence' || ds === 'sequence_done') return 'Đã kết bạn ✓';
+  if (e.queueStatus === 'processed') return 'Đã kết bạn ✓';
+  return 'Đang chờ kết bạn';
 }
 // P0-3 2026-05-30 — tooltip cho cột Bước hiện tại: currentStepIdx + scheduledAt.
 function stepTooltip(e: Entry): string {
@@ -2028,31 +2189,20 @@ function openChat(e: Entry): void {
   if (e.lastInviteNickId) query.nickId = e.lastInviteNickId;
   void router.push({ path: '/chat', query });
 }
-function stepDots(e: Entry): string[] {
-  const total = data.value?.trigger.successorSequence?.stepsCount ?? 5;
-  const cur = e.currentStepIdx;
-  const skipped =
-    e.queueStatus === 'skipped_no_zalo' ||
-    e.hasZalo === false ||
-    e.queueStatus === 'cancelled';
-  const dotsOut: string[] = [];
-  for (let i = 0; i < total; i++) {
-    if (skipped) dotsOut.push('skip');
-    else if (cur === null) dotsOut.push('');
-    else if (e.taskStatus === 'completed') dotsOut.push('done-filled');
-    else if (i < (cur + 1)) dotsOut.push('filled');
-    else dotsOut.push('');
-  }
-  return dotsOut;
-}
+// stepDots() REMOVED 2026-06-04 — cột "Bước hiện tại" đổi sang 2 dòng text
+// (stepProgressLabel + phase1Label), không còn dùng chuỗi chấm tròn.
 
 function formatDate(iso: string): string {
   return formatInOrgTz(iso);
 }
-function hhmmss(iso: string): string {
-  const d = new Date(iso);
-  const pad = (n: number): string => String(n).padStart(2, '0');
-  return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+// hhmmss() REMOVED 2026-06-04 — thay bằng dmyhms (Monitor cần có ngày).
+// 2026-06-04 — Monitor cột Giờ: Anh yêu cầu có NGÀY. Dùng giờ VN org-tz, dạng gọn
+// dd/MM HH:mm:ss (cột hẹp, không cần năm). formatInOrgTz cho full dd/MM/yyyy → cắt năm.
+function dmyhms(iso: string): string {
+  const full = formatInOrgTz(iso, undefined, { withSeconds: true }); // dd/MM/yyyy HH:mm:ss
+  if (full === '—') return '—';
+  // "03/06/2026 13:59:49" → "03/06 13:59:49"
+  return full.replace(/^(\d{2}\/\d{2})\/\d{4} /, '$1 ');
 }
 function relativeTime(iso: string | null | undefined): string {
   if (!iso) return '—';
@@ -2089,6 +2239,95 @@ function formatLogTime(iso: string): string {
 
 // ===================================================================
 // ============ OPTION B (2026-06-03) — phase + nick dot + ago =======
+// I6 2026-06-03 — Dựng câu CHI TIẾT cụ thể cho cột "Chi tiết" (Anh chốt: Monitor gọn,
+// Log chi tiết hơn). Đọc metadata BE trả (stepIdx/totalSteps, channel, ...) để hiện
+// "Gửi bước 2/4" thay vì "Bám đuổi" cụt. verbose=true (Log) → kèm text thô từ detail.
+function detailText(ev: { type: string; detail?: unknown; metadata?: unknown }, verbose = false): string {
+  const md = (ev.metadata && typeof ev.metadata === 'object' ? ev.metadata : {}) as Record<string, unknown>;
+  const rawDetail = typeof ev.detail === 'string' ? ev.detail : '';
+  const stepIdx = typeof md.stepIdx === 'number' ? md.stepIdx : null;
+  const totalSteps = typeof md.totalSteps === 'number' ? md.totalSteps : null;
+  const channel = typeof md.channel === 'string' ? md.channel : null;
+  const restartCycle = typeof md.restartCycle === 'number' ? md.restartCycle : null;
+
+  let base = '';
+  switch (ev.type) {
+    case 'sequence_step_sent':
+    case 'follow_up':
+      base = stepIdx != null && totalSteps != null
+        ? `✉️ Gửi bước ${stepIdx + 1}/${totalSteps} — luồng chăm sóc`
+        : '✉️ Gửi bước chăm sóc';
+      break;
+    case 'sequence_step_enqueued':
+      base = stepIdx != null && totalSteps != null
+        ? `🕒 Lên lịch bước ${stepIdx + 1}/${totalSteps}`
+        : '🕒 Lên lịch bước tiếp theo';
+      break;
+    case 'sequence_done':
+      base = totalSteps != null ? `⭐ Hoàn tất luồng (${totalSteps}/${totalSteps} bước)` : '⭐ Hoàn tất luồng chăm sóc';
+      break;
+    case 'friend_request':
+    case 'friend_request_sent':
+      base = '📤 Gửi lời mời kết bạn';
+      break;
+    case 'friend_accepted':
+      base = '🤝 KH đồng ý kết bạn';
+      break;
+    case 'friend_already':
+      base = '🤝 KH đã là bạn (vào luôn bám đuổi)';
+      break;
+    case 'welcome_sent':
+    case 'welcome_message_sent':
+      base = channel === 'stranger_inbox'
+        ? '👋 Gửi tin chào (hộp người lạ)'
+        : channel === 'friend_msg'
+          ? '👋 Gửi tin chào (đã là bạn)'
+          : '👋 Gửi tin chào mừng';
+      break;
+    case 'welcome_blocked':
+      base = '🚫 KH chặn tin chào (hộp người lạ)';
+      break;
+    case 'customer_reply':
+      base = rawDetail ? `💬 KH trả lời: "${rawDetail.slice(0, 50)}${rawDetail.length > 50 ? '…' : ''}"` : '💬 KH trả lời';
+      break;
+    case 'customer_block':
+      base = '🚫 KH chặn nick — dừng chăm sóc';
+      break;
+    case 'customer_reaction_positive':
+    case 'reaction_positive':
+      base = `❤️ KH thả cảm xúc tích cực${rawDetail ? ` ${rawDetail}` : ''}`;
+      break;
+    case 'customer_reaction_negative':
+    case 'reaction_negative':
+      base = `😡 KH thả cảm xúc tiêu cực${rawDetail ? ` ${rawDetail}` : ''} — tạm dừng 48h`;
+      break;
+    case 'converted_lead':
+      base = '💎 KH chuyển thành Lead';
+      break;
+    case 'nick_hold_reset':
+      base = restartCycle != null
+        ? `⏰ Reset hàng đợi (nick offline >24h, vòng ${restartCycle})`
+        : '⏰ Reset hàng đợi (nick offline >24h)';
+      break;
+    case 'campaign_timeout':
+      base = '🚨 Mục tiêu hết hạn (worker không advance)';
+      break;
+    case 'no_zalo':
+      base = '📵 SĐT không có Zalo — gọi điện';
+      break;
+    case 'send_error':
+      base = rawDetail ? `❌ Lỗi gửi: ${rawDetail.slice(0, 60)}` : '❌ Lỗi gửi kết bạn';
+      break;
+    default:
+      base = rawDetail || phaseLabel(ev.type);
+  }
+  // Log (verbose) kèm text thô nếu khác base — để tra cứu đầy đủ.
+  if (verbose && rawDetail && !base.includes(rawDetail.slice(0, 20))) {
+    return `${base} · ${rawDetail}`;
+  }
+  return base;
+}
+
 // ===================================================================
 // 5 phase tone map (success/info/warn/danger/neutral) cho .phase-pill.
 // Đồng nhất Monitor + Log: cùng emoji + label tiếng Việt.
@@ -2250,7 +2489,7 @@ useMucTieuSocket((payload: FriendInviteClaimedPayload) => {
   const liveEv: LiveEvent = {
     id: `claimed-${payload.entryId}-${Date.now()}`,
     at: isoAt,
-    timeLabel: new Date(isoAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+    timeLabel: dmyhms(isoAt),
     type: 'friend_sent',
     icon: '🤝',
     text: `Nick <b>${_escHtml(payload.nickName)}</b> → <b>${_escHtml(payload.contactName)}</b> (#${payload.rowIndex})`,
@@ -2312,16 +2551,16 @@ onUnmounted(() => {
   --shadow-1: 0 1px 2px rgba(9, 30, 66, 0.05);
   --shadow-2: 0 4px 12px rgba(9, 30, 66, 0.12);
 
+  /* 2026-06-04 v2 — Khi nằm trong BotAutoShell, layout đã có sidebar 240px.
+     Bỏ min-width: 1280px (gây crop), max-width: 1920px (không cần),
+     dùng padding chuẩn --at-s-lg cho consistent với BlocksView. */
   background: var(--bg-page);
   color: var(--text-1);
   font-size: 13px;
   line-height: 1.45;
-  min-height: 100vh;
-  padding: 16px 24px 96px;
+  min-height: 100%;
+  padding: var(--at-s-lg, 24px);
   width: 100%;
-  min-width: 1280px;
-  max-width: 1920px;
-  margin: 0 auto;
 }
 .mtd-loading { text-align: center; padding: 80px; color: var(--text-3); }
 
@@ -2423,7 +2662,8 @@ onUnmounted(() => {
 .estatus.lead { background: var(--purple-bg); color: var(--purple); }
 .estatus.cho-crm { background: var(--warning-bg); color: #974f00; }
 .estatus.no-zalo { background: #ffebe6; color: var(--danger); }
-.estatus.paused { background: var(--bg-soft); color: var(--text-2); }
+/* I5 2026-06-03 — 🔶 Tạm dừng (chạy lại) tông cam nổi bật, phân biệt với 🛑 Dừng hẳn (đỏ) */
+.estatus.paused { background: var(--warning-bg); color: #974f00; font-weight: 600; }
 /* Phase Friend Invite UI 2026-05-30 — derivedStatus 'in_sequence' badge xanh dương */
 .estatus.in-seq { background: var(--primary-bg); color: var(--primary); }
 
@@ -2628,7 +2868,7 @@ onUnmounted(() => {
 }
 
 /* Monitor table column widths */
-.mon-table .col-time   { width: 84px; font-variant-numeric: tabular-nums; color: var(--text-2); font-size: 12px; }
+.mon-table .col-time   { width: 108px; white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--text-2); font-size: 12px; }
 .mon-table .col-phase  { width: 152px; }
 .mon-table .col-kh     { width: 200px; }
 .mon-table .col-nick   { width: 152px; }
@@ -3182,8 +3422,30 @@ tbody td { padding: 10px 14px; vertical-align: middle; }
 .entries-table .col-nickpin { width: 130px; }
 .entries-table .col-step { width: 170px; }
 .entries-table .col-status { width: 150px; }
-.entries-table .col-update { width: 130px; color: var(--text-3); }
-.entries-table .col-next { width: 130px; color: var(--text-3); }
+.entries-table .col-update { width: 150px; color: var(--text-3); }
+.entries-table .col-next { width: 150px; color: var(--text-3); }
+
+/* ════════════════════════════════════════════════════════════════════
+   2026-06-04 (Anh chốt) — Cột "Lần gửi gần nhất" + "Lần gửi tiếp theo"
+   phân biệt rõ ĐÃ GỬI (✅ tin đã tới khách) vs ĐÃ HẸN (⏳ chờ tới giờ).
+   2 dòng: D1 = nhãn trạng thái + bước, D2 = mốc giờ.
+   ════════════════════════════════════════════════════════════════════ */
+.send-cell { display: flex; flex-direction: column; gap: 2px; line-height: 1.25; }
+.send-l1 {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  font-size: 11.5px; font-weight: 600; white-space: nowrap;
+}
+.send-l2 { font-size: 11px; color: var(--text-3); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.send-step {
+  font-size: 10.5px; font-weight: 600; color: var(--text-2);
+  background: var(--bg-soft); border-radius: 4px; padding: 0 5px;
+}
+.send-ico { white-space: nowrap; }
+/* Màu trạng thái: đã gửi = xanh lá, đã hẹn = xanh dương, đến hạn = đỏ, đã xong = xám. */
+.send-sent .send-ico, .send-sent { color: #0a8f3c; }
+.send-scheduled .send-ico { color: #1565c0; }
+.send-due .send-ico { color: #d32f2f; }
+.send-done { color: var(--text-mute); font-size: 12px; }
 
 /* Avatar Zalo (Phase Friend Invite UI 2026-05-30) — 40×40 round, fallback initials. */
 .contact-avatar {
@@ -3202,16 +3464,14 @@ tbody td { padding: 10px 14px; vertical-align: middle; }
 .muted { color: var(--text-mute); font-size: 12px; }
 
 /* step bar */
-.step-bar { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-2); }
-.step-dots { display: inline-flex; gap: 3px; }
-.step-dot {
-  width: 9px; height: 9px; border-radius: 50%;
-  background: var(--border-strong);
-}
-.step-dot.filled { background: var(--primary); }
-.step-dot.done-filled { background: var(--success); }
-.step-dot.skip { background: var(--bg-soft); border: 1px dashed var(--border-strong); }
-.step-label { font-size: 11px; color: var(--text-3); font-weight: 500; }
+/* 2026-06-04 — Cột "Bước hiện tại" 2 dòng (Anh chốt). step-dots/step-bar cũ bỏ. */
+.step-cell { display: flex; flex-direction: column; gap: 2px; line-height: 1.3; }
+.step-line1 { font-size: 13px; font-weight: 700; }
+.step-line1.step-done    { color: var(--success); }          /* 3/3 xanh lá */
+.step-line1.step-sending { color: #b7791f; }                 /* đang gửi vàng */
+.step-line1.step-reply   { color: var(--danger); }           /* KH reply giữa chừng đỏ */
+.step-line1.step-muted   { color: var(--text-3); font-weight: 500; }
+.step-line2 { font-size: 11px; color: var(--text-3); }
 
 /* pagination */
 .pagination {

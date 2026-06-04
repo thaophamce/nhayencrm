@@ -1136,7 +1136,8 @@ function nickAvatarStyle(name: string): Record<string, string> {
 
 <style scoped>
 .list-detail-view {
-  padding: 24px 28px 100px;
+  /* 2026-06-04 v2 — Unified Marketing theme */
+  padding: var(--at-s-lg, 24px);
   max-width: 100%;
 }
 

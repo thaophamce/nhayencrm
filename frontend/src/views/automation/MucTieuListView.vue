@@ -183,6 +183,16 @@
                 </div>
               </div>
               <div class="row-sub">{{ progressSubLine(item) }}</div>
+              <!-- I3 2026-06-03 — ETA dự đoán còn lại (Anh chốt: font to-rõ-đậm + icon ⏱).
+                   Chỉ hiện Mục tiêu đang chạy (BE trả eta != null khi state='active'). -->
+              <div
+                v-if="item.eta"
+                class="eta-line"
+                :class="{ stalled: item.eta.mode === 'stalled' }"
+                :title="item.eta.mode === 'measured' ? 'Ước tính từ tốc độ gửi thực tế' : item.eta.mode === 'formula' ? 'Ước tính sơ bộ theo cấu hình' : 'Mục tiêu nhiều ngày không gửi được — kiểm tra nick'"
+              >
+                {{ item.eta.label }}
+              </div>
             </td>
             <td>
               <div class="avatars">
@@ -471,6 +481,9 @@ interface MucTieuListItem {
   hasZaloCount?: number;
   noZaloCount?: number;
   completedKHCount?: number;
+  // I3 2026-06-03 — ETA dự đoán còn lại (Lai A→B) + số KH còn chạy.
+  stillRunning?: number;
+  eta?: { mode: 'formula' | 'measured' | 'stalled'; etaDays: number | null; label: string } | null;
 }
 
 // NOTE: BE list response shape is defined as `BeListResponse` inside loadList()
@@ -632,6 +645,9 @@ interface BeMucTieuItem {
   scheduledAt?: string | null;
   replyCount?: number; // tolerate already-flat shape
   replyTrend?: number | null;
+  // I3 2026-06-03 — ETA + still-running từ BE.
+  stillRunning?: number;
+  eta?: { mode: 'formula' | 'measured' | 'stalled'; etaDays: number | null; label: string } | null;
 }
 
 interface ZaloAccountMini {
@@ -683,6 +699,9 @@ function adaptItem(be: BeMucTieuItem, nickMap: Map<string, ZaloAccountMini>): Mu
     hasZaloCount: be.hasZaloCount,
     noZaloCount: be.noZaloCount,
     completedKHCount: be.completedKHCount,
+    // I3 2026-06-03 — ETA + số KH còn chạy.
+    stillRunning: be.stillRunning,
+    eta: be.eta ?? null,
   };
 }
 
@@ -1029,11 +1048,9 @@ onUnmounted(() => {
   --mtl-shadow-2: 0 4px 12px rgba(9, 30, 66, 0.12);
   --mtl-shadow-panel: -8px 0 24px rgba(9, 30, 66, 0.10);
 
+  /* 2026-06-04 v2 — Nằm trong BotAutoShell, bỏ min-width: 1280px (gây crop) */
   width: 100%;
-  min-width: 1280px;
-  max-width: 1920px;
-  margin: 0 auto;
-  padding: 16px 24px 24px;
+  padding: var(--at-s-lg, 24px);
   background: var(--mtl-bg-page);
   color: var(--mtl-text-1);
   font-size: 13px;
@@ -1218,6 +1235,9 @@ tbody tr:last-child { border-bottom: none; }
 
 .row-name { font-weight: 600; color: var(--mtl-text-1); font-size: 13px; line-height: 1.3; }
 .row-sub { font-size: 11px; color: var(--mtl-text-3); margin-top: 2px; }
+/* I3 2026-06-03 — ETA dự đoán còn lại: font to-rõ-đậm + icon ⏱ (Anh chốt). */
+.eta-line { font-size: 13px; font-weight: 700; color: var(--mtl-primary, #2563eb); margin-top: 4px; letter-spacing: 0.1px; }
+.eta-line.stalled { color: #d97706; }
 .text-mute { color: var(--mtl-text-mute); }
 
 /* Progress bar */

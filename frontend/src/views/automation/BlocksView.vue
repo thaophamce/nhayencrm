@@ -396,40 +396,44 @@ async function createFolderInline() {
 </script>
 
 <style scoped>
+/* 2026-06-04 v2 — Unified Marketing theme.
+   BlocksView render TRỰC TIẾP trong .bot-auto-content của BotAutoShell.
+   KHÔNG wrap fullscreen, KHÔNG height calc, dùng --at-* tokens. */
 .blocks-view {
-  max-width: 1366px;
-  margin: 0 auto;
   display: flex;
   flex-direction: column;
-  height: calc(100vh - var(--smax-topnav-h, 52px) - 4px);
-  background: var(--at-canvas-soft, #f4f5f7);
+  height: 100%;
+  background: var(--at-surface-soft);
 }
 
-/* ─── Topbar ─── */
+/* ─── Topbar (sticky) ─── */
 .bv-topbar {
-  background: #fff;
-  border-bottom: 1px solid var(--at-hairline, #e6e8eb);
-  padding: 14px 22px;
+  background: var(--at-canvas);
+  border-bottom: 1px solid var(--at-hairline);
+  padding: var(--at-s-md) var(--at-s-lg);
   display: flex;
   align-items: center;
   justify-content: space-between;
   flex-shrink: 0;
+  position: sticky;
+  top: 0;
+  z-index: 5;
 }
 .bv-title { display: flex; align-items: center; gap: 10px; }
 .bv-icon-badge {
   width: 30px; height: 30px;
   border-radius: 8px;
   background: linear-gradient(135deg, #f59e0b, #ea580c);
-  color: #fff;
+  color: var(--at-canvas);
   display: flex; align-items: center; justify-content: center;
   font-size: 15px;
 }
 .bv-title-text {
-  font-size: 18px; font-weight: 700; color: var(--at-ink, #1f2328);
+  font-size: 18px; font-weight: 700; color: var(--at-ink);
   margin: 0;
 }
 .bv-title-count {
-  font-size: 12px; font-weight: 500; color: var(--at-muted, #6b7280);
+  font-size: 12px; font-weight: 500; color: var(--at-muted);
   margin-left: 6px;
 }
 .bv-topbar-actions { display: flex; gap: 10px; align-items: center; }
@@ -437,7 +441,7 @@ async function createFolderInline() {
 .bv-search { position: relative; width: 280px; }
 .bv-search-icon {
   position: absolute; left: 10px; top: 50%; transform: translateY(-50%);
-  color: var(--at-muted, #9ca3af); font-size: 13px;
+  color: var(--at-muted); font-size: 13px;
 }
 .bv-search-input {
   width: 100%;
@@ -449,7 +453,7 @@ async function createFolderInline() {
   font-family: inherit;
 }
 .bv-search-input:focus {
-  border-color: var(--at-primary, #3b82f6);
+  border-color: var(--at-link);
   box-shadow: 0 0 0 3px rgba(59,130,246,0.18);
 }
 
@@ -458,22 +462,22 @@ async function createFolderInline() {
   padding: 7px 13px;
   border-radius: 7px;
   border: 1px solid var(--at-hairline, #d4d7dc);
-  background: #fff;
+  background: var(--at-canvas);
   cursor: pointer;
   font-size: 12.5px; font-weight: 500;
-  color: var(--at-ink, #1f2328);
+  color: var(--at-ink);
   font-family: inherit;
   white-space: nowrap;
 }
-.bv-btn:hover { background: var(--at-canvas-soft, #f4f5f7); }
+.bv-btn:hover { background: var(--at-surface-soft); }
 .bv-btn-primary {
-  background: var(--at-primary, #3b82f6);
-  border-color: var(--at-primary, #3b82f6);
-  color: #fff;
+  background: var(--at-link);
+  border-color: var(--at-link);
+  color: var(--at-canvas);
 }
 .bv-btn-primary:hover {
-  background: var(--at-primary-dark, #1d4ed8);
-  border-color: var(--at-primary-dark, #1d4ed8);
+  background: var(--at-ink);
+  border-color: var(--at-ink);
 }
 
 /* ─── Layout ─── */
@@ -486,8 +490,8 @@ async function createFolderInline() {
 /* ─── Sidebar ─── */
 .bv-sidebar {
   width: 220px;
-  background: #fff;
-  border-right: 1px solid var(--at-hairline, #e6e8eb);
+  background: var(--at-canvas);
+  border-right: 1px solid var(--at-hairline);
   padding: 14px 8px;
   overflow-y: auto;
   flex-shrink: 0;
@@ -496,7 +500,7 @@ async function createFolderInline() {
 .bv-sidebar-head {
   display: flex; align-items: center; gap: 6px;
   font-size: 10.5px; font-weight: 700;
-  color: var(--at-muted, #6b7280);
+  color: var(--at-muted);
   text-transform: uppercase;
   letter-spacing: 0.6px;
   padding: 6px 10px 4px;
@@ -504,7 +508,7 @@ async function createFolderInline() {
 .bv-sidebar-hint {
   margin-left: auto;
   font-size: 9.5px;
-  color: var(--at-muted, #9ca3af);
+  color: var(--at-muted);
   font-weight: 500;
   text-transform: none;
   letter-spacing: 0;
@@ -520,14 +524,14 @@ async function createFolderInline() {
   border-radius: 6px;
   cursor: pointer;
   font-size: 12.5px;
-  color: var(--at-ink, #1f2328);
+  color: var(--at-ink);
   background: transparent;
   border: 0;
   text-align: left;
   font-family: inherit;
   margin-bottom: 1px;
 }
-.bv-folder-item:hover { background: var(--at-canvas-soft, #f4f5f7); }
+.bv-folder-item:hover { background: var(--at-surface-soft); }
 .bv-folder-item.is-active {
   background: rgba(59,130,246,0.12);
   color: #1d4ed8;
@@ -540,8 +544,8 @@ async function createFolderInline() {
 }
 .bv-folder-count {
   font-size: 11px;
-  color: var(--at-muted, #6b7280);
-  background: var(--at-canvas-soft, #f4f5f7);
+  color: var(--at-muted);
+  background: var(--at-surface-soft);
   padding: 1px 6px;
   border-radius: 8px;
   font-weight: 500;
@@ -551,14 +555,14 @@ async function createFolderInline() {
   color: #1d4ed8;
 }
 .bv-folder-divider {
-  border-top: 1px solid var(--at-hairline, #e6e8eb);
+  border-top: 1px solid var(--at-hairline);
   margin: 10px 4px 8px;
 }
-.bv-folder-archived { color: var(--at-muted, #9ca3af); }
+.bv-folder-archived { color: var(--at-muted); }
 .bv-new-folder {
   display: flex; align-items: center; gap: 6px;
   padding: 7px 10px;
-  color: var(--at-primary, #3b82f6);
+  color: var(--at-link);
   font-size: 11.5px; font-weight: 500;
   cursor: pointer;
   border-radius: 6px;
@@ -587,7 +591,7 @@ async function createFolderInline() {
 }
 .bv-filter-label {
   font-size: 11px; font-weight: 600;
-  color: var(--at-muted, #6b7280);
+  color: var(--at-muted);
   text-transform: uppercase;
   letter-spacing: 0.4px;
   margin-right: 4px;
@@ -599,9 +603,9 @@ async function createFolderInline() {
 
 .bv-chip {
   display: inline-flex; align-items: center; gap: 4px;
-  background: #fff;
-  color: var(--at-muted, #6b7280);
-  border: 1px solid var(--at-hairline, #e6e8eb);
+  background: var(--at-canvas);
+  color: var(--at-muted);
+  border: 1px solid var(--at-hairline);
   border-radius: 11px;
   padding: 3px 9px;
   font-size: 11px;
@@ -611,8 +615,8 @@ async function createFolderInline() {
   font-family: inherit;
 }
 .bv-chip:hover {
-  background: var(--at-canvas-soft, #f4f5f7);
-  color: var(--at-ink, #1f2328);
+  background: var(--at-surface-soft);
+  color: var(--at-ink);
 }
 .bv-chip.is-active {
   background: rgba(59,130,246,0.12);
@@ -634,9 +638,9 @@ async function createFolderInline() {
   gap: 14px;
 }
 .bv-card {
-  background: #fff;
-  border: 1px solid var(--at-hairline, #e6e8eb);
-  border-left: 4px solid var(--at-primary, #3b82f6);
+  background: var(--at-canvas);
+  border: 1px solid var(--at-hairline);
+  border-left: 4px solid var(--at-link);
   border-radius: 9px;
   padding: 14px;
   cursor: pointer;
@@ -650,7 +654,7 @@ async function createFolderInline() {
 .bv-card.kind-request_friend { border-left-color: #10b981; }
 .bv-card.kind-update_status { border-left-color: #8b5cf6; }
 .bv-card:hover {
-  border-color: var(--at-primary, #3b82f6);
+  border-color: var(--at-link);
   box-shadow: 0 4px 16px rgba(0,0,0,0.08);
   transform: translateY(-1px);
 }
@@ -660,13 +664,13 @@ async function createFolderInline() {
   border-radius: 6px;
   background: transparent;
   border: 0;
-  color: var(--at-muted, #6b7280);
+  color: var(--at-muted);
   cursor: pointer;
   font-size: 14px;
   opacity: 0;
   transition: opacity 0.12s;
 }
-.bv-card-more:hover { background: var(--at-canvas-soft, #f4f5f7); color: var(--at-ink); }
+.bv-card-more:hover { background: var(--at-surface-soft); color: var(--at-ink); }
 .bv-card:hover .bv-card-more { opacity: 1; }
 
 .bv-card-head { display: flex; align-items: flex-start; gap: 10px; }
@@ -684,7 +688,7 @@ async function createFolderInline() {
 .bv-card-name-wrap { flex: 1; min-width: 0; padding-right: 22px; }
 .bv-card-name {
   font-size: 13.5px; font-weight: 600;
-  color: var(--at-ink, #1f2328);
+  color: var(--at-ink);
   line-height: 1.3;
   overflow: hidden;
   display: -webkit-box;
@@ -692,7 +696,7 @@ async function createFolderInline() {
   -webkit-box-orient: vertical;
 }
 .bv-card-kind {
-  font-size: 11px; color: var(--at-muted, #6b7280);
+  font-size: 11px; color: var(--at-muted);
   margin-top: 2px;
   display: flex; align-items: center; gap: 4px;
   flex-wrap: wrap;
@@ -700,13 +704,13 @@ async function createFolderInline() {
 
 .bv-card-preview {
   font-size: 12px;
-  color: var(--at-muted, #6b7280);
+  color: var(--at-muted);
   line-height: 1.45;
   overflow: hidden;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
-  background: var(--at-canvas-soft, #f4f5f7);
+  background: var(--at-surface-soft);
   padding: 8px 10px;
   border-radius: 6px;
   min-height: 42px;
@@ -719,16 +723,16 @@ async function createFolderInline() {
 }
 .bv-meta-chip {
   font-size: 10.5px;
-  color: var(--at-muted, #9ca3af);
+  color: var(--at-muted);
   background: transparent;
-  border: 1px solid var(--at-hairline, #e6e8eb);
+  border: 1px solid var(--at-hairline);
   padding: 2px 7px;
   border-radius: 8px;
   font-weight: 500;
 }
 .bv-meta-chip.usage {
-  background: var(--at-canvas-soft, #f4f5f7);
-  color: var(--at-muted, #6b7280);
+  background: var(--at-surface-soft);
+  color: var(--at-muted);
 }
 .bv-meta-chip.variants {
   background: #fef3c7;
@@ -755,19 +759,19 @@ async function createFolderInline() {
   align-items: center; justify-content: center;
   padding: 60px 20px;
   text-align: center;
-  background: #fff;
-  border: 1px solid var(--at-hairline, #e6e8eb);
+  background: var(--at-canvas);
+  border: 1px solid var(--at-hairline);
   border-radius: 9px;
   margin: 20px 0;
 }
 .bv-empty-icon { font-size: 36px; margin-bottom: 10px; }
 .bv-empty-title {
   font-size: 15px; font-weight: 600;
-  color: var(--at-ink, #1f2328);
+  color: var(--at-ink);
   margin-bottom: 6px;
 }
 .bv-empty-desc {
-  font-size: 12.5px; color: var(--at-muted, #6b7280);
+  font-size: 12.5px; color: var(--at-muted);
   max-width: 420px; line-height: 1.5;
   margin-bottom: 14px;
 }

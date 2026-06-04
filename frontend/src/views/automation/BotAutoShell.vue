@@ -92,8 +92,9 @@ watch(() => route.path, () => { drawerOpen.value = false; });
 <style scoped>
 .bot-auto-shell {
   display: flex;
-  height: calc(100vh - 64px);
+  height: calc(100vh - var(--smax-topnav-h, 46px));
   position: relative;
+  background: var(--at-canvas);
 }
 
 /* ─── Mobile hamburger trigger (visible <768) ─────────────────────────── */
@@ -257,11 +258,14 @@ watch(() => route.path, () => { drawerOpen.value = false; });
 
 .bot-auto-content {
   flex: 1;
-  padding: var(--at-s-xxl);
+  padding: 0;
   overflow-y: auto;
-  background: var(--at-canvas);
+  background: var(--at-surface-soft);
   min-width: 0; /* prevent grid overflow */
 }
+/* 2026-06-04 — Mỗi view tự render layout topbar+content phù hợp shell.
+   Padding cũ 48px (--at-s-xxl) quá rộng cho HD 1366. Bỏ padding,
+   content view dùng .at-page-shell + .at-page-topbar + .at-page-body chuẩn. */
 
 /* ─── TABLET (768-1023): icon-only sidebar rail ──────────────────────── */
 @media (min-width: 768px) and (max-width: 1023px) {
