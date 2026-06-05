@@ -257,7 +257,7 @@ async function submit() {
     const activateResp = await api.post(`/automation/triggers/${triggerId}/activate`);
     console.log('[fi-create] activated:', activateResp.data);
 
-    router.push(`/automation/muc-tieu/${triggerId}`);
+    router.push(`/marketing/triggers/${triggerId}`);
   } catch (err: any) {
     alert('Tạo Mục tiêu thất bại: ' + (err?.response?.data?.error ?? err?.message ?? 'unknown'));
   } finally {

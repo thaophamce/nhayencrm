@@ -20,3 +20,14 @@ TODO.local.md
 /frontend/public/friends-v2.html
 /frontend/public/Giao Diện Tính Năng*.xlsx
 backend/static/
+
+# Dev/AI tooling + artifacts (không commit) — 2026-06-05
+.claude/
+.understand-anything/
+screenshots/
+inspect-log.mjs
+inspect-*.mjs
+/plans/
+AGENTS.md
+TODOS.md
+frontend/public/mockups/

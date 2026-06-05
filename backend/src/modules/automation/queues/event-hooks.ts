@@ -27,8 +27,34 @@ import {
   notifyFriendAccept,
   notifyFriendReject,
   notifyCustomerReply,
+  notifyReactionPositive,
+  notifyReactionNegative,
 } from './internal-notify-worker.js';
 import { enqueueSequenceStart } from './sequence-step-worker.js';
+
+// ════════════════════════════════════════════════════════════════════════
+// I13 2026-06-04 — Thông báo nội bộ per-event (Anh chốt bật/tắt riêng từng event)
+// ════════════════════════════════════════════════════════════════════════
+// Đọc trigger.notifyChannels[eventKey].owner. Mặc định BẬT (true) khi:
+//   - notifyChannels null (trigger cũ chưa cấu hình → giữ hành vi cũ luôn báo)
+//   - eventKey không có trong config
+// Chỉ TẮT khi config rõ ràng owner=false. eventKey: welcome|thankYou|remind|rejected|
+// reply|reactionPositive|reactionNegative|lead|block|friendAccept|friendReject.
+export async function shouldNotifyOwner(triggerId: string, eventKey: string): Promise<boolean> {
+  try {
+    const t = await prisma.automationTrigger.findUnique({
+      where: { id: triggerId },
+      select: { notifyChannels: true },
+    });
+    const nc = t?.notifyChannels as Record<string, { owner?: boolean }> | null;
+    if (!nc || typeof nc !== 'object') return true; // chưa cấu hình → giữ hành vi cũ
+    const ev = nc[eventKey];
+    if (!ev || ev.owner === undefined) return true; // event không cấu hình → mặc định báo
+    return ev.owner !== false;
+  } catch {
+    return true; // lỗi đọc → an toàn: vẫn báo
+  }
+}
 
 // ════════════════════════════════════════════════════════════════════════
 // Pause flag helpers
@@ -69,7 +95,9 @@ export async function getContactPauseRemaining(
 // ════════════════════════════════════════════════════════════════════════
 // Helper: Cancel pending sequence-step jobs cho 1 contact trong 1 trigger
 // ════════════════════════════════════════════════════════════════════════
-async function cancelPendingStepsForContact(
+// I8 2026-06-03: export để message-handler (customer_reply path) tái dùng — trước
+// đây nó dừng chuỗi qua automationTask stub (no-op) → BullMQ jobs vẫn fire (spam).
+export async function cancelPendingStepsForContact(
   triggerId: string,
   contactId: string,
 ): Promise<{ removed: number }> {
@@ -105,6 +133,98 @@ async function cancelPendingStepsForContact(
 }
 
 // ════════════════════════════════════════════════════════════════════════
+// I10 2026-06-04 — Tin 2: gửi tin Cảm ơn KH đã đồng ý kết bạn
+// ════════════════════════════════════════════════════════════════════════
+// Gửi qua friend channel (KH đã accept) sau delaySeconds. Render template
+// {gender}/{name}/{sale} (pattern welcome-probe renderGreeting). Resolve UID qua
+// Friend (per-nick). Fire-and-forget với delay nhỏ (app process sống lâu).
+async function sendThankYouMessage(input: {
+  orgId: string;
+  triggerId: string;
+  contactId: string;
+  nickId: string;
+  template: string;
+  delaySeconds: number;
+}): Promise<void> {
+  const { orgId, triggerId, contactId, nickId, template, delaySeconds } = input;
+
+  const doSend = async (): Promise<void> => {
+    const [friend, contact, ownerUser] = await Promise.all([
+      prisma.friend.findFirst({
+        where: { zaloAccountId: nickId, contactId },
+        select: { zaloUidInNick: true },
+      }),
+      prisma.contact.findUnique({
+        where: { id: contactId },
+        select: { fullName: true, gender: true },
+      }),
+      prisma.user.findFirst({
+        where: { zaloAccounts: { some: { id: nickId } } },
+        select: { fullName: true },
+      }),
+    ]);
+    if (!friend?.zaloUidInNick) {
+      logger.warn(`[thank-you] no friend UID for contact=${contactId} nick=${nickId}, skip`);
+      return;
+    }
+    // Render {gender}/{name}/{sale} — đồng nhất welcome-probe renderGreeting.
+    const genderStr = contact?.gender === 'female' ? 'Chị' : contact?.gender === 'male' ? 'Anh' : 'Anh Chị';
+    const name = (contact?.fullName ?? '').trim().split(/\s+/).pop() ?? 'Anh Chị';
+    const sale = (ownerUser?.fullName ?? 'em').trim().split(/\s+/).pop() ?? 'em';
+    const msg = template.replaceAll('{gender}', genderStr).replaceAll('{name}', name).replaceAll('{sale}', sale);
+
+    const { zaloOps } = await import('../../../shared/zalo-operations.js');
+    await zaloOps.sendMessage(nickId, friend.zaloUidInNick, 0, { msg });
+
+    await prisma.automationEventLog.create({
+      data: { orgId, triggerId, contactId, nickId, eventType: 'thank_you_sent', detail: msg.slice(0, 200) },
+    }).catch(() => null);
+    logger.info(`[thank-you] sent contact=${contactId} nick=${nickId}`);
+  };
+
+  const delayMs = Math.max(0, (delaySeconds ?? 60) * 1000);
+  if (delayMs === 0) {
+    await doSend();
+  } else {
+    // Delay nhỏ (mặc định 60s). Process app sống lâu → setTimeout an toàn cho ca này.
+    setTimeout(() => { void doSend().catch((e) => logger.warn(`[thank-you] delayed send failed: ${e?.message ?? e}`)); }, delayMs);
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// I12 2026-06-04 — Tin 3 (nhắc) + Tin 4 (từ chối): gửi qua HỘP NGƯỜI LẠ
+// ════════════════════════════════════════════════════════════════════════
+// Dùng chung Tin 3 + Tin 4 — gửi tin tới KH CHƯA là bạn (allowStrangerMessage=true),
+// nhận UID trực tiếp. Render {gender}/{name}/{sale} + log eventType + audit.
+export async function sendStrangerFollowUp(input: {
+  orgId: string;
+  triggerId: string;
+  contactId: string;
+  nickId: string;
+  uid: string;
+  template: string;
+  eventType: string;
+}): Promise<void> {
+  const { orgId, triggerId, contactId, nickId, uid, template, eventType } = input;
+  const [contact, ownerUser] = await Promise.all([
+    prisma.contact.findUnique({ where: { id: contactId }, select: { fullName: true, gender: true } }),
+    prisma.user.findFirst({ where: { zaloAccounts: { some: { id: nickId } } }, select: { fullName: true } }),
+  ]);
+  const genderStr = contact?.gender === 'female' ? 'Chị' : contact?.gender === 'male' ? 'Anh' : 'Anh Chị';
+  const name = (contact?.fullName ?? '').trim().split(/\s+/).pop() ?? 'Anh Chị';
+  const sale = (ownerUser?.fullName ?? 'em').trim().split(/\s+/).pop() ?? 'em';
+  const msg = template.replaceAll('{gender}', genderStr).replaceAll('{name}', name).replaceAll('{sale}', sale);
+
+  const { zaloOps } = await import('../../../shared/zalo-operations.js');
+  await zaloOps.sendMessage(nickId, uid, 0, { msg, allowStrangerMessage: true });
+
+  await prisma.automationEventLog.create({
+    data: { orgId, triggerId, contactId, nickId, eventType, detail: msg.slice(0, 200) },
+  }).catch(() => null);
+  logger.info(`[stranger-followup] sent ${eventType} contact=${contactId} nick=${nickId}`);
+}
+
+// ════════════════════════════════════════════════════════════════════════
 // HOOK 1: friend_accepted
 // ════════════════════════════════════════════════════════════════════════
 export async function onFriendAccepted(input: {
@@ -127,6 +247,10 @@ export async function onFriendAccepted(input: {
         successorSequenceId: true,
         sequenceStartDelayMinutes: true,
         pauseOnActivityHours: true,
+        // I10 2026-06-04 — Tin 2 Cảm ơn KH đã đồng ý KB (gửi sau khi accept).
+        thankYouTemplate: true,
+        thankYouDelaySeconds: true,
+        enableThankYou: true,
       },
     }),
     prisma.contact.findUnique({
@@ -169,8 +293,24 @@ export async function onFriendAccepted(input: {
     });
   }
 
-  // Fire internal notify (M51.4-a)
-  if (nick?.ownerUserId) {
+  // ── I10 2026-06-04 — Tin 2: Cảm ơn KH đã đồng ý kết bạn ──
+  // Gửi qua friend channel (KH đã accept) sau thankYouDelaySeconds. KHÁC Tin 1 welcome
+  // (gửi sau khi MỜI, không chờ accept). Chỉ gửi khi bật + có template.
+  if (trigger.enableThankYou && trigger.thankYouTemplate?.trim()) {
+    void sendThankYouMessage({
+      orgId,
+      triggerId,
+      contactId,
+      nickId,
+      template: trigger.thankYouTemplate,
+      delaySeconds: trigger.thankYouDelaySeconds ?? 60,
+    }).catch((err) => {
+      logger.warn(`[hook:friend_accepted] sendThankYou failed contact=${contactId}: ${err?.message ?? err}`);
+    });
+  }
+
+  // Fire internal notify (M51.4-a) — I13: tôn trọng cờ notifyChannels.friendAccept.
+  if (nick?.ownerUserId && (await shouldNotifyOwner(triggerId, 'friendAccept'))) {
     await notifyFriendAccept({
       orgId,
       targetUserId: nick.ownerUserId,
@@ -224,8 +364,8 @@ export async function onFriendRejected(input: {
   });
 
   // P3: KHÔNG pause — sequence vẫn chạy qua stranger inbox.
-  // M51.4-b notify low priority
-  if (nick?.ownerUserId) {
+  // M51.4-b notify low priority — I13: tôn trọng cờ notifyChannels.friendReject.
+  if (nick?.ownerUserId && (await shouldNotifyOwner(triggerId, 'friendReject'))) {
     await notifyFriendReject({
       orgId,
       targetUserId: nick.ownerUserId,
@@ -318,8 +458,8 @@ export async function onCustomerReply(input: {
       })
     : null;
 
-  // Fire KHẨN notify (M51.4-c)
-  if (nick?.ownerUserId) {
+  // Fire KHẨN notify (M51.4-c) — I13: tôn trọng cờ notifyChannels.reply.
+  if (nick?.ownerUserId && (await shouldNotifyOwner(triggerId, 'reply'))) {
     await notifyCustomerReply({
       orgId,
       targetUserId: nick.ownerUserId,
@@ -349,15 +489,12 @@ export async function onCustomerBlock(input: {
 }): Promise<void> {
   const { orgId, triggerId, contactId, nickId } = input;
 
-  await prisma.automationEventLog.create({
-    data: {
-      orgId,
-      triggerId,
-      contactId,
-      nickId,
-      eventType: 'customer_block',
-    },
-  });
+  // FIX 2026-06-03 (code-review CONFIRMED): KHÔNG ghi automationEventLog ở đây nữa.
+  // Caller duy nhất (friend-event-handler.ts:498) đã logEvent('customer_block') với
+  // summary rich ("🚫 {tên} đã chặn nick {nick}") + metadata TRƯỚC khi gọi hook này.
+  // Bản trước ghi 2 lần → timeline hiện block 2 dòng. onCustomerBlock giờ chỉ lo
+  // cancel jobs + pause (副 effect), caller lo log + notify + entry status.
+  const _ = { orgId, nickId }; void _; // giữ params cho signature ổn định
 
   // Cancel all pending steps (KH chặn → không gửi tin nữa)
   await cancelPendingStepsForContact(triggerId, contactId);
@@ -393,6 +530,18 @@ export async function onCustomerReaction(input: {
   const { orgId, triggerId, contactId, nickId, emoji } = input;
   const sentiment = classifyReactionEmoji(emoji);
 
+  // FIX 2026-06-03 (code-review CONFIRMED) — DEDUP chống Zalo gửi ~10 reaction event
+  // liên tiếp cho 1 lần thả (xem zalo-listener-factory.ts:96 "Zalo gửi 10 event liên tiếp").
+  // Không guard → score ±5 chạy 10×, 10 event-log, 10 notify, pause re-set 10×. SETNX
+  // TTL 30s trên (trigger, contact, sentiment): chỉ lần đầu trong 30s chạy thật.
+  const redis = getBullMQRedis();
+  const dedupKey = `reaction-dedup:${triggerId}:${contactId}:${sentiment}`;
+  const firstTime = await redis.set(dedupKey, '1', 'EX', 30, 'NX');
+  if (firstTime === null) {
+    // Đã xử lý reaction cùng sentiment cho KH này trong 30s qua — bỏ qua bản lặp.
+    return;
+  }
+
   await prisma.automationEventLog.create({
     data: {
       orgId,
@@ -404,9 +553,26 @@ export async function onCustomerReaction(input: {
     },
   });
 
+  // I5 2026-06-03 — resolve nick owner + contact name cho notify nội bộ.
+  // Anh chốt: tích cực báo dạng tích cực, tiêu cực báo dạng tiêu cực.
+  const [trigger, contact, nick] = await Promise.all([
+    prisma.automationTrigger.findUnique({
+      where: { id: triggerId },
+      select: { name: true },
+    }),
+    prisma.contact.findUnique({
+      where: { id: contactId },
+      select: { fullName: true, phone: true },
+    }),
+    prisma.zaloAccount.findUnique({
+      where: { id: nickId },
+      select: { displayName: true, ownerUserId: true },
+    }),
+  ]);
+
   // Anh chốt 2026-06-01:
-  //   - positive: KHÔNG dừng, score++
-  //   - negative: pause 48h (lâu hơn reply 24h) + score--
+  //   - positive: KHÔNG dừng, score++ , báo nội bộ dạng tích cực (normal)
+  //   - negative: pause 48h (lâu hơn reply 24h) + score-- , báo nội bộ dạng tiêu cực (high)
   //   - neutral: KHÔNG hành động
   if (sentiment === 'negative') {
     await setContactPauseFlag(triggerId, contactId, 48);
@@ -419,6 +585,21 @@ export async function onCustomerReaction(input: {
         data: { leadScore: { decrement: 5 } },
       })
       .catch(() => null);
+
+    if (nick?.ownerUserId && (await shouldNotifyOwner(triggerId, 'reactionNegative'))) {
+      await notifyReactionNegative({
+        orgId,
+        targetUserId: nick.ownerUserId,
+        contactId,
+        contactName: contact?.fullName ?? '',
+        contactPhone: contact?.phone ?? '',
+        nickId,
+        nickName: nick.displayName ?? '',
+        triggerId,
+        triggerName: trigger?.name ?? '',
+        emoji,
+      });
+    }
   } else if (sentiment === 'positive') {
     // Score++, KHÔNG dừng
     await prisma.contact
@@ -427,6 +608,21 @@ export async function onCustomerReaction(input: {
         data: { leadScore: { increment: 5 } },
       })
       .catch(() => null);
+
+    if (nick?.ownerUserId && (await shouldNotifyOwner(triggerId, 'reactionPositive'))) {
+      await notifyReactionPositive({
+        orgId,
+        targetUserId: nick.ownerUserId,
+        contactId,
+        contactName: contact?.fullName ?? '',
+        contactPhone: contact?.phone ?? '',
+        nickId,
+        nickName: nick.displayName ?? '',
+        triggerId,
+        triggerName: trigger?.name ?? '',
+        emoji,
+      });
+    }
   }
 }
 

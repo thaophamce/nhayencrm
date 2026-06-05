@@ -171,14 +171,26 @@ const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: true },
   },
   // Phase 7 — Marketing framework (Khối / Luồng kịch bản / Mục tiêu / Broadcast)
+  // 2026-06-05 — Anh chốt: hợp nhất route cụm "Mục tiêu" về /marketing/triggers.
+  // TriggersView.vue cũ (catalog trigger event-based) ĐÃ BỎ — /marketing/triggers
+  // giờ trỏ thẳng MucTieuListView (table + side panel Wave 3). Toàn bộ list/detail/
+  // wizard về children shell /marketing để dùng sidebar Marketing chung + canonical
+  // /marketing/* thống nhất. THỨ TỰ children: literal (tao-moi, new/friend-invite)
+  // PHẢI đứng trước param (:id) để Vue Router không match :id='tao-moi'.
   {
     path: '/marketing',
     component: () => import('@/views/automation/BotAutoShell.vue'),
     meta: { requiresAuth: true },
     redirect: '/marketing/triggers',
     children: [
-      { path: 'triggers',                   name: 'Marketing.Triggers',           component: () => import('@/views/automation/TriggersView.vue') },
+      // Wizard tạo/sửa Mục tiêu — literal, đứng TRƯỚC triggers/:id.
+      { path: 'triggers/tao-moi',           name: 'Marketing.MucTieuCreate',      component: () => import('@/views/automation/MucTieuWizard.vue') },
+      // Legacy create view (friend-invite) — literal, giữ cho deep-link/nút cũ.
       { path: 'triggers/new/friend-invite', name: 'Marketing.FriendInviteCreate', component: () => import('@/views/automation/FriendInviteCreateView.vue') },
+      // Mục tiêu — danh sách (thay TriggersView.vue cũ đã bỏ).
+      { path: 'triggers',     name: 'Marketing.MucTieuList',   component: () => import('@/views/automation/MucTieuListView.vue') },
+      // Mục tiêu — chi tiết (Dashboard + Log). Param, đứng SAU mọi literal triggers/*.
+      { path: 'triggers/:id', name: 'Marketing.MucTieuDetail', component: () => import('@/views/automation/MucTieuDetailView.vue') },
       { path: 'blocks',     name: 'Marketing.Blocks',     component: () => import('@/views/automation/BlocksView.vue') },
       { path: 'sequences',           name: 'Marketing.Sequences',     component: () => import('@/views/automation/SequencesView.vue') },
       { path: 'sequences/:id/stats', name: 'Marketing.SequenceStats', component: () => import('@/views/automation/SequenceStatsView.vue') },
@@ -186,43 +198,6 @@ const routes: RouteRecordRaw[] = [
       { path: 'lists',      name: 'Marketing.Lists',      component: () => import('@/views/automation/ListsView.vue') },
       { path: 'lists/:id',  name: 'Marketing.ListDetail', component: () => import('@/views/automation/ListDetailView.vue') },
     ],
-  },
-  // Phase Marketing rename 2026-05-23 — "Mục tiêu" namespace alias.
-  // Ngày 2 (2026-05-30): refactored thành MucTieuWizard 3-step chính chủ + accept ?listId query.
-  // Route /marketing/triggers/new/friend-invite vẫn alias cho backward compat (xem trên).
-  {
-    path: '/automation/muc-tieu/tao-moi',
-    name: 'Marketing.MucTieuCreate',
-    component: () => import('@/views/automation/MucTieuWizard.vue'),
-    meta: { requiresAuth: true },
-  },
-  // Wave 3 (2026-05-30) — MucTieuListView v1 (table + side panel)
-  // Đặt dưới shell BotAutoShell để có sidebar Marketing chung.
-  {
-    path: '/automation/muc-tieu',
-    component: () => import('@/views/automation/BotAutoShell.vue'),
-    meta: { requiresAuth: true },
-    children: [
-      { path: '', name: 'Marketing.MucTieuList', component: () => import('@/views/automation/MucTieuListView.vue') },
-      // Wave 3 Day 1 (2026-05-30) — Mục tiêu detail v1 (Dashboard + Log tab).
-      // 2026-06-02: TriggerDetailView legacy DELETED — deep link cũ redirect tại block dưới.
-      { path: ':id', name: 'Marketing.MucTieuDetail', component: () => import('@/views/automation/MucTieuDetailView.vue') },
-    ],
-  },
-  // Alias mới /marketing/muc-tieu trỏ về list view (giữ namespace marketing thống nhất)
-  { path: '/marketing/muc-tieu', redirect: '/automation/muc-tieu' },
-  // Alias detail page dưới namespace marketing/* (memory: keep marketing namespace unified)
-  {
-    path: '/marketing/muc-tieu/:id',
-    redirect: (to: RouteLocation) => ({ path: `/automation/muc-tieu/${to.params.id}` }),
-  },
-  // 2026-06-02 — Anh chốt: deprecate TriggerDetailView legacy. Mọi deep link cũ
-  // /marketing/triggers/:id redirect sang UI mới /automation/muc-tieu/:id (MucTieuDetailView
-  // có Pause/Resume + safetyRules card M13). Đặt SAU /marketing children block để Vue
-  // Router không bị conflict với /marketing/triggers/new/friend-invite (route literal).
-  {
-    path: '/marketing/triggers/:id',
-    redirect: (to: RouteLocation) => ({ path: `/automation/muc-tieu/${to.params.id}` }),
   },
   // Backward compat redirect — URL /automation/bot/* cũ vẫn hoạt động
   { path: '/automation/bot',              redirect: '/marketing/triggers' },

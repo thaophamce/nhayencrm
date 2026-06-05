@@ -72,56 +72,65 @@
       </div>
     </div>
 
-    <!-- ================== TABLE ================== -->
+    <!-- ================== TABLE 10 cột (anh chốt 2026-06-05) ================== -->
+    <!-- STT · Ngày tạo · Tên · Tệp KH · Nick · Phase 1 · Phase 2 · Phản hồi · Trạng thái · Ngày kết thúc -->
     <div class="table-card">
-      <table>
+      <table class="mt10">
         <thead>
           <tr>
+            <th class="col-stt center">#</th>
             <th
-              class="col-name"
+              class="col-created"
               :class="{ sorted: sortKey === 'created_desc' }"
               @click="sortKey = 'created_desc'"
             >
-              Mục tiêu
+              Ngày tạo
               <span class="sort-arrow">{{ sortKey === 'created_desc' ? '▼' : '⇅' }}</span>
             </th>
-            <th class="col-list">Tệp KH <span class="sort-arrow">⇅</span></th>
+            <th class="col-name">Mục tiêu</th>
+            <th class="col-list">Tệp KH</th>
+            <th class="col-nick center">Nick</th>
             <th
-              class="col-progress"
+              class="col-p1"
               :class="{ sorted: sortKey === 'progress_desc' }"
               @click="sortKey = 'progress_desc'"
             >
-              Tiến độ
+              Phase 1 · Mời KB
               <span class="sort-arrow">{{ sortKey === 'progress_desc' ? '▼' : '⇅' }}</span>
             </th>
-            <th class="col-nick">Nick <span class="sort-arrow">⇅</span></th>
+            <th class="col-p2">Phase 2 · Bám đuổi</th>
             <th
-              class="col-reply"
+              class="col-reply right"
               :class="{ sorted: sortKey === 'reply_desc' }"
               @click="sortKey = 'reply_desc'"
             >
               Phản hồi
               <span class="sort-arrow">{{ sortKey === 'reply_desc' ? '▼' : '⇅' }}</span>
             </th>
-            <th class="col-status">Trạng thái <span class="sort-arrow">⇅</span></th>
+            <th class="col-status">Trạng thái</th>
+            <th class="col-end">Ngày kết thúc</th>
           </tr>
         </thead>
         <tbody>
           <!-- Loading skeleton -->
           <template v-if="loading && items.length === 0">
             <tr v-for="i in 8" :key="`sk-${i}`" class="skeleton-row">
+              <td><div class="sk-bar sk-bar-reply"></div></td>
+              <td><div class="sk-bar sk-bar-sub"></div></td>
               <td><div class="sk-bar sk-bar-name"></div><div class="sk-bar sk-bar-sub"></div></td>
               <td><div class="sk-bar sk-bar-name"></div><div class="sk-bar sk-bar-sub"></div></td>
-              <td><div class="sk-bar sk-bar-progress"></div></td>
               <td><div class="sk-bar sk-bar-nick"></div></td>
+              <td><div class="sk-bar sk-bar-progress"></div></td>
+              <td><div class="sk-bar sk-bar-progress"></div></td>
               <td><div class="sk-bar sk-bar-reply"></div></td>
               <td><div class="sk-bar sk-bar-status"></div></td>
+              <td><div class="sk-bar sk-bar-sub"></div></td>
             </tr>
           </template>
 
           <!-- Error state -->
           <tr v-else-if="error">
-            <td colspan="6" class="empty-cell">
+            <td colspan="10" class="empty-cell">
               <div class="empty-state">
                 <div class="empty-icon">⚠️</div>
                 <div class="empty-title">Không tải được danh sách</div>
@@ -133,7 +142,7 @@
 
           <!-- Empty state -->
           <tr v-else-if="!loading && items.length === 0">
-            <td colspan="6" class="empty-cell">
+            <td colspan="10" class="empty-cell">
               <div class="empty-state">
                 <div class="empty-icon">🎯</div>
                 <div class="empty-title">
@@ -157,50 +166,38 @@
 
           <!-- Data rows -->
           <tr
-            v-for="item in items"
+            v-for="(item, idx) in items"
             v-else
             :key="item.id"
             :class="{ active: activeId === item.id }"
             @click="onRowClick(item)"
           >
+            <!-- 1. STT -->
+            <td class="stt-cell">{{ (page - 1) * pageSize + idx + 1 }}</td>
+
+            <!-- 2. Ngày tạo -->
+            <td class="date-cell">{{ formatDateTime(item.createdAt) }}</td>
+
+            <!-- 3. Mục tiêu (tên + luồng kịch bản) -->
             <td>
               <div class="row-name">{{ item.name }}</div>
-              <div class="row-sub">tạo {{ formatShortDate(item.createdAt) }} bởi {{ item.createdBy?.fullName ?? '—' }}</div>
+              <div class="row-sub">{{ item.sequenceName ?? `bởi ${item.createdBy?.fullName ?? '—'}` }}</div>
             </td>
+
+            <!-- 4. Tệp KH -->
             <td>
               <div class="row-name" style="font-weight:500">{{ item.list?.name ?? '—' }}</div>
               <div class="row-sub">{{ listSummaryLine(item) }}</div>
             </td>
-            <td>
-              <div class="progress-row">
-                <span class="progress-pct">{{ progressPct(item) }}%</span>
-                <div class="progress" style="flex:1">
-                  <div
-                    class="progress-fill"
-                    :class="progressClass(item)"
-                    :style="{ width: progressPct(item) + '%' }"
-                  ></div>
-                </div>
-              </div>
-              <div class="row-sub">{{ progressSubLine(item) }}</div>
-              <!-- I3 2026-06-03 — ETA dự đoán còn lại (Anh chốt: font to-rõ-đậm + icon ⏱).
-                   Chỉ hiện Mục tiêu đang chạy (BE trả eta != null khi state='active'). -->
-              <div
-                v-if="item.eta"
-                class="eta-line"
-                :class="{ stalled: item.eta.mode === 'stalled' }"
-                :title="item.eta.mode === 'measured' ? 'Ước tính từ tốc độ gửi thực tế' : item.eta.mode === 'formula' ? 'Ước tính sơ bộ theo cấu hình' : 'Mục tiêu nhiều ngày không gửi được — kiểm tra nick'"
-              >
-                {{ item.eta.label }}
-              </div>
-            </td>
+
+            <!-- 5. Nick -->
             <td>
               <div class="avatars">
                 <span
-                  v-for="(n, idx) in (item.nicks ?? []).slice(0, 3)"
-                  :key="n.id ?? idx"
+                  v-for="(n, i) in (item.nicks ?? []).slice(0, 3)"
+                  :key="n.id ?? i"
                   class="avatar"
-                  :class="`a${(idx % 5) + 1}`"
+                  :class="`a${(i % 5) + 1}`"
                   :title="n.displayName ?? ''"
                 >
                   {{ nickInitials(n.displayName ?? n.id ?? '?') }}
@@ -211,27 +208,69 @@
                 <span v-if="!item.nicks || item.nicks.length === 0" class="text-mute">—</span>
               </div>
             </td>
+
+            <!-- 6. Phase 1 · Mời kết bạn = % KH đồng ý / KH đã gửi mời (per-KH) -->
             <td>
+              <div class="ph">
+                <div class="ph-top">
+                  <span class="ph-pct">{{ phase1.pct(item) }}%</span>
+                  <span class="ph-frac" title="Đồng ý / Đã gửi mời (số khách)">{{ formatNum(item.friendAccepted ?? 0) }}/{{ formatNum(phase1.denom(item)) }}</span>
+                </div>
+                <div class="ph-bar"><i class="p1" :style="{ width: phase1.pct(item) + '%' }"></i></div>
+                <div class="ph-meta">Gửi <b>{{ formatNum(item.friendSent ?? 0) }}</b> · Đồng ý <b>{{ formatNum(item.friendAccepted ?? 0) }}</b></div>
+              </div>
+            </td>
+
+            <!-- 7. Phase 2 · Bám đuổi = % KH gửi xong luồng / KH đã vào luồng (per-KH) -->
+            <td>
+              <div class="ph">
+                <div class="ph-top">
+                  <span class="ph-pct">{{ phase2.pct(item) }}%</span>
+                  <span class="ph-frac" title="Xong chuỗi / Đã vào chuỗi (số khách)">{{ formatNum(phase2.done(item)) }}/{{ formatNum(phase2.denom(item)) }}</span>
+                </div>
+                <div class="ph-bar"><i class="p2" :style="{ width: phase2.pct(item) + '%' }"></i></div>
+                <div class="ph-meta">Xong <b>{{ formatNum(phase2.done(item)) }}</b> · Đang chạy <b>{{ formatNum(item.enrollingSequence ?? 0) }}</b></div>
+              </div>
+            </td>
+
+            <!-- 8. Phản hồi -->
+            <td class="reply-cell">
               <template v-if="(item.replyCount ?? 0) > 0">
-                <span class="reply-num">{{ item.replyCount }}</span>
-                <span
-                  v-if="item.replyTrend != null && item.replyTrend !== 0"
-                  class="reply-trend"
-                  :class="{ down: item.replyTrend < 0 }"
-                >
-                  {{ item.replyTrend > 0 ? '▲' : '▼' }} {{ Math.abs(item.replyTrend) }}
-                </span>
-                <div class="row-sub">reply tuần này</div>
+                <div class="reply-num">{{ item.replyCount }}</div>
+                <div class="reply-sub">reply{{ (item.blockCount ?? 0) > 0 ? ` · ${item.blockCount} chặn` : '' }}</div>
               </template>
               <template v-else>
-                <span class="reply-zero">0</span>
-                <div class="row-sub">{{ item.status === 'scheduled' ? 'chưa khởi chạy' : 'chưa có reply' }}</div>
+                <div class="reply-num reply-zero">0</div>
+                <div class="reply-sub">{{ item.status === 'scheduled' ? 'chưa chạy' : 'chưa có' }}</div>
               </template>
             </td>
+
+            <!-- 9. Trạng thái -->
             <td>
               <span class="status" :class="statusClass(item.status)">
                 {{ statusLabel(item) }}
               </span>
+            </td>
+
+            <!-- 10. Ngày kết thúc (đang chạy → ETA dự đoán; đã xong → ngày thật) -->
+            <td>
+              <template v-if="item.status === 'done' && item.completedAt">
+                <div class="end-real">{{ formatDateTime(item.completedAt) }}</div>
+                <div class="end-sub">hoàn tất</div>
+              </template>
+              <template v-else-if="item.status === 'scheduled' && item.scheduledAt">
+                <div class="end-eta scheduled">Bắt đầu {{ formatShortDateTime(item.scheduledAt) }}</div>
+              </template>
+              <template v-else-if="item.eta">
+                <div
+                  class="end-eta"
+                  :class="{ stalled: item.eta.mode === 'stalled' }"
+                  :title="item.eta.mode === 'measured' ? 'Ước tính từ tốc độ gửi thực tế' : item.eta.mode === 'formula' ? 'Ước tính sơ bộ theo cấu hình' : 'Mục tiêu nhiều ngày không gửi được — kiểm tra nick'"
+                >{{ item.eta.label }}</div>
+              </template>
+              <template v-else>
+                <span class="text-mute">—</span>
+              </template>
             </td>
           </tr>
         </tbody>
@@ -484,6 +523,14 @@ interface MucTieuListItem {
   // I3 2026-06-03 — ETA dự đoán còn lại (Lai A→B) + số KH còn chạy.
   stillRunning?: number;
   eta?: { mode: 'formula' | 'measured' | 'stalled'; etaDays: number | null; label: string } | null;
+  // 2026-06-05 — Bảng 10 cột (anh chốt). Field cho Phase 1/Phase 2/Ngày kết thúc.
+  sequenceName?: string | null;     // hiện dưới tên Mục tiêu
+  friendSent?: number;              // Phase 1 — KH đã gửi lời mời (per-KH)
+  friendAccepted?: number;          // Phase 1 — KH đồng ý kết bạn (per-KH)
+  enrollingSequence?: number;       // Phase 2 — KH đang trong chuỗi bám đuổi
+  completedSequence?: number;       // Phase 2 — KH đã đi hết chuỗi (= completedKHCount)
+  blockCount?: number;              // Phản hồi — số chặn
+  completedAt?: string | null;      // Ngày kết thúc (state=completed)
 }
 
 // NOTE: BE list response shape is defined as `BeListResponse` inside loadList()
@@ -648,6 +695,10 @@ interface BeMucTieuItem {
   // I3 2026-06-03 — ETA + still-running từ BE.
   stillRunning?: number;
   eta?: { mode: 'formula' | 'measured' | 'stalled'; etaDays: number | null; label: string } | null;
+  // 2026-06-05 — Phase 2 đang chạy + đã xong + ngày kết thúc.
+  enrollingSequence?: number;
+  completedSequence?: number;
+  completedAt?: string | null;
 }
 
 interface ZaloAccountMini {
@@ -702,6 +753,14 @@ function adaptItem(be: BeMucTieuItem, nickMap: Map<string, ZaloAccountMini>): Mu
     // I3 2026-06-03 — ETA + số KH còn chạy.
     stillRunning: be.stillRunning,
     eta: be.eta ?? null,
+    // 2026-06-05 — Bảng 10 cột.
+    sequenceName: be.sequenceName ?? null,
+    friendSent: be.counters?.friendSent ?? 0,
+    friendAccepted: be.counters?.friendAccepted ?? 0,
+    enrollingSequence: be.enrollingSequence,
+    completedSequence: be.completedSequence ?? be.completedKHCount,
+    blockCount: be.counters?.blockCount ?? 0,
+    completedAt: be.completedAt ?? null,
   };
 }
 
@@ -833,12 +892,12 @@ function panelAction(action: 'pause' | 'resume' | 'duplicate' | 'delete') {
 }
 
 function onCreate() {
-  void router.push('/automation/muc-tieu/tao-moi');
+  void router.push('/marketing/triggers/tao-moi');
 }
 
 function goDetail(id: string) {
   // Wave 3 Day 1 — MucTieuDetailView (Dashboard + Log) thay TriggerDetailView legacy.
-  void router.push(`/automation/muc-tieu/${id}`);
+  void router.push(`/marketing/triggers/${id}`);
 }
 
 function goLeadPool(id: string) {
@@ -901,15 +960,9 @@ const topNicks = computed(() => {
 
 // ============ Helpers ============
 
-function progressPct(item: MucTieuListItem): number {
-  // Phase Friend Invite UI 2026-05-30 — Tiến độ giờ đếm KH HOÀN TẤT (sequence_done)
-  // chứ không phải "đã xử lý kiểm Zalo". `completedKHCount / totalEntries`.
-  // Fallback `processedCount / totalCount` cho payload cũ.
-  const t = item.totalEntries ?? item.totalCount ?? 0;
-  if (t <= 0) return 0;
-  const n = item.completedKHCount ?? item.processedCount ?? 0;
-  return Math.min(100, Math.round((n / t) * 100));
-}
+// 2026-06-05 — Bảng đổi sang Phase 1/Phase 2 riêng (helper phase1/phase2 ở dưới).
+// 3 hàm cũ progressPct/progressClass/progressSubLine (cột "Tiến độ" gộp) đã gỡ.
+// Side panel vẫn dùng phase1Pct/phase2Pct riêng (computed ở phần dưới).
 
 // Cột "Tệp KH": "X SĐT · Y có Zalo · Z không Zalo".
 // Hiển thị placeholder "—" nếu BE chưa kèm flat counters (cũ payload).
@@ -921,24 +974,6 @@ function listSummaryLine(item: MucTieuListItem): string {
     return `${formatNum(totalSdt)} SĐT`;
   }
   return `${formatNum(totalSdt)} SĐT · ${formatNum(hasZalo ?? 0)} có Zalo · ${formatNum(noZalo ?? 0)} không Zalo`;
-}
-
-function progressClass(item: MucTieuListItem): string {
-  if (item.status === 'done') return 'success';
-  if (item.status === 'paused') return 'warning';
-  if (item.status === 'scheduled') return 'muted';
-  return '';
-}
-
-function progressSubLine(item: MucTieuListItem): string {
-  if (item.status === 'scheduled' && item.scheduledAt) {
-    return `Bắt đầu ${formatShortDateTime(item.scheduledAt)}`;
-  }
-  // Phase Friend Invite UI 2026-05-30 — đếm KH đi hết Sequence (completedKHCount)
-  // chia tổng entries (totalEntries). Không có flat counter mới → fallback processed.
-  const done = item.completedKHCount ?? item.processedCount ?? 0;
-  const total = item.totalEntries ?? item.totalCount ?? 0;
-  return `${formatNum(done)}/${formatNum(total)} hoàn tất (${progressPct(item)}%)`;
 }
 
 function statusClass(status: MucTieuStatus): string {
@@ -990,6 +1025,51 @@ function formatShortDateTime(iso: string): string {
   return `${dd}/${mm} ${hh}:${mi}`;
 }
 
+// 2026-06-05 — Ngày tạo / kết thúc đầy đủ dd/mm/yy HH:mm (giờ VN, Date local).
+function formatDateTime(iso: string | null | undefined): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const yy = String(d.getFullYear()).slice(2);
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mi = String(d.getMinutes()).padStart(2, '0');
+  return `${dd}/${mm}/${yy} ${hh}:${mi}`;
+}
+
+// ============ Phase 1 / Phase 2 helpers (bảng 10 cột) ============
+// 2026-06-05 — Anh chốt ngữ nghĩa, tất cả PER-KH (BE đã fix đếm distinct contactId,
+// KHÔNG còn đếm row Friend = KH×nick gây số "lượt" sai như friendAccepted=3 cũ):
+//   • Phase 1 = % KH ĐỒNG Ý trên số KH ĐÃ GỬI lời mời = friendAccepted / friendSent.
+//   • Phase 2 = % KH đã GỬI XONG TOÀN BỘ luồng sequence = completedSequence /
+//     (số KH đã VÀO luồng = enrollingSequence + completedSequence).
+// max(1, denom) chống chia 0; min(100, …) chống >100% (an toàn dù số liệu lệch nguồn).
+const phase1 = {
+  denom(item: MucTieuListItem): number {
+    return item.friendSent ?? 0;
+  },
+  pct(item: MucTieuListItem): number {
+    const d = phase1.denom(item);
+    if (d <= 0) return 0;
+    return Math.min(100, Math.round(((item.friendAccepted ?? 0) / d) * 100));
+  },
+};
+const phase2 = {
+  // completedSequence (alias completedKHCount) = tử; enrolling + completed = mẫu.
+  done(item: MucTieuListItem): number {
+    return item.completedSequence ?? item.completedKHCount ?? 0;
+  },
+  denom(item: MucTieuListItem): number {
+    return (item.enrollingSequence ?? 0) + phase2.done(item);
+  },
+  pct(item: MucTieuListItem): number {
+    const d = phase2.denom(item);
+    if (d <= 0) return 0;
+    return Math.min(100, Math.round((phase2.done(item) / d) * 100));
+  },
+};
+
 // ============ Pagination ============
 
 const pageFrom = computed(() => (total.value === 0 ? 0 : (page.value - 1) * pageSize + 1));
@@ -1023,35 +1103,38 @@ onUnmounted(() => {
 <style scoped>
 /* ============================ DESIGN TOKENS (scoped) ============================ */
 .mtl-page {
-  --mtl-bg-page: #FAFBFC;
-  --mtl-bg-card: #FFFFFF;
-  --mtl-bg-soft: #F4F5F7;
-  --mtl-bg-hover: #EBF3FF;
-  --mtl-border: #DFE1E6;
-  --mtl-border-strong: #C1C7D0;
-  --mtl-text-1: #172B4D;
-  --mtl-text-2: #42526E;
-  --mtl-text-3: #6B778C;
-  --mtl-text-mute: #97A0AF;
-  /* Atlas v1 alignment 2026-06-04 — Đồng nhất palette với --at-action chính */
-  --mtl-primary: #0068ff; /* var(--at-action) */
-  --mtl-primary-hover: #0052cc; /* var(--at-action-hover) */
-  --mtl-primary-bg: #e7f0ff; /* var(--at-action-soft) */
-  --mtl-success: #36B37E;
-  --mtl-success-bg: #E3FCEF;
-  --mtl-warning: #FFAB00;
-  --mtl-warning-bg: #FFF7E0;
-  --mtl-danger: #DE350B;
-  --mtl-danger-bg: #FFEBE6;
+  /* HS re-skin 2026-06-05 — map --mtl-* sang token HS Holding (--brand/--ink/
+     --surface…). Giữ NGUYÊN tên biến → template + CSS bên dưới không đụng,
+     chỉ đổi giá trị màu để cả màn khoác áo HS metallic-blue. */
+  --mtl-bg-page: var(--surface-2, #f7f9fc);
+  --mtl-bg-card: var(--surface, #ffffff);
+  --mtl-bg-soft: var(--surface-3, #f1f4f9);
+  --mtl-bg-hover: var(--brand-softer, #f2f8fc);
+  --mtl-border: var(--line, #e7eaf0);
+  --mtl-border-strong: #cdd4e0;
+  --mtl-text-1: var(--ink, #141a24);
+  --mtl-text-2: var(--ink-2, #475066);
+  --mtl-text-3: var(--ink-3, #6b7488);
+  --mtl-text-mute: var(--ink-4, #97a0b3);
+  /* Brand action = HS metallic blue #1786be (thay #0068ff Atlassian cũ) */
+  --mtl-primary: var(--brand, #1786be);
+  --mtl-primary-hover: var(--brand-600, #0f6fa0);
+  --mtl-primary-bg: var(--brand-soft, #e4f1f8);
+  --mtl-success: var(--success, #12b76a);
+  --mtl-success-bg: var(--success-soft, #e7f7ef);
+  --mtl-warning: var(--warning, #f5a524);
+  --mtl-warning-bg: var(--warning-soft, #fdf3e2);
+  --mtl-danger: var(--error, #f04438);
+  --mtl-danger-bg: #fdeceb;
   --mtl-purple: #6554C0;
   --mtl-purple-bg: #EAE6FF;
-  --mtl-shadow-1: 0 1px 2px rgba(9, 30, 66, 0.05);
-  --mtl-shadow-2: 0 4px 12px rgba(9, 30, 66, 0.12);
-  --mtl-shadow-panel: -8px 0 24px rgba(9, 30, 66, 0.10);
+  --mtl-shadow-1: 0 1px 2px rgba(20, 26, 36, 0.05);
+  --mtl-shadow-2: 0 4px 12px rgba(20, 26, 36, 0.12);
+  --mtl-shadow-panel: -8px 0 24px rgba(20, 26, 36, 0.10);
 
   /* 2026-06-04 v2 — Nằm trong BotAutoShell, bỏ min-width: 1280px (gây crop) */
   width: 100%;
-  padding: var(--at-s-lg, 24px);
+  padding: 24px;
   background: var(--mtl-bg-page);
   color: var(--mtl-text-1);
   font-size: 13px;
@@ -1117,7 +1200,7 @@ onUnmounted(() => {
   color: var(--mtl-text-1);
   transition: border-color 0.15s;
 }
-.search-input:focus { outline: none; border-color: var(--mtl-primary); box-shadow: 0 0 0 3px rgba(45, 127, 249, 0.15); }
+.search-input:focus { outline: none; border-color: var(--mtl-primary); box-shadow: 0 0 0 3px var(--brand-soft, rgba(23, 134, 190, 0.18)); }
 .search-icon {
   position: absolute; left: 11px; top: 50%; transform: translateY(-50%);
   color: var(--mtl-text-3); font-size: 14px;
@@ -1227,17 +1310,56 @@ tbody tr.active { background: var(--mtl-primary-bg); box-shadow: inset 3px 0 0 v
 tbody td { padding: 10px 14px; vertical-align: middle; }
 tbody tr:last-child { border-bottom: none; }
 
-.col-name { width: 28%; }
-.col-list { width: 16%; }
-.col-progress { width: 18%; }
-.col-nick { width: 12%; }
-.col-reply { width: 10%; }
-.col-status { width: 14%; }
+/* 2026-06-05 — Bảng 10 cột. Width % gợi ý cho table-layout auto (giãn theo nội dung). */
+.col-stt     { width: 36px; }
+.col-created { width: 96px; }
+.col-name    { width: 17%; }
+.col-list    { width: 14%; }
+.col-nick    { width: 78px; }
+.col-p1      { width: 13%; }
+.col-p2      { width: 13%; }
+.col-reply   { width: 64px; }
+.col-status  { width: 104px; }
+.col-end     { width: 116px; }
+/* Bảng 10 cột: padding ô gọn hơn để vừa HD 1366. */
+.mt10 thead th { padding: 9px 9px; }
+.mt10 tbody td { padding: 9px 9px; }
+.center { text-align: center !important; }
+.right  { text-align: right !important; }
+
+/* STT + ngày */
+.stt-cell { font-family: var(--mono, 'Roboto Mono', monospace); font-weight: 600; color: var(--mtl-text-mute); text-align: center; }
+.date-cell { font-family: var(--mono, 'Roboto Mono', monospace); font-size: 11px; color: var(--mtl-text-2); white-space: nowrap; }
+
+/* Phase 1/2 mini bar */
+.ph { min-width: 110px; }
+.ph-top { display: flex; justify-content: space-between; align-items: baseline; font-size: 10.5px; margin-bottom: 3px; }
+.ph-pct { font-family: var(--mono, monospace); font-weight: 700; color: var(--mtl-text-1); font-size: 12px; }
+.ph-frac { font-family: var(--mono, monospace); color: var(--mtl-text-mute); }
+.ph-bar { height: 5px; border-radius: 99px; background: var(--mtl-bg-soft); overflow: hidden; }
+.ph-bar > i { display: block; height: 100%; border-radius: 99px; transition: width .3s; }
+.ph-bar .p1 { background: var(--mtl-primary); }
+.ph-bar .p2 { background: var(--mtl-success); }
+.ph-meta { font-size: 10px; color: var(--mtl-text-3); margin-top: 3px; white-space: nowrap; }
+.ph-meta b { color: var(--mtl-text-2); font-family: var(--mono, monospace); }
+
+/* Phản hồi (căn phải, 2 dòng) */
+.reply-cell { text-align: right; }
+.reply-cell .reply-num { font-family: var(--mono, monospace); font-weight: 700; color: var(--mtl-text-1); }
+.reply-cell .reply-num.reply-zero { color: var(--mtl-text-mute); font-weight: 500; }
+.reply-sub { font-size: 10px; color: var(--mtl-text-3); margin-top: 1px; }
+
+/* Ngày kết thúc / ETA */
+.end-real { font-family: var(--mono, monospace); font-size: 11px; color: var(--mtl-text-2); white-space: nowrap; }
+.end-eta { font-size: 12px; font-weight: 700; color: var(--mtl-primary); white-space: nowrap; letter-spacing: .1px; }
+.end-eta.stalled { color: #d97706; }
+.end-eta.scheduled { color: var(--mtl-warning, #b45309); }
+.end-sub { font-size: 10px; color: var(--mtl-text-mute); margin-top: 1px; }
 
 .row-name { font-weight: 600; color: var(--mtl-text-1); font-size: 13px; line-height: 1.3; }
 .row-sub { font-size: 11px; color: var(--mtl-text-3); margin-top: 2px; }
 /* I3 2026-06-03 — ETA dự đoán còn lại: font to-rõ-đậm + icon ⏱ (Anh chốt). */
-.eta-line { font-size: 13px; font-weight: 700; color: var(--mtl-primary, #2563eb); margin-top: 4px; letter-spacing: 0.1px; }
+.eta-line { font-size: 13px; font-weight: 700; color: var(--mtl-primary, #1786be); margin-top: 4px; letter-spacing: 0.1px; }
 .eta-line.stalled { color: #d97706; }
 .text-mute { color: var(--mtl-text-mute); }
 

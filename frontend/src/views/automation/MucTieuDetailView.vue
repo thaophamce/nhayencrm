@@ -4,14 +4,14 @@
     <template v-else>
       <!-- ============ HEADER ============ -->
       <div class="crumb">
-        <a href="#" @click.prevent="router.push('/automation/muc-tieu')">Marketing</a>
+        <a href="#" @click.prevent="router.push('/marketing/triggers')">Marketing</a>
         <span class="sep">/</span>
-        <a href="#" @click.prevent="router.push('/automation/muc-tieu')">Mục tiêu</a>
+        <a href="#" @click.prevent="router.push('/marketing/triggers')">Mục tiêu</a>
         <span class="sep">/</span>
         <span class="current">{{ data.trigger.name }}</span>
       </div>
 
-      <a href="#" class="back-link" @click.prevent="router.push('/automation/muc-tieu')">← Mục tiêu</a>
+      <a href="#" class="back-link" @click.prevent="router.push('/marketing/triggers')">← Mục tiêu</a>
 
       <div class="topbar">
         <div class="left">
@@ -1562,7 +1562,7 @@ async function onCancel(): Promise<void> {
   try {
     await api.post(`/automation/triggers/${triggerId}/cancel`);
     if (state === 'draft') {
-      router.push('/automation/muc-tieu');
+      router.push('/marketing/triggers');
       return;
     }
     await load();
@@ -1586,7 +1586,7 @@ function onEdit(): void {
   // P2 Wave 4 #Edit 2026-06-02 — Mở wizard edit-mode (?edit=<triggerId>).
   // Wizard sẽ GET /:id/edit hydrate form 4 bước rồi submit qua PATCH.
   // Constraint: listId / nickIds / successorSequenceId / state KHÔNG đổi được.
-  void router.push(`/automation/muc-tieu/tao-moi?edit=${encodeURIComponent(triggerId)}`);
+  void router.push(`/marketing/triggers/tao-moi?edit=${encodeURIComponent(triggerId)}`);
 }
 function onDuplicate(): void {
   menuOpen.value = false;
@@ -1875,7 +1875,7 @@ function copySelectedIds(): void {
 }
 function jumpToConv(ev: LogEvent): void {
   // Cố gắng deep-link sang /chat. LogEvent chưa expose contactId/conversationId, fallback
-  // route /automation/muc-tieu (giữ user trên cùng page) cho tới khi BE bổ sung.
+  // route /marketing/triggers (giữ user trên cùng page) cho tới khi BE bổ sung.
   if (!ev.customerName) return;
   void router.push({ path: '/chat', query: { q: ev.customerName } });
 }
@@ -2527,30 +2527,32 @@ onUnmounted(() => {
 
 <style scoped>
 .mtd-page {
-  --bg-page: #fafbfc;
-  --bg-card: #ffffff;
-  --bg-soft: #f4f5f7;
-  --bg-hover: #ebf3ff;
-  --border: #dfe1e6;
-  --border-strong: #c1c7d0;
-  --text-1: #172b4d;
-  --text-2: #42526e;
-  --text-3: #6b778c;
-  --text-mute: #97a0af;
-  /* Atlas v1 alignment 2026-06-04 — Đồng nhất với --at-action #0068ff */
-  --primary: #0068ff;
-  --primary-hover: #0052cc;
-  --primary-bg: #e7f0ff;
-  --success: #36b37e;
-  --success-bg: #e3fcef;
-  --warning: #ffab00;
-  --warning-bg: #fff7e0;
-  --danger: #de350b;
-  --danger-bg: #ffebe6;
+  /* HS re-skin 2026-06-05 — map token scoped sang HS Holding (tên giữ nguyên,
+     scoped trong .mtd-page). State machine + template giữ nguyên. */
+  --bg-page: var(--surface-2, #f7f9fc);
+  --bg-card: var(--surface, #ffffff);
+  --bg-soft: var(--surface-3, #f1f4f9);
+  --bg-hover: var(--brand-softer, #f2f8fc);
+  --border: var(--line, #e7eaf0);
+  --border-strong: #cdd4e0;
+  --text-1: var(--ink, #141a24);
+  --text-2: var(--ink-2, #475066);
+  --text-3: var(--ink-3, #6b7488);
+  --text-mute: var(--ink-4, #97a0b3);
+  /* brand HS metallic blue (thay #1786be Atlassian) */
+  --primary: var(--brand, #1786be);
+  --primary-hover: var(--brand-600, #0f6fa0);
+  --primary-bg: var(--brand-soft, #e4f1f8);
+  --success: var(--success, #12b76a);
+  --success-bg: var(--success-soft, #e7f7ef);
+  --warning: var(--warning, #f5a524);
+  --warning-bg: var(--warning-soft, #fdf3e2);
+  --danger: var(--error, #f04438);
+  --danger-bg: #fdeceb;
   --purple: #6554c0;
   --purple-bg: #eae6ff;
-  --shadow-1: 0 1px 2px rgba(9, 30, 66, 0.05);
-  --shadow-2: 0 4px 12px rgba(9, 30, 66, 0.12);
+  --shadow-1: 0 1px 2px rgba(20, 26, 36, 0.05);
+  --shadow-2: 0 4px 12px rgba(20, 26, 36, 0.12);
 
   /* 2026-06-04 v2 — Khi nằm trong BotAutoShell, layout đã có sidebar 240px.
      Bỏ min-width: 1280px (gây crop), max-width: 1920px (không cần),
@@ -2628,8 +2630,8 @@ onUnmounted(() => {
 /* 2026-06-03 Anh chốt — Pause button: hiển thị "Đang dừng (countdown)", hover → "Tiếp tục". */
 .btn-pause-hover .pause-label-hover { display: none; }
 .btn-pause-hover:hover {
-  border-color: var(--primary, #0068ff);
-  color: var(--primary, #0068ff);
+  border-color: var(--primary, #1786be);
+  color: var(--primary, #1786be);
   background: #ebf3ff;
 }
 .btn-pause-hover:hover .pause-label-default { display: none; }
@@ -2643,7 +2645,7 @@ onUnmounted(() => {
   padding: 3px 10px; border-radius: 4px;
   font-size: 12px; font-weight: 600; white-space: nowrap;
 }
-.status.s-active { background: var(--success-bg); color: #006644; }
+.status.s-active { background: var(--success-bg); color: #157f3c; }
 .status.s-completed { background: var(--primary-bg); color: var(--primary); }
 .status.s-paused { background: var(--bg-soft); color: var(--text-2); }
 .status.s-draft { background: var(--bg-soft); color: var(--text-3); }
@@ -2656,7 +2658,7 @@ onUnmounted(() => {
   padding: 2px 8px; border-radius: 4px;
   font-size: 12px; font-weight: 500; white-space: nowrap;
 }
-.estatus.running { background: var(--success-bg); color: #006644; }
+.estatus.running { background: var(--success-bg); color: #157f3c; }
 .estatus.done { background: var(--primary-bg); color: var(--primary); }
 .estatus.reply { background: var(--danger-bg); color: var(--danger); }
 .estatus.block { background: #eceef1; color: #42526e; }
@@ -2747,7 +2749,7 @@ onUnmounted(() => {
   display: inline-flex; align-items: center; gap: 5px;
   padding: 3px 9px;
   background: var(--success-bg);
-  color: #006644;
+  color: #157f3c;
   border-radius: 12px;
   font-size: 11px;
   font-weight: 600;
@@ -2888,7 +2890,7 @@ onUnmounted(() => {
 }
 .phase-pill .phase-ico { font-size: 12px; line-height: 1; }
 .phase-pill.phase-success { background: #dcfce7; color: #15803d; border-color: #bbf7d0; }
-.phase-pill.phase-info    { background: #dbeafe; color: #1d4ed8; border-color: #bfdbfe; }
+.phase-pill.phase-info    { background: #e4f1f8; color: #0b5880; border-color: #9fcfe7; }
 .phase-pill.phase-warn    { background: #fef3c7; color: #b45309; border-color: #fde68a; }
 .phase-pill.phase-danger  { background: #fee2e2; color: #b91c1c; border-color: #fecaca; }
 .phase-pill.phase-neutral { background: #f3f4f6; color: #4b5563; border-color: #e5e7eb; }
@@ -2918,7 +2920,7 @@ onUnmounted(() => {
   margin-right: 6px;
   vertical-align: middle;
 }
-.nick-dot.n1 { background: #2563eb; }
+.nick-dot.n1 { background: #1786be; }
 .nick-dot.n2 { background: #9333ea; }
 .nick-dot.n3 { background: #f59e0b; }
 .nick-dot.n0 { background: var(--text-mute); }
@@ -2940,7 +2942,7 @@ onUnmounted(() => {
 /* eta */
 .eta-bar {
   margin-top: 10px;
-  background: linear-gradient(90deg, #e7f0ff 0%, #f4f5f7 100%);
+  background: linear-gradient(90deg, #e4f1f8 0%, #f4f5f7 100%);
   border: 1px solid #bbddff;
   border-radius: 6px;
   padding: 10px 14px;
@@ -3160,7 +3162,7 @@ onUnmounted(() => {
 }
 .nick-status-badge.nsb-online {
   background: rgba(54, 179, 126, 0.12);
-  color: #006644;
+  color: #157f3c;
 }
 .nick-status-badge.nsb-offline {
   background: rgba(222, 53, 11, 0.10);
@@ -3444,7 +3446,7 @@ tbody td { padding: 10px 14px; vertical-align: middle; }
 .send-ico { white-space: nowrap; }
 /* Màu trạng thái: đã gửi = xanh lá, đã hẹn = xanh dương, đến hạn = đỏ, đã xong = xám. */
 .send-sent .send-ico, .send-sent { color: #0a8f3c; }
-.send-scheduled .send-ico { color: #1565c0; }
+.send-scheduled .send-ico { color: #0f6fa0; }
 .send-due .send-ico { color: #d32f2f; }
 .send-done { color: var(--text-mute); font-size: 12px; }
 
@@ -3704,7 +3706,7 @@ tbody td { padding: 10px 14px; vertical-align: middle; }
   pointer-events: none;
 }
 .sticky-hint-inner {
-  max-width: 1920px; min-width: 1280px; margin: 0 auto;
+  max-width: 1920px; margin: 0 auto;
   background: white;
   border: 1px solid var(--border);
   border-radius: 6px;

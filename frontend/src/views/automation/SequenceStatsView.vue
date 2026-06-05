@@ -510,7 +510,7 @@ function formatSyncTime(iso: string | null): string {
 function donutStyle(pct: number): Record<string, string> {
   const deg = Math.min(360, (pct / 100) * 360);
   return {
-    background: `conic-gradient(#0068ff 0deg ${deg}deg, #f4f5f7 ${deg}deg 360deg)`,
+    background: `conic-gradient(#1786be 0deg ${deg}deg, #f1f4f9 ${deg}deg 360deg)`,
   };
 }
 
@@ -676,7 +676,7 @@ watch(sequenceId, () => {
   margin: 0 auto;
   padding: 24px;
   font-size: 13px;
-  color: #172b4d;
+  color: #141a24;
 }
 
 .page-header {
@@ -692,34 +692,34 @@ watch(sequenceId, () => {
 }
 .breadcrumb {
   font-size: 12px;
-  color: #6b778c;
+  color: #6b7488;
 }
 .breadcrumb a {
-  color: #0068ff;
+  color: #1786be;
   text-decoration: none;
 }
 .breadcrumb .sep { margin: 0 4px; }
 .back-btn {
   padding: 8px 12px;
   background: white;
-  border: 1px solid #c1c7d0;
+  border: 1px solid #cdd4e0;
   border-radius: 4px;
   cursor: pointer;
   font-size: 13px;
   font-family: inherit;
 }
-.back-btn:hover { background: #ebf3ff; }
+.back-btn:hover { background: #f2f8fc; }
 
 .loading-state {
   text-align: center;
   padding: 64px;
-  color: #6b778c;
+  color: #6b7488;
 }
 .spinner {
   width: 32px;
   height: 32px;
-  border: 3px solid #e5e7eb;
-  border-top-color: #0068ff;
+  border: 3px solid #e7eaf0;
+  border-top-color: #1786be;
   border-radius: 50%;
   display: inline-block;
   margin-bottom: 12px;
@@ -736,14 +736,14 @@ watch(sequenceId, () => {
   box-shadow: 0 1px 2px rgba(9, 30, 66, 0.08);
 }
 .alert-banner.alert-red {
-  background: #ffebe6;
-  border-color: #de350b;
-  color: #de350b;
+  background: #fdeceb;
+  border-color: #f04438;
+  color: #f04438;
 }
 .alert-banner.alert-yellow {
-  background: #fff7e6;
-  border-color: #ff8b00;
-  color: #ff8b00;
+  background: #fdf3e2;
+  border-color: #f5a524;
+  color: #f5a524;
 }
 .alert-header {
   font-weight: 600;
@@ -761,7 +761,7 @@ watch(sequenceId, () => {
   justify-content: space-between;
   align-items: center;
   background: white;
-  border: 1px solid #dfe1e6;
+  border: 1px solid #e7eaf0;
   border-radius: 6px;
   padding: 10px 16px;
   margin-bottom: 12px;
@@ -771,17 +771,17 @@ watch(sequenceId, () => {
 .range-btn {
   padding: 5px 12px;
   background: white;
-  border: 1px solid #c1c7d0;
+  border: 1px solid #cdd4e0;
   border-radius: 4px;
   font-size: 12px;
   cursor: pointer;
-  color: #42526e;
+  color: #475066;
   font-family: inherit;
 }
 .range-btn.active {
-  background: #0068ff;
+  background: #1786be;
   color: white;
-  border-color: #0068ff;
+  border-color: #1786be;
   font-weight: 600;
 }
 .toggle-system {
@@ -789,13 +789,13 @@ watch(sequenceId, () => {
   align-items: center;
   gap: 8px;
   font-size: 12px;
-  color: #42526e;
+  color: #475066;
   cursor: pointer;
 }
 .toggle-system input { cursor: pointer; }
 .toggle-system small {
   font-size: 11px;
-  color: #6b778c;
+  color: #6b7488;
 }
 
 /* KPI grid */
@@ -810,14 +810,14 @@ watch(sequenceId, () => {
 }
 .kpi-card {
   background: white;
-  border: 1px solid #dfe1e6;
+  border: 1px solid #e7eaf0;
   border-radius: 6px;
   box-shadow: 0 1px 2px rgba(9, 30, 66, 0.08);
   padding: 12px 14px;
 }
 .kpi-label {
   font-size: 11px;
-  color: #6b778c;
+  color: #6b7488;
   text-transform: uppercase;
   letter-spacing: 0.5px;
   font-weight: 600;
@@ -830,16 +830,16 @@ watch(sequenceId, () => {
 }
 .kpi-value .unit {
   font-size: 12px;
-  color: #6b778c;
+  color: #6b7488;
   font-weight: 400;
 }
 .kpi-sub {
   font-size: 11px;
-  color: #6b778c;
+  color: #6b7488;
   margin-top: 4px;
 }
 .kpi-sub .delta {
-  color: #00875a;
+  color: #157f3c;
   font-weight: 600;
 }
 .kpi-donut {
@@ -869,14 +869,14 @@ watch(sequenceId, () => {
   justify-content: center;
   font-weight: 700;
   font-size: 11px;
-  color: #172b4d;
+  color: #141a24;
   z-index: 2;
 }
 
 /* Section */
 .section {
   background: white;
-  border: 1px solid #dfe1e6;
+  border: 1px solid #e7eaf0;
   border-radius: 6px;
   box-shadow: 0 1px 2px rgba(9, 30, 66, 0.08);
   padding: 16px;
@@ -890,11 +890,11 @@ watch(sequenceId, () => {
   font-weight: 600;
   margin-bottom: 12px;
   padding-bottom: 8px;
-  border-bottom: 1px solid #dfe1e6;
+  border-bottom: 1px solid #e7eaf0;
 }
 .section-header .right {
   font-size: 11px;
-  color: #6b778c;
+  color: #6b7488;
   font-weight: 400;
 }
 
@@ -905,29 +905,29 @@ watch(sequenceId, () => {
   gap: 12px;
   align-items: center;
   padding: 8px 0;
-  border-bottom: 1px dashed #dfe1e6;
+  border-bottom: 1px dashed #e7eaf0;
 }
 .funnel-row:last-child { border-bottom: none; }
 .step-name {
   font-weight: 500;
-  color: #172b4d;
+  color: #141a24;
 }
 .step-name .sub {
   font-size: 11px;
-  color: #6b778c;
+  color: #6b7488;
   font-weight: 400;
   display: block;
 }
 .funnel-bar {
   height: 24px;
-  background: #f4f5f7;
+  background: #f1f4f9;
   border-radius: 4px;
   position: relative;
   overflow: hidden;
 }
 .funnel-fill {
   height: 100%;
-  background: linear-gradient(90deg, #0068ff, #4c9aff);
+  background: linear-gradient(90deg, #1786be, #5bb8e5);
   border-radius: 4px;
   display: flex;
   align-items: center;
@@ -939,7 +939,7 @@ watch(sequenceId, () => {
 }
 .funnel-stats {
   font-size: 11px;
-  color: #6b778c;
+  color: #6b7488;
   display: flex;
   flex-direction: column;
 }
@@ -951,16 +951,16 @@ watch(sequenceId, () => {
   border-radius: 4px;
   font-size: 11px;
   font-weight: 600;
-  background: #f4f5f7;
-  color: #6b778c;
+  background: #f1f4f9;
+  color: #6b7488;
 }
 .drop-pct.high {
-  background: #ffebe6;
-  color: #de350b;
+  background: #fdeceb;
+  color: #f04438;
 }
 .drop-pct.mid {
-  background: #fff7e6;
-  color: #ff8b00;
+  background: #fdf3e2;
+  color: #f5a524;
 }
 
 /* Outcome */
@@ -971,7 +971,7 @@ watch(sequenceId, () => {
 }
 .outcome-card {
   background: white;
-  border: 1px solid #dfe1e6;
+  border: 1px solid #e7eaf0;
   border-radius: 6px;
   padding: 12px;
   text-align: center;
@@ -979,7 +979,7 @@ watch(sequenceId, () => {
 }
 .outcome-label {
   font-size: 11px;
-  color: #6b778c;
+  color: #6b7488;
   text-transform: uppercase;
   font-weight: 600;
   margin-bottom: 6px;
@@ -989,12 +989,12 @@ watch(sequenceId, () => {
   font-weight: 700;
   line-height: 1;
 }
-.outcome-value.danger { color: #de350b; }
-.outcome-value.success { color: #00875a; }
-.outcome-value.warning { color: #ff8b00; }
+.outcome-value.danger { color: #f04438; }
+.outcome-value.success { color: #157f3c; }
+.outcome-value.warning { color: #f5a524; }
 .outcome-count {
   font-size: 11px;
-  color: #6b778c;
+  color: #6b7488;
   margin: 4px 0 8px;
 }
 .outcome-icon {
@@ -1005,7 +1005,7 @@ watch(sequenceId, () => {
   position: absolute;
   top: 6px;
   right: 6px;
-  background: #de350b;
+  background: #f04438;
   color: white;
   padding: 1px 6px;
   border-radius: 10px;
@@ -1015,8 +1015,8 @@ watch(sequenceId, () => {
 .friend-stat {
   margin-top: 12px;
   padding: 10px;
-  background: #e3fcef;
-  border-left: 3px solid #00875a;
+  background: #e7f7ef;
+  border-left: 3px solid #157f3c;
   border-radius: 4px;
   font-size: 12px;
 }
@@ -1027,28 +1027,28 @@ watch(sequenceId, () => {
   grid-template-columns: repeat(4, 1fr);
   gap: 12px;
   padding: 10px 0;
-  border-bottom: 1px solid #dfe1e6;
+  border-bottom: 1px solid #e7eaf0;
 }
 .health-row:last-child { border-bottom: none; }
 .health-stat .key {
-  color: #6b778c;
+  color: #6b7488;
   font-size: 11px;
 }
 .health-stat .val {
   font-size: 16px;
   font-weight: 700;
-  color: #172b4d;
+  color: #141a24;
   margin-top: 2px;
 }
-.health-stat .val.danger { color: #de350b; }
-.health-stat .val.warning { color: #ff8b00; }
-.health-stat .val.success { color: #00875a; }
+.health-stat .val.danger { color: #f04438; }
+.health-stat .val.warning { color: #f5a524; }
+.health-stat .val.success { color: #157f3c; }
 
 .nick-section { margin-top: 16px; }
 .nick-title {
   font-size: 12px;
   font-weight: 600;
-  color: #42526e;
+  color: #475066;
   margin-bottom: 8px;
 }
 .nick-table {
@@ -1058,25 +1058,25 @@ watch(sequenceId, () => {
   font-size: 12px;
 }
 .nick-table th {
-  background: #f4f5f7;
+  background: #f1f4f9;
   padding: 6px 10px;
   text-align: left;
   font-weight: 600;
   font-size: 11px;
-  color: #6b778c;
+  color: #6b7488;
   text-transform: uppercase;
-  border-bottom: 1px solid #dfe1e6;
+  border-bottom: 1px solid #e7eaf0;
 }
 .nick-table td {
   padding: 8px 10px;
-  border-bottom: 1px solid #dfe1e6;
+  border-bottom: 1px solid #e7eaf0;
 }
 .nick-table .nick-name {
   font-weight: 600;
-  color: #172b4d;
+  color: #141a24;
 }
-.error-rate.danger { color: #de350b; font-weight: 600; }
-.error-rate.warning { color: #ff8b00; font-weight: 600; }
+.error-rate.danger { color: #f04438; font-weight: 600; }
+.error-rate.warning { color: #f5a524; font-weight: 600; }
 .status-pill {
   display: inline-block;
   padding: 2px 8px;
@@ -1084,9 +1084,9 @@ watch(sequenceId, () => {
   font-size: 11px;
   font-weight: 500;
 }
-.status-pill.connected { background: #e3fcef; color: #00875a; }
-.status-pill.warning { background: #fff7e6; color: #ff8b00; }
-.status-pill.danger { background: #ffebe6; color: #de350b; }
+.status-pill.connected { background: #e7f7ef; color: #157f3c; }
+.status-pill.warning { background: #fdf3e2; color: #f5a524; }
+.status-pill.danger { background: #fdeceb; color: #f04438; }
 
 /* Skip breakdown */
 .skip-breakdown-row {
@@ -1094,7 +1094,7 @@ watch(sequenceId, () => {
   gap: 12px;
   align-items: center;
   padding: 6px 0;
-  border-bottom: 1px dashed #dfe1e6;
+  border-bottom: 1px dashed #e7eaf0;
 }
 .skip-breakdown-row:last-child { border-bottom: none; }
 .skip-cat-dot {
@@ -1103,15 +1103,15 @@ watch(sequenceId, () => {
   border-radius: 50%;
   flex-shrink: 0;
 }
-.skip-cat-dot.cat-benign { background: #6b778c; }
-.skip-cat-dot.cat-throttle { background: #ff8b00; }
+.skip-cat-dot.cat-benign { background: #6b7488; }
+.skip-cat-dot.cat-throttle { background: #f5a524; }
 .skip-cat-dot.cat-capacity { background: #5b21b6; }
-.skip-cat-dot.cat-config_error { background: #de350b; }
+.skip-cat-dot.cat-config_error { background: #f04438; }
 .cat-label { flex: 1; font-size: 12px; }
-.cat-count { font-weight: 600; color: #172b4d; }
+.cat-count { font-weight: 600; color: #141a24; }
 .cat-pct {
   font-size: 11px;
-  color: #6b778c;
+  color: #6b7488;
   min-width: 40px;
   text-align: right;
 }
@@ -1119,13 +1119,13 @@ watch(sequenceId, () => {
 /* Footer */
 .footer-note {
   text-align: center;
-  color: #6b778c;
+  color: #6b7488;
   font-size: 11px;
   margin-top: 16px;
 }
-.footer-note strong { color: #42526e; }
+.footer-note strong { color: #475066; }
 .footer-note a {
-  color: #0068ff;
+  color: #1786be;
   margin-left: 8px;
   text-decoration: none;
 }

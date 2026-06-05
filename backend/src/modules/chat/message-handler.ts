@@ -13,8 +13,6 @@ import { syncReminderFromMessage } from '../contacts/reminder-sync.js';
 import { uploadBuffer } from '../../shared/storage/minio-client.js';
 import { config } from '../../config/index.js';
 import { logEvent as logAutomationEvent } from '../automation/friend-invite/event-log-service.js';
-// FIX A 2026-06-02 — AutomationTask model dropped post-M0 BullMQ rebuild; stub fallback
-import { automationTaskStub as _automationTaskStub } from '../automation/engine/_automation-task-stub.js';
 
 export interface IncomingMessage {
   accountId: string;
@@ -629,33 +627,92 @@ export async function handleIncomingMessage(
               logger.warn('[message-handler] customer_reply entry update failed:', updErr);
             }
 
-            // Wave 3 CRITICAL #1 2026-05-30 — Dừng task chuỗi bám đuổi đang queued/running
-            // cho KH này (cả sequence gốc + successor). KH đã trả lời → KHÔNG còn lý do
-            // bám đuổi, tránh spam tiếp khi sale đã tiếp quản.
+            // I8 FIX 2026-06-03 — Dừng chuỗi bám đuổi khi KH trả lời.
+            // Bug cũ (Wave 3 CRITICAL #1): dừng qua automationTask stub (no-op) →
+            // BullMQ sequence-step jobs KHÔNG bị cancel → chuỗi VẪN gửi tin dù KH đã
+            // trả lời (spam khi sale đã tiếp quản). Đổi sang cancelPendingStepsForContact
+            // (xoá job BullMQ thật) + setContactPauseFlag (pauseOnActivityHours giờ) để
+            // chuỗi tạm dừng đếm ngược — đồng nhất với onCustomerReply (event-hooks).
             try {
               const trigger = await prisma.automationTrigger.findUnique({
                 where: { id: outbox.triggerId },
-                select: { sequenceId: true, successorSequenceId: true },
+                select: { pauseOnActivityHours: true },
               });
-              const sequenceIds = [trigger?.sequenceId, trigger?.successorSequenceId].filter(Boolean) as string[];
-              if (sequenceIds.length > 0) {
-                const stopped = await ((prisma as any).automationTask ?? _automationTaskStub).updateMany({
-                  where: {
-                    contactId,
-                    sequenceId: { in: sequenceIds },
-                    state: { in: ['queued', 'running'] },
-                  },
-                  data: {
-                    state: 'cancelled',
-                    skipReason: 'customer_reply',
-                  },
+              const { cancelPendingStepsForContact, setContactPauseFlag } = await import(
+                '../automation/queues/event-hooks.js'
+              );
+              await setContactPauseFlag(
+                outbox.triggerId,
+                contactId,
+                trigger?.pauseOnActivityHours ?? 24,
+              );
+              const { removed } = await cancelPendingStepsForContact(outbox.triggerId, contactId);
+              if (removed > 0) {
+                logger.info(`[message-handler] customer_reply paused + cancelled ${removed} BullMQ step(s) for contact=${contactId}`);
+              }
+
+              // FIX 2026-06-03 (code-review PLAUSIBLE): bắn notify nội bộ KHẨN cho sale
+              // chủ nick khi KH trả lời — block + reaction đều có notify, reply thiếu →
+              // sale không được báo "KH đang nhắn, vào trả lời ngay". Bổ sung cho nhất quán.
+              const nickOwner = await prisma.zaloAccount.findUnique({
+                where: { id: msg.accountId },
+                select: { ownerUserId: true, displayName: true },
+              });
+              if (nickOwner?.ownerUserId) {
+                const triggerRow = await prisma.automationTrigger.findUnique({
+                  where: { id: outbox.triggerId },
+                  select: { name: true, successorSequenceId: true },
                 });
-                if (stopped.count > 0) {
-                  logger.info(`[message-handler] customer_reply stopped ${stopped.count} task(s) for contact=${contactId}`);
+                let sequenceName = '';
+                if (triggerRow?.successorSequenceId) {
+                  const seqRow = await prisma.automationSequence.findUnique({
+                    where: { id: triggerRow.successorSequenceId },
+                    select: { name: true },
+                  });
+                  sequenceName = seqRow?.name ?? '';
                 }
+                // 2026-06-04 — bổ sung bước gần nhất cho dòng "📍 Luồng › Bước x/y"
+                // (Anh chốt: tin nội bộ ghi rõ KH ở luồng nào, bước nào). Parse từ
+                // event sequence_step_sent gần nhất của (trigger, contact).
+                let stepInfo: { idx: number; total: number } | undefined;
+                try {
+                  const lastSent = await prisma.automationEventLog.findFirst({
+                    where: {
+                      triggerId: outbox.triggerId,
+                      contactId,
+                      eventType: 'sequence_step_sent',
+                    },
+                    orderBy: { createdAt: 'desc' },
+                    select: { metadata: true, detail: true },
+                  });
+                  const meta = lastSent?.metadata as { stepIdx?: number; totalSteps?: number } | null;
+                  if (meta && typeof meta.stepIdx === 'number' && typeof meta.totalSteps === 'number') {
+                    stepInfo = { idx: meta.stepIdx + 1, total: meta.totalSteps };
+                  } else {
+                    const m = lastSent?.detail?.match(/step (\d+)\/(\d+)/);
+                    if (m) stepInfo = { idx: parseInt(m[1], 10) + 1, total: parseInt(m[2], 10) };
+                  }
+                } catch { /* best-effort — thiếu bước thì dòng Luồng chỉ có tên */ }
+                const { notifyCustomerReply } = await import(
+                  '../automation/queues/internal-notify-worker.js'
+                );
+                await notifyCustomerReply({
+                  orgId: account.orgId,
+                  targetUserId: nickOwner.ownerUserId,
+                  contactId,
+                  contactName: contact?.fullName ?? contact?.crmName ?? '',
+                  contactPhone: contact?.phone ?? '',
+                  nickId: msg.accountId,
+                  nickName: nickOwner.displayName ?? '',
+                  triggerId: outbox.triggerId,
+                  triggerName: triggerRow?.name ?? '',
+                  sequenceName,
+                  stepInfo,
+                  replyPreview: message.content ?? '',
+                });
               }
             } catch (err) {
-              logger.warn('[message-handler] stop tasks on reply failed:', err);
+              logger.warn('[message-handler] stop sequence on reply failed:', err);
             }
           } catch (err) {
             logger.warn('[message-handler] customer_reply event-log failed:', err);

@@ -19,7 +19,6 @@ import { randomUUID } from 'node:crypto';
 import { zaloPool } from './zalo-pool.js';
 import { resolveOrCreateContact } from '../contacts/resolve-contact.js';
 import { logEvent } from '../automation/friend-invite/event-log-service.js';
-import { automationTaskStub as _automationTaskStub } from '../automation/engine/_automation-task-stub.js';
 
 // zca-js FriendEventType numeric values (mirrored from models/FriendEvent.d.ts)
 export const FriendEventType = {
@@ -449,6 +448,29 @@ export async function handleFriendEvent(
               summary: `${contactDisplay} từ chối kết bạn — vẫn tiếp tục chuỗi bám đuổi`,
               metadata: { friendUid },
             });
+
+            // I12 2026-06-04 — Tin 4: gửi tin khi KH từ chối KB (nếu bật).
+            // Gửi qua hộp người lạ (KH chưa là bạn). Đọc cờ enableRejectedFollowUp + template.
+            try {
+              const trg = await prisma.automationTrigger.findUnique({
+                where: { id: outbox.triggerId },
+                select: { enableRejectedFollowUp: true, rejectedTemplate: true },
+              });
+              if (trg?.enableRejectedFollowUp && trg.rejectedTemplate?.trim() && friendUid) {
+                const { sendStrangerFollowUp } = await import('../automation/queues/event-hooks.js');
+                await sendStrangerFollowUp({
+                  orgId,
+                  triggerId: outbox.triggerId,
+                  contactId: contact.id,
+                  nickId: accountId,
+                  uid: friendUid,
+                  template: trg.rejectedTemplate,
+                  eventType: 'rejected_follow_up_sent',
+                });
+              }
+            } catch (err) {
+              logger.warn(`[friend-event:${accountId}] Tin4 rejected follow-up failed contact=${contact.id}:`, err);
+            }
           }
         } catch (err) {
           logger.warn(
@@ -524,31 +546,53 @@ export async function handleFriendEvent(
             );
           }
 
-          // Wave 3 CRITICAL #1 2026-05-30 — Dừng task chuỗi bám đuổi (sequence gốc +
-          // successor) cho KH này khi họ chặn nick. Block là tín hiệu chấm dứt mạnh
-          // hơn reply → cancel cả task queued lẫn running.
+          // I5 FIX 2026-06-03 — Dừng chuỗi bám đuổi khi KH chặn nick.
+          // Bug cũ: dừng task qua automationTask stub (no-op) → chuỗi BullMQ KHÔNG bị
+          // hủy → job step tiếp theo vẫn fire dù KH đã chặn. Đổi sang onCustomerBlock
+          // (event-hooks.ts) — nó cancel pending sequence-step jobs trong BullMQ +
+          // set pause flag vĩnh viễn. Block là tín hiệu chấm dứt mạnh nhất.
           try {
-            const trigger = await prisma.automationTrigger.findUnique({
-              where: { id: outbox.triggerId },
-              select: { sequenceId: true, successorSequenceId: true },
+            const { onCustomerBlock } = await import('../automation/queues/event-hooks.js');
+            await onCustomerBlock({
+              orgId,
+              triggerId: outbox.triggerId,
+              contactId: contact.id,
+              nickId: accountId,
             });
-            const sequenceIds = [trigger?.sequenceId, trigger?.successorSequenceId].filter(Boolean) as string[];
-            if (sequenceIds.length > 0) {
-              const stopped = await ((prisma as any).automationTask ?? _automationTaskStub).updateMany({
-                where: {
-                  contactId: contact.id,
-                  sequenceId: { in: sequenceIds },
-                  state: { in: ['queued', 'running'] },
-                },
-                data: {
-                  state: 'cancelled',
-                  skipReason: 'customer_block',
-                },
+          } catch (err) {
+            logger.warn('[friend-event] onCustomerBlock (cancel BullMQ jobs) failed:', err);
+          }
+
+          // I5 2026-06-03 — Bắn thông báo nội bộ cho sale chủ nick (high priority).
+          // Trước fix: customer_block có log event nhưng KHÔNG báo sale → sale không
+          // biết KH đã chặn (tín hiệu mạnh nhất). Anh chốt 2026-06-03 thêm notify.
+          try {
+            const nickOwner = await prisma.zaloAccount.findUnique({
+              where: { id: accountId },
+              select: { ownerUserId: true },
+            });
+            // I13: tôn trọng cờ notifyChannels.block (tắt = không báo chặn).
+            const { shouldNotifyOwner } = await import('../automation/queues/event-hooks.js');
+            if (nickOwner?.ownerUserId && (await shouldNotifyOwner(outbox.triggerId, 'block'))) {
+              const { notifyCustomerBlock } = await import('../automation/queues/internal-notify-worker.js');
+              const triggerRow = await prisma.automationTrigger.findUnique({
+                where: { id: outbox.triggerId },
+                select: { name: true },
               });
-              logger.info(`[friend-event] customer_block stopped ${stopped.count} task(s) for contact=${contact.id}`);
+              await notifyCustomerBlock({
+                orgId,
+                targetUserId: nickOwner.ownerUserId,
+                contactId: contact.id,
+                contactName: contactRow?.fullName ?? contactRow?.crmName ?? '',
+                contactPhone: contactRow?.phone ?? '',
+                nickId: accountId,
+                nickName: nickDisplay,
+                triggerId: outbox.triggerId,
+                triggerName: triggerRow?.name ?? '',
+              });
             }
           } catch (err) {
-            logger.warn('[friend-event] stop tasks on block failed:', err);
+            logger.warn('[friend-event] notifyCustomerBlock failed:', err);
           }
         } catch (err) {
           logger.warn(

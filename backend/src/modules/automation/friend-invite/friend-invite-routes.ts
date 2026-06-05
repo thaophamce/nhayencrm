@@ -20,6 +20,7 @@ import {
 } from './preview-eta-service.js';
 import { listMucTieuForOrg } from './muc-tieu-list-service.js';
 import { getSequenceStepQueue } from '../queues/queue-registry.js';
+import { getContactPauseRemaining } from '../queues/event-hooks.js';
 
 const BASE = '/api/v1/automation/triggers';
 
@@ -213,6 +214,11 @@ export function deriveKHFinalState(
   entry: { queueStatus: string | null; hasZalo: boolean | null; contactId: string | null },
   latestTask: { state: string | null } | null,
   friendAccepted: boolean,
+  // FIX 2026-06-04: KH đã gửi BƯỚC CUỐI của chuỗi (event sequence_step_sent stepIdx cuối).
+  // Vì BullMQ jobs hết sau khi xong → task progress trả null → trước đây derive nhầm
+  // thành phase1_done dù đã gửi đủ 3/3 (nhất là khi KH reply che mất). sequenceCompleted
+  // ưu tiên CAO: KH đi hết chuỗi = sequence_done, kể cả có reply/pause sau đó.
+  sequenceCompleted = false,
 ): KHFinalState {
   // Entry đã dừng (failed permanent/stuck, cancelled, skipped_*) → stopped.
   // skipped_no_zalo: KH không có Zalo, không gửi được friend-request — coi là dừng.
@@ -228,6 +234,9 @@ export function deriveKHFinalState(
   if (entry.queueStatus && stoppedStatuses.has(entry.queueStatus)) {
     return 'stopped';
   }
+
+  // Đã gửi bước cuối → hoàn tất chuỗi (ưu tiên trước task progress vì jobs đã hết).
+  if (sequenceCompleted) return 'sequence_done';
 
   // Task tồn tại → ưu tiên state task (Sequence là phase 2, sau friend-accept).
   if (latestTask?.state) {
@@ -258,6 +267,17 @@ export async function friendInviteRoutes(app: FastifyInstance): Promise<void> {
       // Wave 2 2026-05-29 — per-trigger welcome message (replaces org-wide config)
       welcomeMessageTemplate?: string | null;
       welcomeDelaySeconds?: number;
+      // I10 2026-06-04 — cấu trúc 5 tin: Tin 2 Cảm ơn + 4 cờ enable + notifyChannels.
+      thankYouTemplate?: string | null;
+      thankYouDelaySeconds?: number;
+      remindTemplate?: string | null;
+      remindDelayDays?: number;
+      rejectedTemplate?: string | null;
+      enableWelcome?: boolean;
+      enableThankYou?: boolean;
+      enableRemind?: boolean;
+      enableRejectedFollowUp?: boolean;
+      notifyChannels?: Record<string, { owner?: boolean; manager?: boolean; zaloGroup?: boolean }>;
       // BE T4 2026-05-30 — Lên lịch hẹn giờ activate.
       // startMode='now'      → kích hoạt ngay khi gọi /activate (default).
       // startMode='scheduled'→ giữ state='draft' + lưu scheduledAt, cron sẽ flip.
@@ -485,6 +505,20 @@ export async function friendInviteRoutes(app: FastifyInstance): Promise<void> {
         // Wave 2 2026-05-29 — per-trigger welcome probe config
         welcomeMessageTemplate: welcomeTemplate,
         welcomeDelaySeconds,
+        // I10 2026-06-04 — cấu trúc 5 tin: Tin 2 Cảm ơn + 4 cờ enable + notifyChannels.
+        thankYouTemplate: body.thankYouTemplate?.trim() || null,
+        thankYouDelaySeconds: Math.max(0, Math.min(3600, Number(body.thankYouDelaySeconds ?? 60) || 60)),
+        // I12 2026-06-04 — Tin 3 (nhắc) + Tin 4 (từ chối) template + delay.
+        remindTemplate: body.remindTemplate?.trim() || null,
+        remindDelayDays: Math.max(1, Math.min(30, Number(body.remindDelayDays ?? 3) || 3)),
+        rejectedTemplate: body.rejectedTemplate?.trim() || null,
+        enableWelcome: body.enableWelcome ?? true,
+        enableThankYou: body.enableThankYou ?? true,
+        enableRemind: body.enableRemind ?? true,
+        enableRejectedFollowUp: body.enableRejectedFollowUp ?? false,
+        notifyChannels: (body.notifyChannels && typeof body.notifyChannels === 'object'
+          ? body.notifyChannels
+          : undefined) as object | undefined,
         // BE T4 2026-05-30 — lưu scheduledAt ngay từ lúc create (UI cho phép lập
         // Mục tiêu trước rồi bấm "Lên lịch" sau, BE đã có sẵn để cron sweep nhìn thấy).
         scheduledAt: scheduledAtUtc,
@@ -816,9 +850,16 @@ export async function friendInviteRoutes(app: FastifyInstance): Promise<void> {
     }
 
     // Outbox stats (sent)
-    const sent = await prisma.friendRequestOutbox.count({
-      where: { triggerId: trigger.id, sendStatus: { in: ['success', 'tentative'] } },
+    // FIX 2026-06-04: "Đã gửi kết bạn" CHỈ đếm outbox kind='FRIEND_REQUEST'. Trước đây
+    // đếm mọi outbox (gồm WELCOME_PROBE sibling) → mỗi KH có 2 row → 2 KH ra 4 (gấp đôi).
+    // "Đã gửi kết bạn" = số KH (distinct contactId) chiến dịch ĐÃ gửi lời mời.
+    // 2026-06-04: đếm distinct contactId (không phải số lượt outbox) để đẳng thức luôn
+    // đúng: Đã gửi = Đồng ý + Từ chối + Đang chờ — kể cả khi 1 KH gửi qua nhiều nick.
+    const sentRows = await prisma.friendRequestOutbox.groupBy({
+      by: ['contactId'],
+      where: { triggerId: trigger.id, sendStatus: { in: ['success', 'tentative'] }, kind: 'FRIEND_REQUEST' },
     });
+    const sent = sentRows.length;
 
     // Wave 3 Day 5 — Tập hợp contactId thuộc Mục tiêu này (qua CustomerListEntry.triggerId).
     // Dùng cho 4 counter mới (accepted/waitingCrm/customer_*/converted_lead) +
@@ -831,18 +872,47 @@ export async function friendInviteRoutes(app: FastifyInstance): Promise<void> {
       new Set(triggerContactRows.map((r) => r.contactId).filter((x): x is string => !!x)),
     );
 
-    // accepted: count Friend (per-nick) rows status=accepted cho contact thuộc trigger này.
-    // Sử dụng Friend (per-nick) thay vì FriendshipAttempt — đồng bộ với welcome-probe
-    // worker và message-handler vốn dùng Friend.friendshipStatus làm source of truth.
-    const accepted = triggerContactIds.length
-      ? await prisma.friend.count({
-          where: {
-            orgId: user.orgId,
-            contactId: { in: triggerContactIds },
-            friendshipStatus: 'accepted',
-          },
-        })
-      : 0;
+    // accepted: TỶ LỆ THÀNH BẠN TỪ LỜI MỜI CHIẾN DỊCH GỬI (Anh chốt 2026-06-04).
+    // Định nghĩa: chỉ tính KH mà CHÍNH chiến dịch này gửi friend-request (outbox
+    // kind=FRIEND_REQUEST, nick X) VÀ đồng ý qua ĐÚNG nick X đó. KH đã là bạn sẵn
+    // từ trước (qua nick khác, không do chiến dịch mời) → KHÔNG tính.
+    // Sai cũ: friend.count() per-nick đếm cả friendship có sẵn / accept qua nick khác
+    // → thổi phồng. Phải JOIN outbox.nick_id = friend.zalo_account_id (cùng nick gửi).
+    const acceptedRows = await prisma.$queryRaw<Array<{ contact_id: string }>>`
+      SELECT DISTINCT o.contact_id
+      FROM friend_request_outbox o
+      JOIN friends f
+        ON f.contact_id = o.contact_id
+       AND f.zalo_account_id = o.nick_id
+       AND f.friendship_status = 'accepted'
+      WHERE o.trigger_id = ${trigger.id}
+        AND o.kind = 'FRIEND_REQUEST'
+    `;
+    const accepted = acceptedRows.length;
+
+    // rejected: ĐỐI XỨNG accepted — KH mà nick chiến dịch mời → KH TỪ CHỐI qua đúng
+    // nick đó (Anh chốt 2026-06-04: đảm bảo Đã gửi = Đồng ý + Từ chối + Đang chờ).
+    // Trước đây BE KHÔNG tính rejected → FE đọc c.rejected=0 → "Từ chối" luôn 0 và
+    // "Đang chờ" bị thổi phồng (gồm cả KH đã từ chối).
+    const rejectedRows = await prisma.$queryRaw<Array<{ contact_id: string }>>`
+      SELECT DISTINCT o.contact_id
+      FROM friend_request_outbox o
+      JOIN friends f
+        ON f.contact_id = o.contact_id
+       AND f.zalo_account_id = o.nick_id
+       AND f.friendship_status = 'rejected'
+      WHERE o.trigger_id = ${trigger.id}
+        AND o.kind = 'FRIEND_REQUEST'
+        AND o.contact_id NOT IN (
+          -- KH đã đồng ý qua nick khác cùng chiến dịch → ưu tiên tính Đồng ý, không tính Từ chối.
+          SELECT DISTINCT o2.contact_id
+          FROM friend_request_outbox o2
+          JOIN friends f2 ON f2.contact_id = o2.contact_id
+            AND f2.zalo_account_id = o2.nick_id AND f2.friendship_status = 'accepted'
+          WHERE o2.trigger_id = ${trigger.id} AND o2.kind = 'FRIEND_REQUEST'
+        )
+    `;
+    const rejected = rejectedRows.length;
 
     // waitingCrm: accepted + Contact.assignedUserId IS NULL (chưa sale nào nhận).
     // (Codebase dùng `assignedUserId` làm "owner user"; không có cột `ownerUserId`
@@ -908,7 +978,30 @@ export async function friendInviteRoutes(app: FastifyInstance): Promise<void> {
       campaignStateGroups.map((g) => [g.state, g._count.id]),
     );
     const enrollingSequence = campaignByState.get('active') ?? 0;
-    const completedSequence = campaignByState.get('completed') ?? 0;
+    // FIX 2026-06-04: "Hoàn tất" = số KH (distinct contactId) đã gửi BƯỚC CUỐI của chuỗi,
+    // KHÔNG phải campaign state='completed'. Campaign là per-trigger (1 row chung mọi KH)
+    // + thường kẹt 'active' chưa flip → ra 0 dù KH đã gửi đủ 3/3. Đổi sang đếm distinct
+    // contactId có event sequence_step_sent với metadata.stepIdx = totalSteps-1 (giống fix
+    // completedKHCount ở list-service). Mỗi KH đi hết chuỗi tính 1.
+    let completedSequence = 0;
+    // Set contactId đã gửi bước cuối — dùng cho cả counter "Hoàn tất" lẫn deriveKHFinalState
+    // per-entry (để bảng KH hiện "3/3 ✅ Hoàn tất" thay vì "0/3" khi KH đã xong).
+    const completedContactIds = new Set<string>();
+    if (sequenceStepsCount > 0) {
+      const lastIdx = sequenceStepsCount - 1;
+      const doneGroups = await prisma.automationEventLog.groupBy({
+        by: ['contactId'],
+        where: {
+          orgId: user.orgId,
+          triggerId: trigger.id,
+          eventType: 'sequence_step_sent',
+          contactId: { not: null },
+          metadata: { path: ['stepIdx'], equals: lastIdx },
+        },
+      });
+      for (const g of doneGroups) if (g.contactId) completedContactIds.add(g.contactId);
+      completedSequence = doneGroups.length;
+    }
 
     // Wave 4 2026-06-03 — P1 fix counter "Còn X KH" semantic-aware.
     // Semantic mới: "Còn X KH" = KH ĐANG XỬ LÝ thực sự, bao gồm cả 2 phase:
@@ -941,29 +1034,35 @@ export async function friendInviteRoutes(app: FastifyInstance): Promise<void> {
 
     const nickStats = await Promise.all(
       nicks.map(async (nick) => {
+        // FIX 2026-06-04: thêm kind='FRIEND_REQUEST' — trước đây đếm mọi outbox (gồm
+        // WELCOME_PROBE sibling) → "đã gửi" per-nick gấp đôi, lệch với counter tổng.
         const sentToday = await prisma.friendRequestOutbox.count({
           where: {
             triggerId: trigger.id,
             nickId: nick.id,
             sendStatus: { in: ['success', 'tentative'] },
+            kind: 'FRIEND_REQUEST',
             createdAt: { gte: startOfDayVN() },
           },
         });
         const sentTotal = await prisma.friendRequestOutbox.count({
-          where: { triggerId: trigger.id, nickId: nick.id, sendStatus: { in: ['success', 'tentative'] } },
+          where: { triggerId: trigger.id, nickId: nick.id, sendStatus: { in: ['success', 'tentative'] }, kind: 'FRIEND_REQUEST' },
         });
-        // Wave 3 Day 5 — Friend status=accepted per nick, scope theo contact của trigger.
-        // Friend là per-(nick × KH) → đếm theo nick + contactId∈trigger.
-        const acceptedTotal = triggerContactIds.length
-          ? await prisma.friend.count({
-              where: {
-                orgId: user.orgId,
-                zaloAccountId: nick.id,
-                contactId: { in: triggerContactIds },
-                friendshipStatus: 'accepted',
-              },
-            })
-          : 0;
+        // acceptedTotal per nick: tỷ lệ thành bạn từ lời mời CHÍNH NICK NÀY gửi
+        // (Anh chốt 2026-06-04). JOIN outbox(nick=nick.id) với friend accepted cùng nick.
+        // KHÔNG đếm friendship có sẵn / accept qua nick khác → đồng bộ counter "Đồng ý" tổng.
+        const acceptedNickRows = await prisma.$queryRaw<Array<{ contact_id: string }>>`
+          SELECT DISTINCT o.contact_id
+          FROM friend_request_outbox o
+          JOIN friends f
+            ON f.contact_id = o.contact_id
+           AND f.zalo_account_id = o.nick_id
+           AND f.friendship_status = 'accepted'
+          WHERE o.trigger_id = ${trigger.id}
+            AND o.kind = 'FRIEND_REQUEST'
+            AND o.nick_id = ${nick.id}
+        `;
+        const acceptedTotal = acceptedNickRows.length;
         const workerState = getNickWorkerState(nick.id);
         return {
           nickId: nick.id,
@@ -1138,15 +1237,59 @@ export async function friendInviteRoutes(app: FastifyInstance): Promise<void> {
     const nickNameById = new Map<string, string | null>();
     for (const n of nicks) nickNameById.set(n.id, n.displayName);
 
+    // ── I5 2026-06-03 — Đọc cờ pause per-contact (Redis) cho cột Trạng thái ──
+    // Pause flag nằm Redis (contact:paused:{triggerId}:{contactId}), KHÔNG nằm
+    // queueStatus → entry có thể processed/processing trong khi đang pause (KH reply,
+    // reaction xấu, manual pause, nick-hold). FE cần pauseRemainingMs để render
+    // "🔶 Tạm dừng (còn Xh Ym)" + đếm ngược; pauseReason để phân biệt KH Reply vs
+    // Tạm dừng. Reason suy từ event log gần nhất của contact (customer_reply /
+    // customer_reaction_negative / manual_pause). Best-effort: lỗi Redis → bỏ qua.
+    const pauseByContact = new Map<string, { remainingMs: number; reason: string }>();
+    if (contactIds.length > 0) {
+      // Lấy event log gần nhất liên quan pause cho từng contact (1 query gộp).
+      const pauseEvents = await prisma.automationEventLog.findMany({
+        where: {
+          triggerId: trigger.id,
+          contactId: { in: contactIds },
+          eventType: { in: ['customer_reply', 'customer_reaction_negative', 'manual_pause', 'nick_hold_reset'] },
+        },
+        orderBy: { createdAt: 'desc' },
+        select: { contactId: true, eventType: true },
+      });
+      const reasonByContact = new Map<string, string>();
+      for (const ev of pauseEvents) {
+        if (ev.contactId && !reasonByContact.has(ev.contactId)) {
+          reasonByContact.set(ev.contactId, ev.eventType);
+        }
+      }
+      await Promise.all(
+        contactIds.map(async (cid) => {
+          try {
+            const remainingMs = await getContactPauseRemaining(trigger.id, cid);
+            if (remainingMs > 0) {
+              pauseByContact.set(cid, {
+                remainingMs,
+                reason: reasonByContact.get(cid) ?? 'manual_pause',
+              });
+            }
+          } catch {
+            // best-effort — Redis lỗi thì bỏ qua, không chặn dashboard
+          }
+        }),
+      );
+    }
+
     const entries = entriesRaw.map((e) => {
       const pinNickId = e.claimedByNickId ?? e.resolvedByNickId ?? null;
       const task = e.contactId ? taskByContact.get(e.contactId) ?? null : null;
       const contactRow = e.contactId ? contactById.get(e.contactId) ?? null : null;
       const friendAccepted = e.contactId ? friendAcceptedSet.has(e.contactId) : false;
+      const sequenceCompleted = e.contactId ? completedContactIds.has(e.contactId) : false;
       const derivedStatus = deriveKHFinalState(
         { queueStatus: e.queueStatus, hasZalo: e.hasZalo, contactId: e.contactId },
         task ? { state: task.state } : null,
         friendAccepted,
+        sequenceCompleted,
       );
       // P0-3 — progressLabel deterministic: dùng currentStepIdx của ACTIVE task.
       const curIdx = task?.currentStepIdx ?? null;
@@ -1187,6 +1330,12 @@ export async function friendInviteRoutes(app: FastifyInstance): Promise<void> {
         avatarUrl: contactRow?.avatarUrl ?? null,
         // Trạng thái tổng hợp KH theo deriveKHFinalState (5 enum).
         derivedStatus,
+        // I5 2026-06-03 — cờ pause per-contact (Redis) cho cột Trạng thái + đếm ngược.
+        // pauseRemainingMs > 0 = đang tạm dừng (sẽ chạy lại). pauseReason phân biệt:
+        //   customer_reply → 🛑 KH Reply; customer_reaction_negative/manual_pause/
+        //   nick_hold_reset → 🔶 Tạm dừng. null = không pause.
+        pauseRemainingMs: e.contactId ? pauseByContact.get(e.contactId)?.remainingMs ?? null : null,
+        pauseReason: e.contactId ? pauseByContact.get(e.contactId)?.reason ?? null : null,
         // Wave 3 Day 5 — ISO string cho FE timeline sort + "cập nhật lần cuối" column.
         updatedAt: e.updatedAt.toISOString(),
       };
@@ -1227,6 +1376,8 @@ export async function friendInviteRoutes(app: FastifyInstance): Promise<void> {
         ...counters,
         sent,
         accepted,
+        // 2026-06-04 — Từ chối (đối xứng accepted) đảm bảo Đã gửi = Đồng ý + Từ chối + Đang chờ.
+        rejected,
         // Wave 3 Day 5 — 4 counter mới (waitingCrm/customer_*/converted_lead).
         // Wave 3 2026-05-30 — `counters.customer_reply/customer_block` đến từ 2
         // nguồn: (a) AutomationEventLog.distinct(contactId) (`customerReply`/
@@ -1282,6 +1433,17 @@ export async function friendInviteRoutes(app: FastifyInstance): Promise<void> {
         greetingTemplate: true,
         welcomeMessageTemplate: true,
         welcomeDelaySeconds: true,
+        // I13 2026-06-04 — cấu hình 5 tin cho edit prefill.
+        thankYouTemplate: true,
+        thankYouDelaySeconds: true,
+        remindTemplate: true,
+        remindDelayDays: true,
+        rejectedTemplate: true,
+        enableWelcome: true,
+        enableThankYou: true,
+        enableRemind: true,
+        enableRejectedFollowUp: true,
+        notifyChannels: true,
         sendHourStart: true,
         sendHourEnd: true,
         minFriendReqGapMs: true,
@@ -1315,6 +1477,17 @@ export async function friendInviteRoutes(app: FastifyInstance): Promise<void> {
       greetingTemplate: trigger.greetingTemplate,
       welcomeMessageTemplate: trigger.welcomeMessageTemplate,
       welcomeDelaySeconds: trigger.welcomeDelaySeconds,
+      // I13 2026-06-04 — cấu hình 5 tin.
+      thankYouTemplate: trigger.thankYouTemplate,
+      thankYouDelaySeconds: trigger.thankYouDelaySeconds,
+      remindTemplate: trigger.remindTemplate,
+      remindDelayDays: trigger.remindDelayDays,
+      rejectedTemplate: trigger.rejectedTemplate,
+      enableWelcome: trigger.enableWelcome,
+      enableThankYou: trigger.enableThankYou,
+      enableRemind: trigger.enableRemind,
+      enableRejectedFollowUp: trigger.enableRejectedFollowUp,
+      notifyChannels: trigger.notifyChannels ?? null,
       scheduledAt: trigger.scheduledAt ? trigger.scheduledAt.toISOString() : null,
       safetyRules: {
         quietHoursStart,
@@ -1347,6 +1520,17 @@ export async function friendInviteRoutes(app: FastifyInstance): Promise<void> {
       greetingTemplate?: string;
       welcomeMessageTemplate?: string | null;
       welcomeDelaySeconds?: number;
+      // I13 2026-06-04 — sửa cấu hình 5 tin khi edit Mục tiêu.
+      thankYouTemplate?: string | null;
+      thankYouDelaySeconds?: number;
+      remindTemplate?: string | null;
+      remindDelayDays?: number;
+      rejectedTemplate?: string | null;
+      enableWelcome?: boolean;
+      enableThankYou?: boolean;
+      enableRemind?: boolean;
+      enableRejectedFollowUp?: boolean;
+      notifyChannels?: Record<string, { owner?: boolean; manager?: boolean; zaloGroup?: boolean }>;
       safetyRules?: {
         quietHoursStart?: string;
         quietHoursEnd?: string;
@@ -1432,6 +1616,26 @@ export async function friendInviteRoutes(app: FastifyInstance): Promise<void> {
         }
       }
     }
+
+    // ── I13 2026-06-04 — cấu hình 5 tin (sửa khi edit) ──
+    if (body.welcomeDelaySeconds !== undefined)
+      data.welcomeDelaySeconds = Math.max(0, Math.min(3600, Number(body.welcomeDelaySeconds) || 60));
+    if (body.thankYouTemplate !== undefined)
+      data.thankYouTemplate = body.thankYouTemplate?.trim() || null;
+    if (body.thankYouDelaySeconds !== undefined)
+      data.thankYouDelaySeconds = Math.max(0, Math.min(3600, Number(body.thankYouDelaySeconds) || 60));
+    if (body.remindTemplate !== undefined)
+      data.remindTemplate = body.remindTemplate?.trim() || null;
+    if (body.remindDelayDays !== undefined)
+      data.remindDelayDays = Math.max(1, Math.min(30, Number(body.remindDelayDays) || 3));
+    if (body.rejectedTemplate !== undefined)
+      data.rejectedTemplate = body.rejectedTemplate?.trim() || null;
+    if (body.enableWelcome !== undefined) data.enableWelcome = !!body.enableWelcome;
+    if (body.enableThankYou !== undefined) data.enableThankYou = !!body.enableThankYou;
+    if (body.enableRemind !== undefined) data.enableRemind = !!body.enableRemind;
+    if (body.enableRejectedFollowUp !== undefined) data.enableRejectedFollowUp = !!body.enableRejectedFollowUp;
+    if (body.notifyChannels !== undefined && body.notifyChannels && typeof body.notifyChannels === 'object')
+      data.notifyChannels = body.notifyChannels;
 
     // ── welcomeDelaySeconds ─────────────────────────────────────────────────
     if (body.welcomeDelaySeconds !== undefined) {
@@ -1892,6 +2096,7 @@ async function enrichEventRows(
     eventPriority: string;
     // Wave 3 dùng summary; Luồng Mục Tiêu dùng detail. Cả hai cùng tồn tại.
     summary: string | null;
+    detail: string | null;
     metadata: unknown;
     contactId: string | null;
     nickId: string | null;
@@ -1911,6 +2116,7 @@ async function enrichEventRows(
     rowIndex: number | null;
     status: string;
     detail: unknown;
+    metadata: unknown;
   }>
 > {
   if (rows.length === 0) return [];
@@ -1968,7 +2174,14 @@ async function enrichEventRows(
       customerName: r.contactId ? customerNameById.get(r.contactId) ?? null : null,
       rowIndex: r.contactId ? rowIndexByContact.get(r.contactId) ?? null : null,
       status: r.eventPriority,
-      detail: r.summary || r.metadata || null,
+      // FIX 2026-06-03 (code-review CONFIRMED): event-hooks Luồng Mục Tiêu (reaction/
+      // reply/block/manual) ghi vào cột `detail` (emoji, replyText), KHÔNG ghi summary.
+      // Bản trước chỉ đọc r.summary → detailText FE mất emoji/text. Đọc detail TRƯỚC,
+      // fallback summary (Wave 3 dùng summary cho welcome/friend events).
+      detail: r.detail || r.summary || null,
+      // I6 2026-06-03 — trả metadata riêng để FE detailText() dựng "Gửi bước 2/4"
+      // từ metadata.stepIdx/totalSteps, welcome channel, v.v. (trước đây gộp vào detail).
+      metadata: r.metadata ?? null,
     };
   });
 }

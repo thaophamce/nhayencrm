@@ -539,14 +539,16 @@ export async function zinstantProxyRoutes(app: FastifyInstance): Promise<void> {
 
           const contact = await prisma.contact.findFirst({
             where: { orgId: userForScope.orgId, zaloUid: uid },
-            select: { id: true, gender: true, avatarUrl: true, zaloName: true },
+            // FIX 2026-06-03: Contact dùng `zaloUsername` (zalo_username), KHÔNG có
+            // cột `zaloName` → typecheck fail + cập nhật tên Zalo từ SDK âm thầm hỏng.
+            select: { id: true, gender: true, avatarUrl: true, zaloUsername: true },
           });
           if (!contact) return;
 
           const updateData: Record<string, unknown> = {};
           if (sdkGender && contact.gender !== sdkGender) updateData.gender = sdkGender;
           if (sdkAvatar && contact.avatarUrl !== sdkAvatar) updateData.avatarUrl = sdkAvatar;
-          if (sdkZaloName && contact.zaloName !== sdkZaloName) updateData.zaloName = sdkZaloName;
+          if (sdkZaloName && contact.zaloUsername !== sdkZaloName) updateData.zaloUsername = sdkZaloName;
 
           if (Object.keys(updateData).length > 0) {
             await prisma.contact.update({

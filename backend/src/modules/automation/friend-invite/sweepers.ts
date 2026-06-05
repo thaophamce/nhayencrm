@@ -598,9 +598,102 @@ async function runStickyNickHoldSweeper(): Promise<void> {
 }
 
 let stickyHoldSweeperInterval: NodeJS.Timeout | null = null;
+let remindSweeperInterval: NodeJS.Timeout | null = null;
 
 /**
- * Start all sweepers (Sprint v3 — 7 sweeper).
+ * I12 2026-06-04 — Tin 3: Nhắc KH đồng ý kết bạn sau N ngày.
+ * Quét outbox FRIEND_REQUEST đã gửi > trigger.remindDelayDays mà KH CHƯA accept
+ * + CHƯA gửi nhắc + trigger bật enableRemind + có remindTemplate. Gửi qua hộp người lạ.
+ *
+ * SKIP (Anh chốt): nếu KH đã đồng ý (Friend accepted qua nick này) → bỏ qua, không nhắc.
+ * Idempotent: đã có event 'remind_sent' cho (trigger, contact) → bỏ qua (gửi 1 lần).
+ */
+async function runRemindSweeper(): Promise<void> {
+  try {
+    // Các trigger friend_invite đang active, bật nhắc, có template.
+    const triggers = await prisma.automationTrigger.findMany({
+      where: {
+        eventType: 'friend_invite_to_list',
+        state: 'active',
+        enableRemind: true,
+        remindTemplate: { not: null },
+      },
+      select: { id: true, orgId: true, remindTemplate: true, remindDelayDays: true },
+      take: 50,
+    });
+    if (triggers.length === 0) return;
+
+    let sent = 0;
+    for (const t of triggers) {
+      const cutoff = new Date(Date.now() - (t.remindDelayDays || 3) * 24 * 3600_000);
+      // Outbox FRIEND_REQUEST đã gửi quá hạn, lấy nick + contact + uid.
+      const candidates = await prisma.friendRequestOutbox.findMany({
+        where: {
+          triggerId: t.id,
+          kind: 'FRIEND_REQUEST',
+          sendStatus: { in: ['success', 'tentative'] },
+          createdAt: { lt: cutoff },
+        },
+        select: { contactId: true, nickId: true, customerListEntryId: true },
+        take: 100,
+      });
+      for (const c of candidates) {
+        if (!c.contactId || !c.nickId) continue;
+        // SKIP nếu KH đã accepted qua nick này (Tin 2 đã/đang lo) — Anh chốt.
+        const accepted = await prisma.friend.findFirst({
+          where: { contactId: c.contactId, zaloAccountId: c.nickId, friendshipStatus: 'accepted' },
+          select: { id: true },
+        });
+        if (accepted) continue;
+        // Idempotent: đã nhắc rồi → bỏ qua.
+        const already = await prisma.automationEventLog.findFirst({
+          where: { triggerId: t.id, contactId: c.contactId, eventType: 'remind_sent' },
+          select: { id: true },
+        });
+        if (already) continue;
+        // FIX 2026-06-04 (Anh hỏi): resolve UID THẬT từ findUser-qua-SĐT đã lưu.
+        // 2 nguồn: Friend.zaloUidInNick (nick-worker lưu sau findUser, 4776 rows) ưu tiên,
+        // fallback CustomerListEntry.zaloUid (enrich lúc import). KHÔNG dùng zaloLeadgenId
+        // (đó là mã reqId của friend-request, KHÔNG phải UID — không gửi tin được).
+        let uid = '';
+        const fr = await prisma.friend.findFirst({
+          where: { contactId: c.contactId, zaloAccountId: c.nickId },
+          select: { zaloUidInNick: true },
+        });
+        uid = fr?.zaloUidInNick ?? '';
+        if (!uid && c.customerListEntryId) {
+          const entry = await prisma.customerListEntry.findUnique({
+            where: { id: c.customerListEntryId },
+            select: { zaloUid: true },
+          });
+          uid = entry?.zaloUid ?? '';
+        }
+        if (!uid) continue;
+        try {
+          const { sendStrangerFollowUp } = await import('../queues/event-hooks.js');
+          await sendStrangerFollowUp({
+            orgId: t.orgId,
+            triggerId: t.id,
+            contactId: c.contactId,
+            nickId: c.nickId,
+            uid,
+            template: t.remindTemplate!,
+            eventType: 'remind_sent',
+          });
+          sent++;
+        } catch (err) {
+          logger.warn(`[remind-sweeper] send failed contact=${c.contactId}: ${(err as Error).message}`);
+        }
+      }
+    }
+    if (sent > 0) logger.info(`[remind-sweeper] sent ${sent} Tin 3 nhắc đồng ý KB`);
+  } catch (err) {
+    logger.error('[remind-sweeper] error:', err);
+  }
+}
+
+/**
+ * Start all sweepers (Sprint v3 — 7 sweeper + remind Tin 3).
  */
 export function startFriendInviteSweepers(): void {
   if (
@@ -610,7 +703,8 @@ export function startFriendInviteSweepers(): void {
     drainerInterval ||
     welcomeFailedCleanupInterval ||
     campaignTimeoutSweeperInterval ||
-    stickyHoldSweeperInterval
+    stickyHoldSweeperInterval ||
+    remindSweeperInterval
   ) {
     logger.warn('[friend-invite] sweepers already running, skip start');
     return;
@@ -633,9 +727,12 @@ export function startFriendInviteSweepers(): void {
     () => void runStickyNickHoldSweeper(),
     5 * 60_000,
   );
+  // I12 2026-06-04 — Tin 3 nhắc đồng ý KB. Quét mỗi 30 phút (delay tính theo ngày,
+  // không cần dày). Skip nếu KH đã accept, gửi 1 lần (idempotent qua event remind_sent).
+  remindSweeperInterval = setInterval(() => void runRemindSweeper(), 30 * 60_000);
 
   logger.info(
-    '[friend-invite] sweepers started: stuck(60s) + trigger-complete(60s) + exhausted-nicks(60s) + outbox-drainer(30s) + welcome-failed-cleanup(60s) + campaign-timeout(5min,24h) + sticky-hold(5min,24h)',
+    '[friend-invite] sweepers started: stuck(60s) + trigger-complete(60s) + exhausted-nicks(60s) + outbox-drainer(30s) + welcome-failed-cleanup(60s) + campaign-timeout(5min,24h) + sticky-hold(5min,24h) + remind-Tin3(30min)',
   );
 
   // Initial run on start
@@ -646,6 +743,7 @@ export function startFriendInviteSweepers(): void {
   void runWelcomeFailedCleanup();
   void runCampaignTimeoutSweeper();
   void runStickyNickHoldSweeper();
+  void runRemindSweeper();
 }
 
 /**
@@ -659,6 +757,7 @@ export function stopFriendInviteSweepers(): void {
   if (welcomeFailedCleanupInterval) clearInterval(welcomeFailedCleanupInterval);
   if (campaignTimeoutSweeperInterval) clearInterval(campaignTimeoutSweeperInterval);
   if (stickyHoldSweeperInterval) clearInterval(stickyHoldSweeperInterval);
+  if (remindSweeperInterval) clearInterval(remindSweeperInterval);
   stuckSweeperInterval = null;
   triggerSweeperInterval = null;
   exhaustedSweeperInterval = null;
@@ -666,5 +765,6 @@ export function stopFriendInviteSweepers(): void {
   welcomeFailedCleanupInterval = null;
   campaignTimeoutSweeperInterval = null;
   stickyHoldSweeperInterval = null;
+  remindSweeperInterval = null;
   logger.info('[friend-invite] sweepers stopped');
 }

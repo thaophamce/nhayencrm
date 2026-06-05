@@ -4,6 +4,14 @@ import { logger } from '../../shared/utils/logger.js';
 import { zaloPool } from '../zalo/zalo-pool.js';
 import { zaloRateLimiter } from '../zalo/zalo-rate-limiter.js';
 
+// 2026-06-04 (Anh chốt) — định dạng Zalo: styled text + urgency cờ Khẩn.
+// st khớp zca-js TextStyle (b/i/u/c_*/f_*). urgency 0=Default 1=Important 2=Urgent.
+export interface ZaloTextStyle {
+  start: number;
+  len: number;
+  st: string;
+}
+
 export type RecipientStatus = 'ready' | 'missing_system_sender' | 'missing_internal_contact' | 'missing_internal_phone' | 'sender_disconnected' | 'uid_not_found' | 'lookup_failed' | 'invalid';
 
 interface ResolveResult {
@@ -23,6 +31,10 @@ interface SendToUserInput {
   title: string;
   content: string;
   priority?: 'low' | 'normal' | 'high';
+  // 2026-06-04 — khi có styles: content ĐÃ chứa tiêu đề ở dòng đầu (StyleBuilder),
+  // KHÔNG ghép title nữa (tránh lặp). urgency đẩy cờ Khẩn native Zalo.
+  styles?: ZaloTextStyle[];
+  urgency?: 0 | 1 | 2;
 }
 
 function extractZaloMsgId(sendResult: unknown): string | null {
@@ -31,7 +43,17 @@ function extractZaloMsgId(sendResult: unknown): string | null {
   return rawId == null || rawId === '' ? null : String(rawId);
 }
 
-function buildMessage(title: string, content: string, priority: string) {
+function buildMessage(
+  title: string,
+  content: string,
+  priority: string,
+  hasStyles: boolean,
+) {
+  // 2026-06-04 — khi có styles, content ĐÃ chứa tiêu đề (StyleBuilder dòng đầu) →
+  // gửi content nguyên vẹn. KHÔNG thêm prefix [KHẨN] (urgency đã đẩy cờ Khẩn native,
+  // và title styled đã đỏ/đậm) → fix bug "[KHẨN] [KHẨN]" lặp 2 lần.
+  if (hasStyles) return content.trim();
+  // Path cũ (no-zalo / send-error text thuần): giữ prefix [KHẨN] cho high.
   const prefix = priority === 'high' ? '[KHẨN] ' : '';
   return `${prefix}${title}\n${content}`.trim();
 }
@@ -178,8 +200,19 @@ export async function sendSystemNotificationToUser(input: SendToUserInput) {
     if (!api) throw new Error('Nick gửi hệ thống chưa connected trong Zalo pool');
 
     await zaloRateLimiter.recordSend(resolved.senderZaloAccountId, 'message');
-    const msg = buildMessage(input.title, input.content, priority);
-    const sendResult = await api.sendMessage({ msg }, resolved.threadIdInSenderView, 0);
+    const hasStyles = Array.isArray(input.styles) && input.styles.length > 0;
+    const msg = buildMessage(input.title, input.content, priority, hasStyles);
+    // 2026-06-04 — payload Zalo: styles (định dạng chữ) + urgency (cờ Khẩn).
+    // zca-js nhận MessageContent { msg, styles?, urgency? }. Cast cục bộ để khỏi
+    // import enum zca-js (giá trị st/urgency đã khớp 1:1).
+    const messageContent: Record<string, unknown> = { msg };
+    if (hasStyles) messageContent.styles = input.styles;
+    if (input.urgency && input.urgency > 0) messageContent.urgency = input.urgency;
+    const sendResult = await api.sendMessage(
+      messageContent as Parameters<typeof api.sendMessage>[0],
+      resolved.threadIdInSenderView,
+      0,
+    );
     const zaloMsgId = extractZaloMsgId(sendResult);
     const now = new Date();
 

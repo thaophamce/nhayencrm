@@ -239,122 +239,118 @@
             </div>
             <div class="msg-bundle-body">
 
-              <!-- TIN 1 -->
-              <div class="msg-item">
+              <!-- Timeline luồng tin (giúp sale hiểu thứ tự) -->
+              <div class="flow-strip">
+                <b>Lời mời KB</b> <span class="fa">→</span>
+                <b>Tin 1 Chào mừng</b> <span class="fa">→</span>
+                <span>(chờ KH đồng ý)</span> <span class="fa">→</span>
+                <b>Tin 2 Cảm ơn</b> <span class="fa">·</span>
+                <span>lâu chưa đồng ý → <b>Tin 3 Nhắc</b></span> <span class="fa">·</span>
+                <span>từ chối → <b>Tin 4</b></span>
+              </div>
+
+              <!-- LỜI MỜI KB — BẮT BUỘC, không công tắc -->
+              <div class="msg-item msg-locked">
                 <div class="msg-item-head">
-                  <div class="msg-item-icon">📤</div>
-                  <div class="msg-item-title">Tin 1 · Tin xin kết bạn</div>
-                  <span class="msg-item-badge badge-blue">Mặc định</span>
+                  <div class="msg-item-icon">🤝</div>
+                  <div class="msg-item-title">Lời mời kết bạn</div>
+                  <span class="msg-item-badge badge-req">🔒 Bắt buộc</span>
                 </div>
-                <p class="msg-item-help">Gửi <strong>cùng lúc</strong> với lời mời kết bạn Zalo. Tối đa 200 ký tự.</p>
-                <textarea
-                  v-model="form.messages.friendRequest"
-                  class="ta"
-                  rows="3"
-                  maxlength="200"
-                ></textarea>
+                <p class="msg-item-help">Lời nhắn gửi <strong>cùng lúc</strong> với lời mời kết bạn Zalo. Không thể tắt (KB Zalo phải kèm lời chào). Tối đa 200 ký tự.</p>
+                <textarea v-model="form.messages.friendRequest" class="ta" rows="2" maxlength="200"></textarea>
                 <div class="ta-counter">{{ form.messages.friendRequest.length }}/200</div>
               </div>
 
-              <!-- TIN 2 -->
-              <div class="msg-item">
+              <!-- TIN 1 · CHÀO MỪNG -->
+              <div class="msg-item" :class="{ 'msg-off': !form.enableWelcome }">
                 <div class="msg-item-head">
-                  <div class="msg-item-icon icon-orange">💭</div>
-                  <div class="msg-item-title">Tin 2 · Tin đề xuất KH đồng ý kết bạn</div>
-                  <span class="msg-item-badge badge-orange">Stranger inbox</span>
+                  <div class="msg-item-icon icon-blue">👋</div>
+                  <div class="msg-item-title">Tin 1 · Tin chào mừng</div>
+                  <span class="msg-item-badge badge-blue">Hộp người lạ</span>
+                  <label class="msg-toggle"><input type="checkbox" v-model="form.enableWelcome" /><span class="msg-toggle-track"><span class="msg-toggle-thumb"></span></span><span class="msg-toggle-text">{{ form.enableWelcome ? 'BẬT' : 'TẮT' }}</span></label>
                 </div>
-                <p class="msg-item-help">Gửi qua <strong>hộp thư người lạ</strong> sau khi xin KB ~30 phút, nhắc KH mở Zalo check.</p>
-                <div class="msg-item-row">
-                  <textarea
-                    v-model="form.messages.acceptReminder"
-                    class="ta"
-                    rows="2"
-                  ></textarea>
-                  <div class="msg-delay-input">
-                    <label>Sau</label>
-                    <input
-                      v-model.number="form.messages.acceptReminderDelayMin"
-                      type="number"
-                      min="5"
-                      max="240"
-                    />
-                    <span class="unit">phút</span>
+                <p class="msg-item-help">Gửi qua hộp thư người lạ <strong>ngay sau khi gửi lời mời</strong> (không chờ đồng ý).
+                  <span v-if="!form.enableWelcome" class="msg-off-note">— Đang TẮT: bỏ qua tin chào.</span></p>
+                <template v-if="form.enableWelcome">
+                  <div class="msg-item-row">
+                    <textarea v-model="form.messages.welcome" class="ta" rows="2"></textarea>
+                    <div class="msg-delay-input"><label>Chờ sau khi mời</label>
+                      <TimeAmountInput v-model="form.welcomeDelayMinutes" base-unit="minute" :units="['second','minute','hour']" /></div>
                   </div>
-                </div>
+                  <NotifyOwnerBox v-model="form.notifyOwner.welcome" />
+                </template>
               </div>
 
-              <!-- TIN 3 -->
-              <div class="msg-item">
+              <!-- TIN 2 · CẢM ƠN ĐÃ ĐỒNG Ý -->
+              <div class="msg-item" :class="{ 'msg-off': !form.enableThankYou }">
                 <div class="msg-item-head">
                   <div class="msg-item-icon icon-green">🎉</div>
-                  <div class="msg-item-title">Tin 3 · Tin chào mừng khi KH đồng ý kết bạn</div>
-                  <span class="msg-item-badge badge-green">Friend channel</span>
+                  <div class="msg-item-title">Tin 2 · Tin cảm ơn khách đã đồng ý kết bạn</div>
+                  <span class="msg-item-badge badge-green">Sau khi đồng ý</span>
+                  <label class="msg-toggle"><input type="checkbox" v-model="form.enableThankYou" /><span class="msg-toggle-track"><span class="msg-toggle-thumb"></span></span><span class="msg-toggle-text">{{ form.enableThankYou ? 'BẬT' : 'TẮT' }}</span></label>
                 </div>
-                <p class="msg-item-help">Gửi sau khi KH bấm đồng ý kết bạn. Đặt 0 để gửi ngay lập tức.</p>
-                <div class="msg-item-row">
-                  <textarea
-                    v-model="form.messages.welcome"
-                    class="ta"
-                    rows="3"
-                  ></textarea>
-                  <div class="msg-delay-input">
-                    <label>Sau</label>
-                    <input
-                      v-model.number="form.welcomeDelayMinutes"
-                      type="number"
-                      min="0"
-                      max="60"
-                    />
-                    <span>phút</span>
+                <p class="msg-item-help">Gửi khi khách <strong>thực sự bấm Đồng ý</strong> kết bạn.
+                  <span v-if="!form.enableThankYou" class="msg-off-note">— Đang TẮT.</span></p>
+                <template v-if="form.enableThankYou">
+                  <div class="msg-item-row">
+                    <textarea v-model="form.messages.thankYou" class="ta" rows="2"></textarea>
+                    <div class="msg-delay-input"><label>Chờ sau khi đồng ý</label>
+                      <TimeAmountInput v-model="form.thankYouDelayMinutes" base-unit="minute" :units="['second','minute','hour']" /></div>
                   </div>
-                </div>
+                  <NotifyOwnerBox v-model="form.notifyOwner.thankYou" />
+                </template>
               </div>
 
-              <!-- TIN 4 -->
-              <div class="msg-item">
+              <!-- TIN 3 · NHẮC ĐỒNG Ý KB -->
+              <div class="msg-item" :class="{ 'msg-off': !form.enableRemind }">
                 <div class="msg-item-head">
                   <div class="msg-item-icon icon-yellow">⏰</div>
-                  <div class="msg-item-title">Tin 4 · Tin nhắc sau N ngày KH chưa đồng ý KB</div>
-                  <span class="msg-item-badge badge-yellow">Sau N ngày</span>
+                  <div class="msg-item-title">Tin 3 · Nhắc khách đồng ý kết bạn</div>
+                  <span class="msg-item-badge badge-yellow">Nhắc lại</span>
+                  <label class="msg-toggle"><input type="checkbox" v-model="form.enableRemind" /><span class="msg-toggle-track"><span class="msg-toggle-thumb"></span></span><span class="msg-toggle-text">{{ form.enableRemind ? 'BẬT' : 'TẮT' }}</span></label>
                 </div>
-                <p class="msg-item-help">Gửi qua <strong>hộp thư người lạ</strong> khi quá N ngày KH chưa accept.</p>
-                <div class="msg-item-row">
-                  <textarea
-                    v-model="form.messages.followUpAfterDays"
-                    class="ta"
-                    rows="3"
-                  ></textarea>
-                  <div class="msg-delay-input">
-                    <label>Sau</label>
-                    <input
-                      v-model.number="form.messages.followUpDelayDays"
-                      type="number"
-                      min="1"
-                      max="14"
-                    />
-                    <span class="unit">ngày</span>
+                <p class="msg-item-help">Gửi qua hộp người lạ nếu khách lâu chưa đồng ý.
+                  <span v-if="!form.enableRemind" class="msg-off-note">— Đang TẮT.</span></p>
+                <template v-if="form.enableRemind">
+                  <div class="msg-item-row">
+                    <textarea v-model="form.messages.remind" class="ta" rows="2"></textarea>
+                    <div class="msg-delay-input"><label>Nhắc sau</label>
+                      <TimeAmountInput v-model="form.remindDelayDays" base-unit="day" :units="['hour','day']" /></div>
                   </div>
-                </div>
+                  <span class="cond-chip">✅ Tự bỏ qua nếu khách đã đồng ý (Tin 2 đã chạy)</span>
+                  <NotifyOwnerBox v-model="form.notifyOwner.remind" />
+                </template>
               </div>
 
-              <!-- TIN 5 -->
-              <div class="msg-item">
+              <!-- TIN 4 · KHI TỪ CHỐI -->
+              <div class="msg-item" :class="{ 'msg-off': !form.enableRejectedFollowUp }">
                 <div class="msg-item-head">
-                  <div class="msg-item-icon icon-orange">🙏</div>
-                  <div class="msg-item-title">Tin 5 · Tin nhắc khi KH từ chối kết bạn</div>
-                  <span class="msg-item-badge badge-orange">Stranger inbox</span>
+                  <div class="msg-item-icon icon-orange">🙅</div>
+                  <div class="msg-item-title">Tin 4 · Khi khách từ chối kết bạn</div>
+                  <span class="msg-item-badge badge-gray">Từ chối</span>
+                  <label class="msg-toggle"><input type="checkbox" v-model="form.enableRejectedFollowUp" /><span class="msg-toggle-track"><span class="msg-toggle-thumb"></span></span><span class="msg-toggle-text">{{ form.enableRejectedFollowUp ? 'BẬT' : 'TẮT' }}</span></label>
                 </div>
-                <p class="msg-item-help">
-                  Gửi qua <strong>hộp thư người lạ</strong> khi KH bấm từ chối KB.
-                  KH reject vẫn ĐƯỢC bám đuổi tiếp qua chuỗi 5 bước.
-                </p>
-                <textarea
-                  v-model="form.messages.rejectedFollowUp"
-                  class="ta"
-                  rows="3"
-                ></textarea>
+                <p class="msg-item-help">Gửi qua hộp người lạ khi khách bấm Từ chối. KH reject vẫn được bám đuổi qua hộp người lạ.
+                  <span v-if="!form.enableRejectedFollowUp" class="msg-off-note">— Đang TẮT.</span></p>
+                <template v-if="form.enableRejectedFollowUp">
+                  <textarea v-model="form.messages.rejectedFollowUp" class="ta" rows="2"></textarea>
+                  <NotifyOwnerBox v-model="form.notifyOwner.rejected" />
+                </template>
               </div>
 
+            </div>
+          </div>
+
+          <!-- THÔNG BÁO KHI KH TƯƠNG TÁC (5 event) -->
+          <div class="msg-bundle" style="margin-top:14px">
+            <div class="msg-bundle-header">🔔 Báo nội bộ khi khách tương tác
+              <span class="bundle-hint">Chọn ai được báo khi khách phản hồi trong lúc chăm sóc.</span>
+            </div>
+            <div class="msg-bundle-body">
+              <div class="ev-notify-item" v-for="ev in interactionEvents" :key="ev.key">
+                <div class="ev-notify-head"><span>{{ ev.ico }}</span> <b>{{ ev.label }}</b></div>
+                <NotifyOwnerBox v-model="form.notifyOwner[ev.key]" />
+              </div>
             </div>
           </div>
 
@@ -492,14 +488,8 @@
               <div class="safety-help">Tối thiểu cách nhau bao lâu giữa 2 KH liên tiếp</div>
             </div>
             <div class="safety-input-wrap">
-              <div class="num-row">
-                <input type="number" v-model.number="form.safetyRules.sendIntervalSeconds" min="1" max="3600" class="num-input" />
-                <span class="unit">giây</span>
-                <span class="separator">~</span>
-                <span class="num-output">{{ (form.safetyRules.sendIntervalSeconds / 60).toFixed(1) }}</span>
-                <span class="unit">phút</span>
-              </div>
-              <div class="safety-help">Giá trị thấp = gửi nhanh nhưng tăng risk khoá nick. Mặc định 60s an toàn cao.</div>
+              <TimeAmountInput v-model="form.safetyRules.sendIntervalSeconds" base-unit="second" :units="['second','minute']" />
+              <div class="safety-help">Giá trị thấp = gửi nhanh nhưng tăng risk khoá nick. Mặc định 60 giây an toàn cao.</div>
             </div>
           </div>
         </div>
@@ -544,8 +534,7 @@
             </div>
             <div class="safety-input-wrap">
               <div class="num-row">
-                <input type="number" v-model.number="form.safetyRules.recencyDays" min="0" max="365" class="num-input" />
-                <span class="unit">ngày</span>
+                <TimeAmountInput v-model="form.safetyRules.recencyDays" base-unit="day" :units="['hour','day']" />
                 <span class="alert-chip info">0 = không lọc</span>
               </div>
               <div class="safety-help">VD: KH X đã được nick A nhắn ngày 25/05 → nick B sẽ bỏ qua nếu &lt; 30 ngày</div>
@@ -580,13 +569,7 @@
               <div class="safety-help">Tính từ khi gửi lời mời kết bạn (không phụ thuộc KH đã accept hay chưa)</div>
             </div>
             <div class="safety-input-wrap">
-              <div class="num-row">
-                <input type="number" v-model.number="form.safetyRules.delayAfterFriendRequestMin" min="0" max="10080" class="num-input" />
-                <span class="unit">phút</span>
-                <span class="separator">~</span>
-                <span class="num-output">{{ (form.safetyRules.delayAfterFriendRequestMin / 60).toFixed(1) }}</span>
-                <span class="unit">giờ</span>
-              </div>
+              <TimeAmountInput v-model="form.safetyRules.delayAfterFriendRequestMin" base-unit="minute" :units="['minute','hour','day']" />
               <div class="safety-help">"Spam HẾT luồng" — KH KHÔNG cần accept vẫn nhận đủ chuỗi qua stranger inbox</div>
             </div>
           </div>
@@ -599,9 +582,8 @@
             </div>
             <div class="safety-input-wrap">
               <div class="num-row">
-                <input type="number" v-model.number="form.safetyRules.pauseHoursOnReply" min="1" max="720" class="num-input" />
-                <span class="unit">giờ</span>
-                <span class="alert-chip info">KH reply tiếp → reset 24h</span>
+                <TimeAmountInput v-model="form.safetyRules.pauseHoursOnReply" base-unit="hour" :units="['hour','day']" />
+                <span class="alert-chip info">KH reply tiếp → reset</span>
               </div>
               <div class="safety-help">KH reply giữa chuỗi → cancel job pending + notify KHẨN sale</div>
             </div>
@@ -948,6 +930,17 @@
 import { ref, computed, onMounted, watch } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { api } from '@/api';
+import TimeAmountInput from '@/components/automation/TimeAmountInput.vue';
+import NotifyOwnerBox from '@/components/automation/NotifyOwnerBox.vue';
+
+// I10 2026-06-04 — 5 event tương tác (báo nội bộ khi KH phản hồi trong lúc chăm sóc).
+const interactionEvents = [
+  { key: 'reply',            ico: '💬', label: 'Khách trả lời tin' },
+  { key: 'reactionPositive', ico: '😍', label: 'Khách thả cảm xúc tích cực (❤️ 👍)' },
+  { key: 'reactionNegative', ico: '😡', label: 'Khách thả cảm xúc tiêu cực (😡 👎)' },
+  { key: 'lead',             ico: '💎', label: 'Khách chuyển thành Lead (chốt quan tâm)' },
+  { key: 'block',            ico: '🚫', label: 'Khách chặn nick' },
+];
 
 const router = useRouter();
 const route = useRoute();
@@ -1028,14 +1021,25 @@ const form = ref({
   successorSequenceId: '',
   startMode: 'now' as 'now' | 'scheduled',
   scheduledAt: null as string | null, // datetime-local string "YYYY-MM-DDTHH:mm" (giờ VN)
-  welcomeDelayMinutes: 1, // Sau khi KH accept friend, chờ bao lâu rồi gửi tin chào mừng. 0 = gửi ngay.
+  welcomeDelayMinutes: 1, // Tin 1 Chào mừng: chờ bao lâu sau khi gửi lời mời. 0 = gửi ngay.
+  thankYouDelayMinutes: 1, // Tin 2 Cảm ơn: chờ bao lâu sau khi KH đồng ý KB.
+  remindDelayDays: 3,      // Tin 3 Nhắc: sau bao nhiêu ngày KH chưa đồng ý.
+  // ── I10 2026-06-04 — cấu trúc 5 tin (Anh chốt /design-html v2) ──
+  // Lời mời KB = friendRequest BẮT BUỘC (không cờ). 4 tin còn lại có công tắc.
+  enableWelcome: true,            // Tin 1 Chào mừng (sau khi mời, hộp người lạ)
+  enableThankYou: true,           // Tin 2 Cảm ơn (sau khi KH đồng ý KB)
+  enableRemind: true,             // Tin 3 Nhắc đồng ý KB sau N ngày (tự bỏ qua nếu đã đồng ý)
+  enableRejectedFollowUp: false,  // Tin 4 Khi KH từ chối KB
+  // Thông báo nội bộ per-event: { eventKey: { owner: bool } }. manager/zaloGroup defer.
+  notifyOwner: {
+    welcome: true, thankYou: true, remind: true, rejected: true,
+    reply: true, reactionPositive: true, reactionNegative: true, lead: true, block: true,
+  } as Record<string, boolean>,
   messages: {
     friendRequest: 'Em chào {gender} {name}, em là {sale} bên dự án The Emerald Garden View. Em xin kết bạn để gửi tài liệu chi tiết ạ.',
-    acceptReminder: 'Em vừa gửi lời mời kết bạn ạ. Anh chị mở Zalo check giúp em để em gửi tài liệu nhé.',
-    acceptReminderDelayMin: 30,
-    welcome: 'Em chào {gender} {name}, cảm ơn {gender} đã đồng ý kết bạn. Em xin gửi {gender} bộ tài liệu dự án ạ.',
-    followUpAfterDays: 'Em chào {gender} {name}, em có gửi lời mời kết bạn nhưng chưa thấy phản hồi. Mong {gender} dành chút thời gian xem giúp em ạ.',
-    followUpDelayDays: 3,
+    welcome: 'Em chào {gender} {name}, em vừa gửi lời mời kết bạn. Mong {gender} duyệt giúp em để nhận tài liệu dự án ạ.',
+    thankYou: 'Cảm ơn {gender} {name} đã đồng ý kết bạn ạ. Em xin gửi {gender} bộ tài liệu dự án chi tiết.',
+    remind: 'Em chào {gender} {name}, em có gửi lời mời kết bạn nhưng chưa thấy phản hồi. Mong {gender} dành chút thời gian duyệt giúp em ạ.',
     rejectedFollowUp: 'Em chào {gender} {name}, không sao ạ. Em vẫn gửi {gender} bộ tài liệu dự án qua đây, mong {gender} dành ít phút xem giúp em.',
   },
   skipRules: {
@@ -1391,6 +1395,21 @@ function buildSubmitPayload() {
     greetingTemplate: form.value.messages.friendRequest.trim(),
     welcomeMessageTemplate: form.value.messages.welcome.trim() || null,
     welcomeDelaySeconds: Math.max(0, (form.value.welcomeDelayMinutes ?? 1) * 60),
+    // I10 2026-06-04 — Tin 2 Cảm ơn + 4 cờ enable + thông báo per-event.
+    thankYouTemplate: form.value.messages.thankYou.trim() || null,
+    thankYouDelaySeconds: Math.max(0, (form.value.thankYouDelayMinutes ?? 1) * 60),
+    // I12 2026-06-04 — Tin 3 (nhắc) + Tin 4 (từ chối).
+    remindTemplate: form.value.messages.remind.trim() || null,
+    remindDelayDays: Math.max(1, form.value.remindDelayDays ?? 3),
+    rejectedTemplate: form.value.messages.rejectedFollowUp.trim() || null,
+    enableWelcome: form.value.enableWelcome,
+    enableThankYou: form.value.enableThankYou,
+    enableRemind: form.value.enableRemind,
+    enableRejectedFollowUp: form.value.enableRejectedFollowUp,
+    // notifyChannels: per-event { owner, manager(defer), zaloGroup(defer) }
+    notifyChannels: Object.fromEntries(
+      Object.entries(form.value.notifyOwner).map(([k, owner]) => [k, { owner, manager: false, zaloGroup: false }]),
+    ),
     startMode: form.value.startMode,
     scheduledAt: scheduledIso,
     skipRules: {
@@ -1421,11 +1440,11 @@ function buildSubmitPayload() {
       pauseHoursOnReply: form.value.safetyRules.pauseHoursOnReply,
     },
     segmentSpec: {
+      // I10 2026-06-04 — cấu trúc 5 tin mới. thankYou/remind có cột BE riêng (gửi qua
+      // field top-level); extendedMessages lưu thêm remind/rejected text + delay cho ref.
       extendedMessages: {
-        acceptReminder: form.value.messages.acceptReminder,
-        acceptReminderDelayMin: form.value.messages.acceptReminderDelayMin,
-        followUpAfterDays: form.value.messages.followUpAfterDays,
-        followUpDelayDays: form.value.messages.followUpDelayDays,
+        remind: form.value.messages.remind,
+        remindDelayDays: form.value.remindDelayDays,
         rejectedFollowUp: form.value.messages.rejectedFollowUp,
       },
     },
@@ -1458,7 +1477,7 @@ async function submit() {
         segmentSpec: { skipRules: fullPayload.skipRules },
       };
       await api.patch(`/automation/triggers/${editingTriggerId.value}`, patchBody);
-      router.push(`/automation/muc-tieu/${editingTriggerId.value}`);
+      router.push(`/marketing/triggers/${editingTriggerId.value}`);
       return;
     }
 
@@ -1471,7 +1490,7 @@ async function submit() {
     if (form.value.startMode === 'now') {
       await api.post(`/automation/triggers/${triggerId}/activate`);
     }
-    router.push(`/automation/muc-tieu/${triggerId}`);
+    router.push(`/marketing/triggers/${triggerId}`);
   } catch (err: any) {
     const verb = isEditMode.value ? 'Lưu' : 'Tạo';
     alert(`${verb} Mục tiêu thất bại: ` + (err?.response?.data?.error ?? err?.message ?? 'unknown'));
@@ -1507,6 +1526,22 @@ async function loadForEdit(triggerId: string): Promise<void> {
     if (typeof t.welcomeDelaySeconds === 'number') {
       form.value.welcomeDelayMinutes = Math.max(0, Math.round(t.welcomeDelaySeconds / 60));
     }
+    // I13 2026-06-04 — load cấu hình 5 tin khi sửa Mục tiêu.
+    if (typeof t.thankYouTemplate === 'string') form.value.messages.thankYou = t.thankYouTemplate;
+    if (typeof t.thankYouDelaySeconds === 'number') form.value.thankYouDelayMinutes = Math.max(0, Math.round(t.thankYouDelaySeconds / 60));
+    if (typeof t.remindTemplate === 'string') form.value.messages.remind = t.remindTemplate;
+    if (typeof t.remindDelayDays === 'number') form.value.remindDelayDays = t.remindDelayDays;
+    if (typeof t.rejectedTemplate === 'string') form.value.messages.rejectedFollowUp = t.rejectedTemplate;
+    if (typeof t.enableWelcome === 'boolean') form.value.enableWelcome = t.enableWelcome;
+    if (typeof t.enableThankYou === 'boolean') form.value.enableThankYou = t.enableThankYou;
+    if (typeof t.enableRemind === 'boolean') form.value.enableRemind = t.enableRemind;
+    if (typeof t.enableRejectedFollowUp === 'boolean') form.value.enableRejectedFollowUp = t.enableRejectedFollowUp;
+    if (t.notifyChannels && typeof t.notifyChannels === 'object') {
+      const nc = t.notifyChannels as Record<string, { owner?: boolean }>;
+      for (const k of Object.keys(form.value.notifyOwner)) {
+        if (nc[k] && typeof nc[k].owner === 'boolean') form.value.notifyOwner[k] = nc[k].owner!;
+      }
+    }
     if (t.safetyRules) {
       const s = t.safetyRules;
       if (typeof s.quietHoursStart === 'string') form.value.safetyRules.quietHoursStart = s.quietHoursStart;
@@ -1533,7 +1568,7 @@ async function loadForEdit(triggerId: string): Promise<void> {
   } catch (err: any) {
     console.error('[muc-tieu-wizard] loadForEdit failed', err);
     alert('Không tải được Mục tiêu để sửa: ' + (err?.response?.data?.error ?? err?.message ?? 'unknown'));
-    router.push('/automation/muc-tieu');
+    router.push('/marketing/triggers');
   } finally {
     editLoading.value = false;
   }
@@ -1588,34 +1623,38 @@ onMounted(async () => {
 <style scoped>
 /* ============================ DESIGN TOKENS ============================ */
 .mtw-page {
-  --bg-page: #FAFBFC;
-  --bg-card: #FFFFFF;
-  --bg-soft: #F4F5F7;
-  --bg-hover: #EBF3FF;
-  --bg-disabled: #F4F5F7;
-  --border: #DFE1E6;
-  --border-strong: #C1C7D0;
-  --text-1: #172B4D;
-  --text-2: #42526E;
-  --text-3: #6B778C;
-  --text-mute: #97A0AF;
-  --primary: #2D7FF9;
-  --primary-hover: #1B6FE0;
-  --primary-bg: #E7F0FF;
-  --primary-soft: #F0F6FF;
-  --success: #36B37E;
-  --success-bg: #E3FCEF;
-  --warning: #FFAB00;
-  --warning-bg: #FFF7E0;
-  --danger: #DE350B;
-  --danger-bg: #FFEBE6;
+  /* HS re-skin 2026-06-05 — map token scoped sang HS Holding. Tên biến giữ
+     nguyên (scoped trong .mtw-page nên không ảnh hưởng global). Chỉ đổi giá
+     trị. State machine + template giữ nguyên. */
+  --bg-page: var(--surface-2, #f7f9fc);
+  --bg-card: var(--surface, #ffffff);
+  --bg-soft: var(--surface-3, #f1f4f9);
+  --bg-hover: var(--brand-softer, #f2f8fc);
+  --bg-disabled: var(--surface-3, #f1f4f9);
+  --border: var(--line, #e7eaf0);
+  --border-strong: #cdd4e0;
+  --text-1: var(--ink, #141a24);
+  --text-2: var(--ink-2, #475066);
+  --text-3: var(--ink-3, #6b7488);
+  --text-mute: var(--ink-4, #97a0b3);
+  --primary: var(--brand, #1786be);
+  --primary-hover: var(--brand-600, #0f6fa0);
+  --primary-bg: var(--brand-soft, #e4f1f8);
+  --primary-soft: var(--brand-softer, #f2f8fc);
+  --success: var(--success, #12b76a);
+  --success-bg: var(--success-soft, #e7f7ef);
+  --warning: var(--warning, #f5a524);
+  --warning-bg: var(--warning-soft, #fdf3e2);
+  --danger: var(--error, #f04438);
+  --danger-bg: #fdeceb;
   --purple: #6554C0;
   --purple-bg: #EAE6FF;
-  --shadow-1: 0 1px 2px rgba(9, 30, 66, 0.05);
-  --shadow-2: 0 4px 12px rgba(9, 30, 66, 0.12);
+  --shadow-1: 0 1px 2px rgba(20, 26, 36, 0.05);
+  --shadow-2: 0 4px 12px rgba(20, 26, 36, 0.12);
 
+  /* HD-first: bỏ min-width 1280 (sidebar Marketing 244px → 1366-244=1122 < 1280
+     gây scroll ngang). Để width:100% fit trong shell. */
   width: 100%;
-  min-width: 1280px;
   max-width: 1920px;
   margin: 0 auto;
   padding: 16px 24px 80px;
@@ -1929,10 +1968,10 @@ onMounted(async () => {
   margin-top: 16px;
   padding: 12px 16px;
   background: var(--primary-bg);
-  border: 1px solid #B8D4FF;
+  border: 1px solid #9fcfe7;
   border-radius: 6px;
   font-size: 13px;
-  color: #0C4A9E;
+  color: #0b5880;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -2057,9 +2096,9 @@ textarea.ta:focus { border-color: var(--primary); outline: none; box-shadow: 0 0
   font-size: 14px;
   flex-shrink: 0;
 }
-.msg-item-icon.icon-orange { background: #FFEDD5; color: #B65500; }
-.msg-item-icon.icon-green { background: var(--success-bg); color: #006644; }
-.msg-item-icon.icon-yellow { background: var(--warning-bg); color: #B07700; }
+.msg-item-icon.icon-orange { background: #fdf3e2; color: #b45309; }
+.msg-item-icon.icon-green { background: var(--success-bg); color: #157f3c; }
+.msg-item-icon.icon-yellow { background: var(--warning-bg); color: #b45309; }
 .msg-item-title {
   font-size: 13px;
   font-weight: 600;
@@ -2075,9 +2114,22 @@ textarea.ta:focus { border-color: var(--primary); outline: none; box-shadow: 0 0
   font-weight: 600;
 }
 .badge-blue { background: var(--primary-bg); color: var(--primary); }
-.badge-green { background: var(--success-bg); color: #006644; }
-.badge-orange { background: #FFEDD5; color: #B65500; }
-.badge-yellow { background: var(--warning-bg); color: #B07700; }
+.badge-green { background: var(--success-bg); color: #157f3c; }
+.badge-orange { background: #fdf3e2; color: #b45309; }
+.badge-yellow { background: var(--warning-bg); color: #b45309; }
+/* I10 2026-06-04 — cấu trúc 5 tin */
+.badge-req { background: #141a24; color: #fff; }
+.badge-gray { background: #eef1f6; color: #475066; }
+.msg-item.msg-locked { border-color: #cfe6f3; background: linear-gradient(0deg,#f2f8fc,#fff); }
+.icon-blue { background: var(--primary-bg); color: var(--primary); }
+.flow-strip { display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin-bottom:14px; padding:9px 13px;
+  background:#fff; border:1px solid var(--border); border-radius:9px; font-size:12px; color:var(--text-3); }
+.flow-strip b { color:var(--text); }
+.flow-strip .fa { color:var(--border-strong,#9297a0); }
+.cond-chip { display:inline-block; font-size:11.5px; color:#0a6b5b; background:#e3f5f1; padding:2px 8px; border-radius:6px; margin-top:7px; }
+.ev-notify-item { padding:8px 0; border-top:1px dashed var(--border); }
+.ev-notify-item:first-child { border-top:none; }
+.ev-notify-head { font-size:13px; color:var(--text); display:flex; align-items:center; gap:7px; }
 .msg-item-help {
   font-size: 12px;
   color: var(--text-3);
@@ -2168,7 +2220,7 @@ textarea.ta:focus { border-color: var(--primary); outline: none; box-shadow: 0 0
 .defer-badge {
   padding: 2px 6px;
   background: var(--warning-bg);
-  color: #B07700;
+  color: #b45309;
   border: 1px solid #FFD380;
   border-radius: 4px;
   font-size: 10px;
@@ -2230,10 +2282,10 @@ textarea.ta:focus { border-color: var(--primary); outline: none; box-shadow: 0 0
   margin-top: 12px;
   padding: 10px 14px;
   background: var(--primary-soft);
-  border: 1px solid #B8D4FF;
+  border: 1px solid #9fcfe7;
   border-radius: 6px;
   font-size: 12px;
-  color: #0C4A9E;
+  color: #0b5880;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -2246,17 +2298,17 @@ textarea.ta:focus { border-color: var(--primary); outline: none; box-shadow: 0 0
   margin-top: 20px;
   padding: 14px 18px;
   background: var(--primary-bg);
-  border: 1px solid #B8D4FF;
+  border: 1px solid #9fcfe7;
   border-radius: 6px;
   font-size: 12px;
-  color: #0C4A9E;
+  color: #0b5880;
   line-height: 1.65;
 }
 .flow-explainer .strong { font-weight: 700; }
 
 /* STEP 3 PREVIEW */
 .big-banner {
-  background: linear-gradient(135deg, #E3FCEF 0%, #E7F0FF 100%);
+  background: linear-gradient(135deg, #E3FCEF 0%, #e4f1f8 100%);
   border: 1px solid #97E5C5;
   border-radius: 8px;
   padding: 20px 24px;
@@ -2368,7 +2420,7 @@ textarea.ta:focus { border-color: var(--primary); outline: none; box-shadow: 0 0
   margin-left: 6px;
   padding: 1px 7px;
   background: #FFF7E0;
-  color: #B07700;
+  color: #b45309;
   border: 1px solid #FFD380;
   border-radius: 10px;
   font-size: 10px;

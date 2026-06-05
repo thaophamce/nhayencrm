@@ -1,17 +1,35 @@
 <template>
-  <div class="system-notify-page">
-    <div class="d-flex align-center justify-space-between mb-5 flex-wrap ga-3">
-      <div>
-        <div class="text-h5 font-weight-bold">Thông báo hệ thống</div>
-        <div class="text-body-2 text-medium-emphasis mt-1">
-          Chọn nick gửi system notification và lưu UID từng nhân viên theo góc nhìn nick đó.
+  <div class="system-notify-page airtable-scope">
+    <!-- 2026-06-04 (Anh chốt) — redesign Atlas v2: topbar + 4 tab ngang. -->
+    <div class="sn-topbar">
+      <div class="sn-topbar-title">
+        <div class="sn-ico">🔔</div>
+        <div>
+          <div class="sn-h1">Thông báo hệ thống</div>
+          <div class="sn-sub">Nick tổ chức tự gửi thông báo nội bộ cho nhân viên · tin chào mừng khi tạo tài khoản</div>
         </div>
       </div>
-      <v-btn variant="tonal" prepend-icon="mdi-refresh" :loading="loadingRecipients" @click="fetchRecipients">
+      <v-btn variant="outlined" size="small" prepend-icon="mdi-refresh" :loading="loadingRecipients || loadingLogs" @click="refreshAll">
         Làm mới
       </v-btn>
     </div>
 
+    <v-tabs v-model="activeTab" class="sn-tabs" color="primary" density="comfortable">
+      <v-tab value="config">⚙️ Cấu hình gửi</v-tab>
+      <v-tab value="welcome">📨 Tin chào mừng</v-tab>
+      <v-tab value="people">
+        👥 Nhân viên nhận
+        <span class="sn-tab-cnt">{{ recipients.length }}</span>
+      </v-tab>
+      <v-tab value="logs">
+        📜 Lịch sử gửi
+        <span class="sn-tab-cnt">{{ logTotal }}</span>
+      </v-tab>
+    </v-tabs>
+
+    <v-window v-model="activeTab" class="sn-window">
+      <!-- ════ TAB 1: CẤU HÌNH GỬI ════ -->
+      <v-window-item value="config">
     <v-card variant="outlined" class="pa-4 mb-4 notify-card">
       <div class="d-flex flex-wrap align-start ga-4">
         <v-select
@@ -34,11 +52,22 @@
         <v-chip v-else color="grey" variant="tonal" class="mt-2">Chưa chọn nick gửi</v-chip>
       </div>
       <div class="text-caption text-medium-emphasis mt-3">
-        Khi đổi nick gửi, bảng bên dưới sẽ kiểm tra mapping UID riêng cho nick mới. UID cũ của nick khác không dùng chung.
+        Khi đổi nick gửi, bảng "Nhân viên nhận" sẽ kiểm tra mapping UID riêng cho nick mới. UID cũ của nick khác không dùng chung.
       </div>
       <v-alert v-if="senderError" type="error" density="compact" class="mt-3">{{ senderError }}</v-alert>
     </v-card>
 
+    <!-- KPI tình trạng kênh -->
+    <div class="sn-kpi-grid">
+      <div class="sn-kpi green"><div class="sn-kpi-val">{{ summary.ready || 0 }}</div><div class="sn-kpi-lbl">✅ Sẵn sàng nhận</div></div>
+      <div class="sn-kpi amber"><div class="sn-kpi-val">{{ (summary.uid_not_found || 0) + (summary.missing_internal_phone || 0) }}</div><div class="sn-kpi-lbl">🟡 Chưa có UID</div></div>
+      <div class="sn-kpi red"><div class="sn-kpi-val">{{ (summary.missing_internal_contact || 0) + (summary.lookup_failed || 0) + (summary.sender_disconnected || 0) }}</div><div class="sn-kpi-lbl">🔴 Thiếu nick / lỗi</div></div>
+      <div class="sn-kpi"><div class="sn-kpi-val">{{ recipients.length }}</div><div class="sn-kpi-lbl">Tổng nhân viên</div></div>
+    </div>
+      </v-window-item>
+
+      <!-- ════ TAB 2: TIN CHÀO MỪNG ════ -->
+      <v-window-item value="welcome">
     <!-- Org config: welcome template + image + admin fallback phone (Phase user-create-with-zalo 2026-05-27) -->
     <v-card variant="outlined" class="pa-4 mb-4 notify-card">
       <div class="d-flex align-center justify-space-between mb-3 flex-wrap ga-2">
@@ -106,6 +135,20 @@
       <v-alert v-if="orgConfigError" type="error" density="compact" class="mt-2">{{ orgConfigError }}</v-alert>
       <v-alert v-if="orgConfigSuccess" type="success" density="compact" class="mt-2">{{ orgConfigSuccess }}</v-alert>
     </v-card>
+      </v-window-item>
+
+      <!-- ════ TAB 3: NHÂN VIÊN NHẬN ════ -->
+      <v-window-item value="people">
+    <!-- KPI -->
+    <div class="sn-kpi-grid">
+      <div class="sn-kpi green"><div class="sn-kpi-val">{{ summary.ready || 0 }}</div><div class="sn-kpi-lbl">✅ Đã có UID</div></div>
+      <div class="sn-kpi amber"><div class="sn-kpi-val">{{ (summary.uid_not_found || 0) + (summary.missing_internal_phone || 0) }}</div><div class="sn-kpi-lbl">🟡 Chưa có UID</div></div>
+      <div class="sn-kpi red"><div class="sn-kpi-val">{{ (summary.missing_internal_contact || 0) + (summary.lookup_failed || 0) + (summary.sender_disconnected || 0) }}</div><div class="sn-kpi-lbl">🔴 Lỗi / thiếu nick</div></div>
+      <div class="sn-kpi"><div class="sn-kpi-val">{{ recipients.length }}</div><div class="sn-kpi-lbl">Tổng nhân viên</div></div>
+    </div>
+
+    <v-alert v-if="lookupError" type="error" density="compact" class="mb-3">{{ lookupError }}</v-alert>
+    <v-alert v-if="lookupSuccess" type="success" density="compact" class="mb-3">{{ lookupSuccess }}</v-alert>
 
     <!-- Placeholder helper modal -->
     <v-dialog v-model="showPlaceholders" max-width="560">
@@ -157,17 +200,6 @@
         </v-card-actions>
       </v-card>
     </v-dialog>
-
-    <div class="d-flex flex-wrap ga-2 mb-3">
-      <v-chip size="small" color="success" variant="tonal">Đã có UID {{ summary.ready || 0 }}</v-chip>
-      <v-chip size="small" color="warning" variant="tonal">Chưa có UID {{ summary.uid_not_found || 0 }}</v-chip>
-      <v-chip size="small" color="warning" variant="tonal">Thiếu SĐT {{ summary.missing_internal_phone || 0 }}</v-chip>
-      <v-chip size="small" color="grey" variant="tonal">Thiếu nick {{ summary.missing_internal_contact || 0 }}</v-chip>
-      <v-chip size="small" color="error" variant="tonal">Lỗi {{ (summary.lookup_failed || 0) + (summary.sender_disconnected || 0) }}</v-chip>
-    </div>
-
-    <v-alert v-if="lookupError" type="error" density="compact" class="mb-3">{{ lookupError }}</v-alert>
-    <v-alert v-if="lookupSuccess" type="success" density="compact" class="mb-3">{{ lookupSuccess }}</v-alert>
 
     <v-card variant="outlined" class="notify-card">
       <v-table density="comfortable" class="recipient-table">
@@ -234,6 +266,210 @@
         </tbody>
       </v-table>
     </v-card>
+      </v-window-item>
+
+      <!-- ════ TAB 4: LỊCH SỬ GỬI (2026-06-04 Anh chốt) ════
+           Log: gửi gì, cho ai, thành công/thất bại, đã nhận/đã xem, lọc theo loại. -->
+      <v-window-item value="logs">
+    <!-- Thống kê đếm — KPI tile -->
+    <div class="sn-kpi-grid">
+      <div class="sn-kpi green"><div class="sn-kpi-val">{{ logStatusCounts.sent || 0 }}</div><div class="sn-kpi-lbl">✅ Đã gửi</div></div>
+      <div class="sn-kpi red"><div class="sn-kpi-val">{{ logStatusCounts.failed || 0 }}</div><div class="sn-kpi-lbl">❌ Thất bại</div></div>
+      <div class="sn-kpi amber"><div class="sn-kpi-val">{{ logStatusCounts.pending || 0 }}</div><div class="sn-kpi-lbl">⏳ Đang chờ</div></div>
+      <div class="sn-kpi"><div class="sn-kpi-val">{{ logTotal }}</div><div class="sn-kpi-lbl">Tổng tin</div></div>
+    </div>
+
+    <!-- Bộ lọc -->
+    <v-card variant="outlined" class="pa-3 mb-3 notify-card">
+      <div class="d-flex flex-wrap ga-3 align-center">
+        <v-select
+          v-model="logFilterType"
+          :items="typeFilterOptions"
+          item-title="label"
+          item-value="value"
+          label="Loại tin"
+          variant="outlined"
+          density="compact"
+          hide-details
+          clearable
+          style="max-width: 220px"
+          @update:model-value="onLogFilterChange"
+        />
+        <v-select
+          v-model="logFilterStatus"
+          :items="statusFilterOptions"
+          item-title="label"
+          item-value="value"
+          label="Trạng thái"
+          variant="outlined"
+          density="compact"
+          hide-details
+          clearable
+          style="max-width: 180px"
+          @update:model-value="onLogFilterChange"
+        />
+        <v-select
+          v-model="logFilterChannel"
+          :items="channelFilterOptions"
+          item-title="label"
+          item-value="value"
+          label="Kênh"
+          variant="outlined"
+          density="compact"
+          hide-details
+          clearable
+          style="max-width: 160px"
+          @update:model-value="onLogFilterChange"
+        />
+        <v-text-field
+          v-model="logFilterFrom"
+          type="date"
+          label="Từ ngày"
+          variant="outlined"
+          density="compact"
+          hide-details
+          style="max-width: 170px"
+          @update:model-value="onLogFilterChange"
+        />
+        <v-text-field
+          v-model="logFilterTo"
+          type="date"
+          label="Đến ngày"
+          variant="outlined"
+          density="compact"
+          hide-details
+          style="max-width: 170px"
+          @update:model-value="onLogFilterChange"
+        />
+        <v-btn v-if="hasLogFilter" size="small" variant="text" @click="clearLogFilter">Xoá lọc</v-btn>
+      </div>
+    </v-card>
+
+    <v-card variant="outlined" class="notify-card">
+      <v-table density="comfortable" class="recipient-table log-table">
+        <thead>
+          <tr>
+            <th style="width: 150px">Thời gian</th>
+            <th style="width: 160px">Loại tin</th>
+            <th>Người nhận</th>
+            <th>Nội dung</th>
+            <th style="width: 120px">Kênh</th>
+            <th style="width: 150px">Trạng thái</th>
+            <th style="width: 130px">Đã nhận/xem</th>
+            <th class="text-right" style="width: 90px">Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr
+            v-for="log in logs"
+            :key="log.id"
+            class="log-row"
+            style="cursor: pointer"
+            @click="openLogDetail(log)"
+          >
+            <td>
+              <div class="text-body-2">{{ fmtDateTime(log.createdAt) }}</div>
+            </td>
+            <td>
+              <v-chip size="x-small" :color="typeColor(log.type)" variant="tonal">
+                {{ typeIcon(log.type) }} {{ typeLabel(log.type) }}
+              </v-chip>
+            </td>
+            <td>
+              <div class="font-weight-medium">{{ log.targetUser?.fullName || '—' }}</div>
+              <div class="text-caption text-medium-emphasis">{{ log.targetUser?.email || '' }}</div>
+            </td>
+            <td>
+              <div class="text-body-2 log-content-preview">{{ logTitleLine(log) }}</div>
+            </td>
+            <td>
+              <v-chip size="x-small" :color="log.channel === 'zalo' ? 'primary' : 'grey'" variant="tonal">
+                {{ log.channel === 'zalo' ? 'Zalo' : 'CRM' }}
+              </v-chip>
+            </td>
+            <td>
+              <v-chip size="small" :color="logStatusColor(log.status)" variant="tonal">
+                {{ logStatusLabel(log.status) }}
+              </v-chip>
+            </td>
+            <td>
+              <span :title="readReceiptTitle(log)">{{ readReceiptLabel(log) }}</span>
+            </td>
+            <td class="text-right" @click.stop>
+              <v-btn
+                v-if="log.status === 'failed'"
+                size="x-small"
+                variant="tonal"
+                color="primary"
+                :loading="retryingId === log.id"
+                @click="retryLog(log)"
+              >
+                Gửi lại
+              </v-btn>
+              <span v-else class="text-medium-emphasis text-caption">—</span>
+            </td>
+          </tr>
+          <tr v-if="!loadingLogs && logs.length === 0">
+            <td colspan="8" class="text-center text-medium-emphasis py-6">Chưa có thông báo nào khớp bộ lọc.</td>
+          </tr>
+          <tr v-if="loadingLogs">
+            <td colspan="8" class="text-center text-medium-emphasis py-6">Đang tải lịch sử...</td>
+          </tr>
+        </tbody>
+      </v-table>
+      <div v-if="logTotal > logs.length" class="text-center py-3">
+        <v-btn variant="text" :loading="loadingLogs" @click="loadMoreLogs">Tải thêm ({{ logs.length }}/{{ logTotal }})</v-btn>
+      </div>
+    </v-card>
+      </v-window-item>
+    </v-window>
+
+    <!-- Panel chi tiết tin -->
+    <v-dialog v-model="showLogDetail" max-width="560">
+      <v-card v-if="detailLog" class="pa-1">
+        <v-card-title class="d-flex align-center ga-2">
+          <v-chip size="small" :color="typeColor(detailLog.type)" variant="tonal">
+            {{ typeIcon(detailLog.type) }} {{ typeLabel(detailLog.type) }}
+          </v-chip>
+          <v-chip size="small" :color="logStatusColor(detailLog.status)" variant="tonal">
+            {{ logStatusLabel(detailLog.status) }}
+          </v-chip>
+        </v-card-title>
+        <v-card-text>
+          <div class="detail-row"><span class="detail-k">Người nhận</span><span>{{ detailLog.targetUser?.fullName }} ({{ detailLog.targetUser?.email }})</span></div>
+          <div class="detail-row"><span class="detail-k">Nick gửi</span><span>{{ detailLog.senderNick?.displayName || 'CRM (không gửi Zalo)' }}</span></div>
+          <div class="detail-row"><span class="detail-k">Kênh</span><span>{{ detailLog.channel === 'zalo' ? 'Zalo' : 'CRM panel' }}</span></div>
+          <div class="detail-row"><span class="detail-k">Tạo lúc</span><span>{{ fmtDateTime(detailLog.createdAt) }}</span></div>
+          <div class="detail-row"><span class="detail-k">Gửi lúc</span><span>{{ detailLog.sentAt ? fmtDateTime(detailLog.sentAt) : '—' }}</span></div>
+          <div class="detail-row"><span class="detail-k">Đã nhận/xem</span><span>{{ readReceiptLabel(detailLog) }} <span class="text-caption text-medium-emphasis">{{ readReceiptTitle(detailLog) }}</span></span></div>
+          <div v-if="detailLog.error" class="detail-row"><span class="detail-k">Lỗi</span><span class="text-error">{{ detailLog.error }}</span></div>
+          <v-divider class="my-3" />
+          <div class="text-caption text-medium-emphasis mb-1">Nội dung tin</div>
+          <pre class="detail-content">{{ detailLog.content }}</pre>
+        </v-card-text>
+        <v-card-actions>
+          <v-btn
+            v-if="detailLog.conversationId"
+            variant="text"
+            prepend-icon="mdi-chat"
+            @click="goToConversation(detailLog)"
+          >
+            Mở hội thoại
+          </v-btn>
+          <v-spacer />
+          <v-btn
+            v-if="detailLog.status === 'failed'"
+            color="primary"
+            variant="tonal"
+            :loading="retryingId === detailLog.id"
+            @click="retryLog(detailLog)"
+          >
+            Gửi lại
+          </v-btn>
+          <v-btn variant="text" @click="showLogDetail = false">Đóng</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
   </div>
 </template>
 
@@ -269,6 +505,9 @@ interface RecipientRow {
     lastVerifiedAt: string;
   };
 }
+
+// 2026-06-04 — Atlas v2 redesign: tab ngang.
+const activeTab = ref<'config' | 'welcome' | 'people' | 'logs'>('config');
 
 const loadingSettings = ref(false);
 const loadingRecipients = ref(false);
@@ -536,16 +775,253 @@ watch(previewVariant, () => {
   if (showPreview.value) openPreview();
 });
 
+// ════════════════════════════════════════════════════════════════════════
+// 2026-06-04 (Anh chốt) — LỊCH SỬ GỬI THÔNG BÁO HỆ THỐNG
+// ════════════════════════════════════════════════════════════════════════
+interface LogItem {
+  id: string;
+  type: string;
+  title: string;
+  content: string;
+  priority: string;
+  channel: string;
+  status: string;
+  error: string | null;
+  createdAt: string;
+  sentAt: string | null;
+  conversationId: string | null;
+  targetUser: { id: string; fullName: string; email: string } | null;
+  senderNick: { id: string; displayName: string | null } | null;
+  deliveredAt: string | null;
+  seenAt: string | null;
+}
+
+const logs = ref<LogItem[]>([]);
+const logTotal = ref(0);
+const loadingLogs = ref(false);
+const logStatusCounts = ref<Record<string, number>>({});
+const logFilterType = ref<string | null>(null);
+const logFilterStatus = ref<string | null>(null);
+const logFilterChannel = ref<string | null>(null);
+const logFilterFrom = ref<string>('');
+const logFilterTo = ref<string>('');
+const logOffset = ref(0);
+const LOG_PAGE = 50;
+
+const retryingId = ref<string | null>(null);
+const showLogDetail = ref(false);
+const detailLog = ref<LogItem | null>(null);
+
+// 9 loại tin nội bộ + test → nhãn tiếng Việt + màu + icon (Anh: dễ hiểu, không jargon).
+const TYPE_META: Record<string, { label: string; color: string; icon: string }> = {
+  'customer-reply':     { label: 'KH trả lời',      color: 'error',   icon: '🔥' },
+  'reaction-negative':  { label: 'Cảm xúc xấu',     color: 'error',   icon: '😡' },
+  'customer-block':     { label: 'KH chặn nick',    color: 'error',   icon: '🚫' },
+  'friend-accept':      { label: 'Đồng ý kết bạn',  color: 'success', icon: '🤝' },
+  'friend-accept-late': { label: 'Đồng ý (trễ)',    color: 'success', icon: '🕐' },
+  'reaction-positive':  { label: 'Cảm xúc tốt',     color: 'warning', icon: '❤️' },
+  'friend-reject':      { label: 'Từ chối kết bạn', color: 'grey',    icon: '❌' },
+  'no-zalo':            { label: 'Không có Zalo',    color: 'grey',    icon: '📵' },
+  'send-error':         { label: 'Lỗi gửi kết bạn', color: 'warning', icon: '⚠️' },
+  'test':               { label: 'Tin test',        color: 'info',    icon: '🧪' },
+};
+function typeLabel(t: string): string { return TYPE_META[t]?.label ?? t; }
+function typeColor(t: string): string { return TYPE_META[t]?.color ?? 'grey'; }
+function typeIcon(t: string): string { return TYPE_META[t]?.icon ?? '📨'; }
+
+const typeFilterOptions = computed(() =>
+  Object.entries(TYPE_META).map(([value, m]) => ({ value, label: `${m.icon} ${m.label}` })),
+);
+const statusFilterOptions = [
+  { value: 'sent', label: '✅ Đã gửi' },
+  { value: 'failed', label: '❌ Thất bại' },
+  { value: 'pending', label: '⏳ Đang chờ' },
+];
+const channelFilterOptions = [
+  { value: 'zalo', label: 'Zalo' },
+  { value: 'crm_panel', label: 'CRM panel' },
+];
+
+function logStatusLabel(s: string): string {
+  if (s === 'sent') return '✅ Đã gửi';
+  if (s === 'failed') return '❌ Thất bại';
+  if (s === 'pending') return '⏳ Đang chờ';
+  return s;
+}
+function logStatusColor(s: string): string {
+  if (s === 'sent') return 'success';
+  if (s === 'failed') return 'error';
+  if (s === 'pending') return 'warning';
+  return 'grey';
+}
+
+// Đã nhận/đã xem — chỉ tin gửi qua Zalo thành công mới có (delivered/seen từ Message).
+function readReceiptLabel(log: LogItem): string {
+  if (log.channel !== 'zalo' || log.status !== 'sent') return '—';
+  if (log.seenAt) return '👀 Đã xem';
+  if (log.deliveredAt) return '✓✓ Đã nhận';
+  return '✓ Đã gửi';
+}
+function readReceiptTitle(log: LogItem): string {
+  if (log.channel !== 'zalo' || log.status !== 'sent') return 'Không gửi qua Zalo';
+  if (log.seenAt) return `KH xem lúc ${fmtDateTime(log.seenAt)}`;
+  if (log.deliveredAt) return `KH nhận lúc ${fmtDateTime(log.deliveredAt)}`;
+  return 'Đã gửi, chưa nhận xác nhận';
+}
+
+function logTitleLine(log: LogItem): string {
+  // Tin styled (mới): dòng đầu content = tiêu đề. Tin cũ: dùng title.
+  const firstLine = (log.content ?? '').split('\n')[0]?.trim();
+  return firstLine || log.title || '(không nội dung)';
+}
+
+function fmtDateTime(iso: string | null | undefined): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+const hasLogFilter = computed(
+  () => !!(logFilterType.value || logFilterStatus.value || logFilterChannel.value || logFilterFrom.value || logFilterTo.value),
+);
+
+async function fetchLogs(reset = true) {
+  loadingLogs.value = true;
+  try {
+    if (reset) logOffset.value = 0;
+    const params: Record<string, string> = {
+      limit: String(LOG_PAGE),
+      offset: String(logOffset.value),
+    };
+    if (logFilterType.value) params.type = logFilterType.value;
+    if (logFilterStatus.value) params.status = logFilterStatus.value;
+    if (logFilterChannel.value) params.channel = logFilterChannel.value;
+    if (logFilterFrom.value) params.from = `${logFilterFrom.value}T00:00:00`;
+    if (logFilterTo.value) params.to = `${logFilterTo.value}T23:59:59`;
+    const { data } = await api.get('/system-notifications/logs', { params });
+    if (reset) logs.value = data.items ?? [];
+    else logs.value = [...logs.value, ...(data.items ?? [])];
+    logTotal.value = data.total ?? 0;
+    logStatusCounts.value = data.statusCounts ?? {};
+  } catch (err) {
+    logs.value = [];
+    logTotal.value = 0;
+  } finally {
+    loadingLogs.value = false;
+  }
+}
+
+function onLogFilterChange() { fetchLogs(true); }
+function clearLogFilter() {
+  logFilterType.value = null;
+  logFilterStatus.value = null;
+  logFilterChannel.value = null;
+  logFilterFrom.value = '';
+  logFilterTo.value = '';
+  fetchLogs(true);
+}
+function loadMoreLogs() {
+  logOffset.value += LOG_PAGE;
+  fetchLogs(false);
+}
+
+function openLogDetail(log: LogItem) {
+  detailLog.value = log;
+  showLogDetail.value = true;
+}
+
+async function retryLog(log: LogItem) {
+  retryingId.value = log.id;
+  try {
+    await api.post(`/system-notifications/logs/${log.id}/retry`);
+    showLogDetail.value = false;
+    await fetchLogs(true);
+  } catch (err) {
+    /* lỗi retry — giữ nguyên, fetch lại để thấy bản ghi mới nếu có */
+    await fetchLogs(true);
+  } finally {
+    retryingId.value = null;
+  }
+}
+
+function goToConversation(log: LogItem) {
+  if (!log.conversationId) return;
+  window.open(`/chat?conversationId=${log.conversationId}`, '_blank');
+}
+
+// Làm mới toàn trang (nút topbar) — refresh dữ liệu tab đang xem + recipients.
+async function refreshAll() {
+  await Promise.all([fetchRecipients(), fetchLogs(true)]);
+}
+
 onMounted(async () => {
   await fetchSettings();
   await fetchRecipients();
   await fetchOrgConfig();
+  await fetchLogs();
 });
 </script>
 
 <style scoped>
 .system-notify-page {
-  max-width: 1280px;
+  max-width: 1180px;
+}
+
+/* ══════ Atlas v2 redesign (2026-06-04, Anh chốt) ══════
+   Khớp design system marketing-unified + airtable.css.
+   primary #0068ff, topbar + tab ngang + KPI tile accent. */
+:root, .system-notify-page {
+  --at-primary: #0068ff; --at-primary-soft: #e7f0ff;
+  --at-ink: #181d26; --at-muted: #6b778c; --at-hairline: #e6e8eb;
+  --at-success: #36b37e; --at-danger: #de350b; --at-warning: #ff8b00;
+}
+
+/* Topbar */
+.sn-topbar {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  margin-bottom: 16px; flex-wrap: wrap;
+}
+.sn-topbar-title { display: flex; align-items: center; gap: 12px; }
+.sn-ico {
+  width: 40px; height: 40px; border-radius: 8px; flex-shrink: 0;
+  background: var(--at-primary-soft); color: var(--at-primary);
+  display: flex; align-items: center; justify-content: center; font-size: 20px;
+}
+.sn-h1 { font-size: 19px; font-weight: 700; color: var(--at-ink); line-height: 1.2; }
+.sn-sub { font-size: 12.5px; color: var(--at-muted); margin-top: 2px; }
+
+/* Tabs — Vuetify v-tabs nhưng tinh chỉnh sang Atlas */
+.sn-tabs { border-bottom: 1px solid var(--at-hairline); margin-bottom: 20px; }
+.sn-tabs :deep(.v-tab) { text-transform: none; font-weight: 500; letter-spacing: 0; font-size: 13.5px; }
+.sn-tab-cnt {
+  font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 9999px;
+  background: rgba(0,0,0,.06); color: var(--at-muted); margin-left: 6px;
+}
+.sn-window { overflow: visible; }
+.sn-window :deep(.v-window__container) { overflow: visible; }
+
+/* KPI tiles (accent border-left) */
+.sn-kpi-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px; margin-bottom: 16px;
+}
+.sn-kpi {
+  background: #fff; border: 1px solid var(--at-hairline); border-radius: 12px;
+  padding: 14px 16px; border-left: 4px solid var(--at-hairline);
+}
+.sn-kpi.green { border-left-color: var(--at-success); }
+.sn-kpi.red   { border-left-color: var(--at-danger); }
+.sn-kpi.amber { border-left-color: var(--at-warning); }
+.sn-kpi-val { font-size: 24px; font-weight: 700; color: var(--at-ink); line-height: 1; }
+.sn-kpi.green .sn-kpi-val { color: #1b6b46; }
+.sn-kpi.red .sn-kpi-val   { color: var(--at-danger); }
+.sn-kpi.amber .sn-kpi-val { color: #92400e; }
+.sn-kpi-lbl {
+  font-size: 11px; font-weight: 600; color: var(--at-muted);
+  text-transform: uppercase; letter-spacing: .4px; margin-top: 6px;
+  display: flex; align-items: center; gap: 4px;
 }
 
 .notify-card {
@@ -561,6 +1037,12 @@ onMounted(async () => {
 .recipient-table :deep(th) {
   white-space: nowrap;
 }
+/* 2026-06-04 — bảng dài hơn vùng main (sidebar CRM 256px) → cho cuộn ngang
+   để cột cuối (Thao tác / Đã nhận-xem) không bị cắt mép phải. */
+.recipient-table :deep(.v-table__wrapper) {
+  overflow-x: auto;
+}
+.system-notify-page { max-width: 1080px; }
 
 .uid-text {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
@@ -610,6 +1092,40 @@ onMounted(async () => {
   padding: 12px;
   border-radius: 8px;
   max-height: 60vh;
+  overflow: auto;
+}
+
+/* ── Log thông báo hệ thống (2026-06-04) ── */
+.log-table :deep(tr.log-row:hover) {
+  background: rgba(var(--v-theme-primary), 0.04);
+}
+.log-content-preview {
+  max-width: 360px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.detail-row {
+  display: flex;
+  gap: 10px;
+  padding: 4px 0;
+  font-size: 13px;
+}
+.detail-k {
+  flex: 0 0 110px;
+  color: rgba(var(--v-theme-on-surface), 0.6);
+  font-weight: 500;
+}
+.detail-content {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12.5px;
+  white-space: pre-wrap;
+  line-height: 1.5;
+  background: rgba(var(--v-theme-surface-variant), 0.3);
+  padding: 10px;
+  border-radius: 8px;
+  margin: 0;
+  max-height: 40vh;
   overflow: auto;
 }
 </style>

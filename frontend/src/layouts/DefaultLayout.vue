@@ -1,11 +1,12 @@
 <template>
   <v-app class="smax-app">
-    <!-- ════════ TOP NAV — light theme HD-first 1366×648 (chốt 2026-05-28, anh duyệt Variant A) ════════ -->
-    <!-- Height 46px · 7 primary tabs + Báo cáo + Cài đặt dropdown · MDI line icons · bg-fill active state -->
+    <!-- ════════ TOP NAV — HS Holding teal-navy shell (redesign 2026-06-05, đảo lock Variant A) ════════ -->
+    <!-- Gradient teal-navy + monogram HS + wordmark · 7 tab + Báo cáo + Cài đặt · MDI line icon · active HS -->
     <header class="smax-topnav">
-      <!-- Logo — square primary, no workspace selector (single-tenant) -->
-      <RouterLink to="/" class="logo" title="ZaloCRM">
-        <img src="/brand/zalocrm-logo.png" alt="ZaloCRM" />
+      <!-- Brand — monogram HS + wordmark "HS Holding / CRM" (single-tenant) -->
+      <RouterLink to="/" class="hs-brand" title="HS Holding CRM">
+        <span class="hs-bbox"><img src="/brand/hs-monogram.png" alt="HS Holding" /></span>
+        <span class="hs-bwm"><span class="hs-b1">HS Holding</span><span class="hs-b2">CRM</span></span>
       </RouterLink>
 
       <!-- Primary nav tabs -->
@@ -56,7 +57,7 @@
             <v-divider />
             <v-list-item to="/settings/dev/api" title="API &amp; Webhook" prepend-icon="mdi-api" />
             <v-divider />
-            <v-list-item to="/settings" title="📋 Xem tất cả cài đặt" prepend-icon="mdi-cog-outline" />
+            <v-list-item to="/settings" title="Xem tất cả cài đặt" prepend-icon="mdi-cog-outline" />
           </v-list>
         </v-menu>
       </nav>
@@ -171,10 +172,13 @@ function dismissInternalContactBanner() {
   localStorage.setItem(IC_BANNER_DISMISS_KEY, String(Date.now() + 24 * 60 * 60 * 1000));
 }
 
-const isDark = ref((localStorage.getItem('theme') || 'smax-light') === 'legacy-dark');
+const isDark = ref((localStorage.getItem('theme') || 'hsLight') === 'legacy-dark');
 
 onMounted(() => {
-  const saved = localStorage.getItem('theme') || 'smax-light';
+  // HS redesign 2026-06-05: mặc định hsLight. Giá trị cũ 'smax-light' trong
+  // localStorage được nâng cấp sang hsLight (chỉ giữ legacy-dark nếu user chọn).
+  let saved = localStorage.getItem('theme') || 'hsLight';
+  if (saved === 'smax-light') saved = 'hsLight';
   theme.global.name.value = saved;
   isDark.value = saved === 'legacy-dark';
   void checkInternalContactSetup();
@@ -224,7 +228,7 @@ const initials = computed(() => {
 });
 
 function toggleTheme() {
-  const next = isDark.value ? 'smax-light' : 'legacy-dark';
+  const next = isDark.value ? 'hsLight' : 'legacy-dark';
   isDark.value = !isDark.value;
   theme.global.name.value = next;
   localStorage.setItem('theme', next);
@@ -264,62 +268,64 @@ function logout() {
 }
 .ic-banner-dismiss:hover { color: #78350F; }
 
-/* HD-first redesign 2026-05-28 — dark theme + underline active (anh chốt 2026-05-28 sửa A→dark+underline) */
+/* HS Holding shell — teal-navy gradient nav (redesign 2026-06-05, đảo lock Variant A sáng) */
 .smax-topnav {
-  background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
+  background: linear-gradient(180deg, var(--nav-grad-a, #0e445a) 0%, var(--nav-grad-b, #06222f) 100%);
   color: rgba(255, 255, 255, 0.85);
-  height: 46px;
+  height: 48px;
   display: flex; align-items: center;
   padding: 0 14px; gap: 4px;
   flex-shrink: 0;
   position: sticky; top: 0; z-index: 100;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 1px 0 rgba(255,255,255,.06), 0 2px 8px rgba(0,0,0,.18);
 }
 
-.logo {
-  width: 30px; height: 30px;
-  background: white;
-  border-radius: 7px;
+/* Brand lockup — monogram HS + wordmark "HS Holding / CRM" */
+.hs-brand {
+  display: flex; align-items: center; gap: 10px;
+  margin-right: 14px; flex: none; text-decoration: none;
+}
+.hs-bbox {
+  width: 34px; height: 34px; border-radius: 9px;
   display: flex; align-items: center; justify-content: center;
-  margin-right: 10px;
-  text-decoration: none;
-  overflow: hidden;
-  padding: 2px;
+  background: linear-gradient(135deg, #1786be 0%, #0b5880 100%);
+  box-shadow: inset 0 1px 1px rgba(255,255,255,.18), 0 1px 2px rgba(0,0,0,.25);
+  flex: none;
 }
-.logo img {
-  width: 100%; height: 100%;
-  object-fit: contain;
-}
+.hs-bbox img { width: 24px; height: auto; display: block; filter: drop-shadow(0 1px 1px rgba(0,0,0,.3)); }
+.hs-bwm { display: flex; flex-direction: column; line-height: 1.08; white-space: nowrap; }
+.hs-b1 { font-size: 13.5px; font-weight: 800; color: #fff; letter-spacing: .01em; }
+.hs-b2 { font-size: 9.5px; font-weight: 700; letter-spacing: .26em; color: var(--nav-accent, #5bb8e5); text-transform: uppercase; }
 
 .nav-tabs {
-  display: flex; align-items: center; gap: 1px;
+  display: flex; align-items: center; gap: 2px;
   flex-wrap: nowrap;
   flex-shrink: 0;
 }
 .nav-tab {
   display: inline-flex; align-items: center; gap: 6px;
-  padding: 7px 12px; border-radius: 6px;
+  padding: 0 12px; border-radius: var(--r-sm, 8px);
   cursor: pointer;
-  color: rgba(255, 255, 255, 0.75);
-  font-size: 12.5px; font-weight: 500;
+  color: var(--shell-ink, #cfe2ec);
+  font-size: 13px; font-weight: 600;
   background: transparent; border: none;
   white-space: nowrap;
   text-decoration: none;
-  height: 32px;
+  height: 36px;
   line-height: 1.2;
   position: relative;
 }
-.nav-tab .ic-svg { color: currentColor; opacity: 0.85; }
-.nav-tab .caret { font-size: 9px; opacity: 0.5; margin-left: 1px; }
-.nav-tab:hover { background: rgba(255, 255, 255, 0.08); color: white; }
-.nav-tab:hover .ic-svg { opacity: 1; }
+.nav-tab .ic-svg { color: var(--shell-ink-2, #7fa6b8); transition: color .14s; }
+.nav-tab .caret { font-size: 9px; opacity: 0.55; margin-left: -2px; }
+.nav-tab:hover { background: rgba(255, 255, 255, 0.08); color: #fff; }
+.nav-tab:hover .ic-svg { color: var(--shell-ink, #cfe2ec); }
 .nav-tab.active {
-  background: rgba(41, 98, 255, 0.30);
-  color: white;
-  font-weight: 600;
-  box-shadow: inset 0 -2px 0 #60a5fa;
+  background: rgba(91, 184, 229, 0.16);
+  color: #fff;
+  font-weight: 700;
+  box-shadow: inset 0 -2px 0 var(--nav-accent, #5bb8e5);
 }
-.nav-tab.active .ic-svg { opacity: 1; }
+.nav-tab.active .ic-svg { color: var(--nav-accent, #5bb8e5); }
 
 /* HD compact — chỉ kick in khi viewport < 1280 (rất hiếm với HD-first target) */
 @media (max-width: 1280px) {

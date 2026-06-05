@@ -133,6 +133,37 @@ async function handleZaloReaction(accountId: string, io: Server | null, reaction
           // silent — engagement best-effort
         }
       })();
+
+      // ── I5 FIX 2026-06-03 — Nối reaction vào automation luồng bám đuổi ──
+      // Trước fix: handleZaloReaction chỉ lưu emoji + engagement, KHÔNG gọi
+      // onCustomerReaction (hàm mồ côi) → KH thả 😡 vào tin sequence vẫn bị gửi tin
+      // tiếp (không pause 48h), không trừ điểm, không báo nội bộ. Anh chốt 2026-06-03:
+      // tích cực báo dạng tích cực, tiêu cực báo dạng tiêu cực.
+      //
+      // handleZaloReaction KHÔNG có sẵn triggerId → tra Mục tiêu đang chạy của contact
+      // qua FriendRequestOutbox (pattern friend-event-handler.ts:470). Nếu KH không
+      // thuộc Mục tiêu nào → skip (reaction chat thường, không phải signal automation).
+      void (async () => {
+        try {
+          const outbox = await prisma.friendRequestOutbox.findFirst({
+            where: { contactId: conversation.contactId!, nickId: accountId, kind: 'FRIEND_REQUEST' },
+            select: { triggerId: true },
+            orderBy: { createdAt: 'desc' },
+          });
+          if (!outbox?.triggerId) return; // KH không thuộc Mục tiêu — bỏ qua signal
+          const { onCustomerReaction } = await import('../automation/queues/event-hooks.js');
+          await onCustomerReaction({
+            orgId: conversation.orgId,
+            triggerId: outbox.triggerId,
+            contactId: conversation.contactId!,
+            nickId: accountId,
+            emoji: displayEmoji,
+            messageId: message.id,
+          });
+        } catch (err) {
+          logger.warn(`[zalo:${accountId}] onCustomerReaction hook failed:`, err);
+        }
+      })();
     }
 
     // Phase v3 2026-05-29 (anh chốt sau workflow audit): KH thả tim self message → đã đọc.

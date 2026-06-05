@@ -128,7 +128,8 @@ async function processRow(row: ProbeRow): Promise<void> {
     row.trigger_id
       ? prisma.automationTrigger.findUnique({
           where: { id: row.trigger_id },
-          select: { welcomeMessageTemplate: true },
+          // I10 2026-06-04 — enableWelcome: công tắc Tin 1. Tắt = không gửi tin chào.
+          select: { welcomeMessageTemplate: true, enableWelcome: true },
         })
       : Promise.resolve(null),
   ]);
@@ -147,7 +148,9 @@ async function processRow(row: ProbeRow): Promise<void> {
   // 2026-06-02: under the new per-(contact, trigger) semantic, SKIPPED MUST NOT
   // write Contact.welcomeSentAt — that would lock the contact across all future
   // triggers via legacy column reads (now removed). Only the outbox row records SKIPPED.
-  if (!trigger?.welcomeMessageTemplate) {
+  // I10 2026-06-04 — Tin 1 tắt (enableWelcome=false) HOẶC không có template → SKIPPED.
+  // Vẫn enroll sequence bám đuổi (drainer xử lý SKIPPED bình thường), chỉ bỏ tin chào.
+  if (trigger?.enableWelcome === false || !trigger?.welcomeMessageTemplate) {
     await prisma.friendRequestOutbox.update({
       where: { id: row.id },
       data: { welcomeOutcome: 'SKIPPED', welcomeSentAt: new Date() },

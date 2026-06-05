@@ -18,32 +18,38 @@
  */
 
 .airtable-scope {
+  /* HS re-skin 2026-06-05 — map --at-* (Airtable palette cũ) sang token HS
+     Holding (--brand/--ink/--surface…). Giữ NGUYÊN tên biến → 12 view trong
+     cụm Marketing tự đổi giao diện, không phải sửa template. Spacing + radius
+     giữ nguyên (đã hợp HD-first). */
   /* Colors */
-  --at-primary: #181d26;
-  --at-primary-active: #0d1218;
-  --at-ink: #181d26;
-  --at-body: #333840;
-  --at-muted: #41454d;
-  --at-hairline: #dddddd;
-  --at-border-strong: #9297a0;
+  --at-primary: var(--ink, #141a24);            /* CTA header near-black → navy HS */
+  --at-primary-active: #0b0f16;
+  --at-ink: var(--ink, #141a24);
+  --at-body: var(--ink-2, #475066);
+  --at-muted: var(--ink-3, #6b7488);
+  --at-hairline: var(--line, #e7eaf0);
+  --at-border-strong: #cdd4e0;
 
-  --at-canvas: #ffffff;
-  --at-surface-soft: #f8fafc;
-  --at-surface-strong: #e0e2e6;
-  --at-surface-dark: #181d26;
+  --at-canvas: var(--surface, #ffffff);
+  --at-surface-soft: var(--surface-3, #f1f4f9);
+  --at-surface-strong: #e0e3ea;
+  --at-surface-dark: var(--ink, #141a24);
 
-  --at-coral: #aa2d00;
-  --at-forest: #0a2e0e;
-  --at-cream: #f5e9d4;
+  /* Accent palette cũ (coral/forest/cream…) → map sang ngữ nghĩa HS gần nhất.
+     Các view Marketing chỉ dùng coral (1-2 chỗ) + forest/cream lẻ tẻ. */
+  --at-coral: var(--error, #f04438);
+  --at-forest: var(--success, #12b76a);
+  --at-cream: var(--brand-softer, #f2f8fc);
   --at-peach: #fcab79;
-  --at-mint: #a8d8c4;
-  --at-yellow: #f4d35e;
-  --at-mustard: #d9a441;
+  --at-mint: var(--success-soft, #a8d8c4);
+  --at-yellow: var(--warning, #f4d35e);
+  --at-mustard: var(--warning, #d9a441);
 
-  --at-link: #1b61c9;
-  --at-link-active: #1a3866;
-  --at-info-border: #458fff;
-  --at-success: #006400;
+  --at-link: var(--brand, #1786be);
+  --at-link-active: var(--brand-700, #0b5880);
+  --at-info-border: var(--brand-bright, #5bb8e5);
+  --at-success: var(--success, #12b76a);
 
   --at-on-primary: #ffffff;
   --at-on-dark: #ffffff;
@@ -248,24 +254,26 @@
 .airtable-scope {
   /* Atlas action color — phân biệt rõ với --at-primary #181d26 (CTA header).
      Anh chốt 2026-06-04: action button trong page body dùng xanh sáng. */
-  --at-action: #0068ff;
-  --at-action-active: #0747a6;
-  --at-action-soft: #e7f0ff;
+  /* HS re-skin — action button trong page body = brand HS metallic blue
+     (thay #0068ff Atlassian). active/soft theo brand-700/brand-soft. */
+  --at-action: var(--brand, #1786be);
+  --at-action-active: var(--brand-700, #0b5880);
+  --at-action-soft: var(--brand-soft, #e4f1f8);
 
-  /* Atlas semantic — prefix -atlas- để KHÔNG đè --at-success cũ (#006400 forest). */
-  --at-atlas-success: #36b37e;
-  --at-atlas-success-soft: #e3fcef;
-  --at-atlas-warning: #ff8b00;
-  --at-atlas-warning-soft: #fff4e6;
-  --at-atlas-danger: #de350b;
-  --at-atlas-danger-soft: #ffebe6;
+  /* Atlas semantic → HS semantic. prefix -atlas- vẫn giữ tên, chỉ đổi giá trị. */
+  --at-atlas-success: var(--success, #12b76a);
+  --at-atlas-success-soft: var(--success-soft, #e7f7ef);
+  --at-atlas-warning: var(--warning, #f5a524);
+  --at-atlas-warning-soft: var(--warning-soft, #fdf3e2);
+  --at-atlas-danger: var(--error, #f04438);
+  --at-atlas-danger-soft: #fdeceb;
   --at-atlas-purple: #6554c0;
   --at-atlas-purple-soft: #eae6ff;
 
   /* Atlas surfaces extension */
-  --at-hint: #97a0af;
-  --at-shadow-card: 0 1px 2px rgba(24, 29, 38, 0.05);
-  --at-shadow-card-hover: 0 4px 12px rgba(24, 29, 38, 0.10);
+  --at-hint: var(--ink-4, #97a0b3);
+  --at-shadow-card: 0 1px 2px rgba(20, 26, 36, 0.05);
+  --at-shadow-card-hover: 0 4px 12px rgba(20, 26, 36, 0.10);
 }
 
 /* ─── Atlas action button (mới — coexist với .at-btn--primary đen cũ) ──── */

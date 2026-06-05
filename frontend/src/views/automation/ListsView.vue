@@ -206,7 +206,7 @@
                   </v-list-item>
                   <v-divider />
                   <v-list-item @click="onDelete(list.id)" prepend-icon="mdi-delete-outline" class="danger">
-                    <v-list-item-title style="color: #B91C1C">Xoá tệp</v-list-item-title>
+                    <v-list-item-title style="color: var(--error, #f04438)">Xoá tệp</v-list-item-title>
                   </v-list-item>
                 </v-list>
               </v-menu>
@@ -394,22 +394,25 @@ void initials; void avatarStyle; // legacy helpers kept for ref after table refa
   max-width: 100%;
 }
 
+/* HS re-skin 2026-06-05 — ListsView hardcode Tailwind-gray → token HS Holding.
+   CSS-only, template/logic giữ nguyên. Tab active dùng --ink (navy) như
+   .at-primary, action/stat-card active dùng --brand. */
 .status-tabs {
   display: flex; align-items: center; gap: 4px;
-  background: #fff; border: 1px solid #E5E7EB; border-radius: 10px;
+  background: var(--surface, #fff); border: 1px solid var(--line, #e7eaf0); border-radius: 10px;
   padding: 6px; margin-bottom: 14px;
 }
 .status-tab {
   display: inline-flex; align-items: center; gap: 6px;
   padding: 7px 12px; border-radius: 6px;
   background: transparent; border: none; cursor: pointer;
-  font-size: 12.5px; font-weight: 500; color: #4B5563;
+  font-size: 12.5px; font-weight: 500; color: var(--ink-2, #475066);
   font-family: inherit;
 }
-.status-tab:hover { background: #F4F5F8; color: #111827; }
-.status-tab.active { background: #111827; color: #fff; }
+.status-tab:hover { background: var(--surface-3, #f1f4f9); color: var(--ink, #141a24); }
+.status-tab.active { background: var(--ink, #141a24); color: #fff; }
 .status-tab .count {
-  background: rgba(0,0,0,.06); color: #4B5563;
+  background: rgba(20,26,36,.06); color: var(--ink-2, #475066);
   padding: 0 6px; border-radius: 99px;
   font-size: 10.5px; font-weight: 700;
   font-variant-numeric: tabular-nums;
@@ -420,56 +423,56 @@ void initials; void avatarStyle; // legacy helpers kept for ref after table refa
 .spacer { flex: 1; }
 .search {
   display: inline-flex; align-items: center; gap: 5px;
-  background: #F4F5F8; border: 1px solid #EFF1F4;
+  background: var(--surface-3, #f1f4f9); border: 1px solid var(--line-2, #eef1f6);
   border-radius: 7px; padding: 0 9px;
   min-width: 220px; height: 32px;
 }
 .search input {
   border: none; background: transparent; outline: none;
-  font-size: 12.5px; color: #111827;
+  font-size: 12.5px; color: var(--ink, #141a24);
   font-family: inherit; width: 100%;
 }
-.search input::placeholder { color: #9CA3AF; }
+.search input::placeholder { color: var(--ink-4, #97a0b3); }
 
 .empty-state {
-  background: #fff; border: 1px solid #E5E7EB;
+  background: var(--surface, #fff); border: 1px solid var(--line, #e7eaf0);
   border-radius: 12px; padding: 64px 24px;
-  text-align: center; color: #6B7280;
+  text-align: center; color: var(--ink-3, #6b7488);
 }
 .empty-state .empty-icon { font-size: 48px; margin-bottom: 12px; }
-.empty-state h3 { margin: 0 0 8px; color: #111827; font-size: 16px; }
+.empty-state h3 { margin: 0 0 8px; color: var(--ink, #141a24); font-size: 16px; }
 .empty-state p { margin: 0; font-size: 13px; }
 
 .lists-table-wrap {
-  background: #fff; border: 1px solid #E5E7EB;
+  background: var(--surface, #fff); border: 1px solid var(--line, #e7eaf0);
   border-radius: 10px; overflow: auto;
 }
 .lists-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
 .lists-table thead th {
-  background: #F4F5F8;
-  font-size: 10.5px; font-weight: 600; color: #6B7280;
+  background: var(--surface-3, #f1f4f9);
+  font-size: 10.5px; font-weight: 600; color: var(--ink-3, #6b7488);
   text-transform: uppercase; letter-spacing: .04em;
   padding: 10px 10px; text-align: left;
-  border-bottom: 1px solid #E5E7EB; white-space: nowrap;
+  border-bottom: 1px solid var(--line, #e7eaf0); white-space: nowrap;
 }
 .lists-table thead th.right { text-align: right; }
 .lists-table tbody td {
   padding: 11px 10px;
-  border-bottom: 1px solid #EFF1F4;
-  vertical-align: middle; color: #111827;
+  border-bottom: 1px solid var(--line-2, #eef1f6);
+  vertical-align: middle; color: var(--ink, #141a24);
 }
 .lists-table tbody tr.row-clickable { cursor: pointer; transition: background .1s; }
-.lists-table tbody tr.row-clickable:hover { background: #FAFBFC; }
+.lists-table tbody tr.row-clickable:hover { background: var(--brand-softer, #f2f8fc); }
 .lists-table tbody tr:last-child td { border-bottom: none; }
 
 .list-name-cell { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .list-name-cell .icon-em { font-size: 18px; flex-shrink: 0; }
-.list-name-cell .nm { font-weight: 600; color: #111827; font-size: 13px; }
-.list-name-cell .sub { font-size: 11px; color: #6B7280; margin-top: 1px; }
+.list-name-cell .nm { font-weight: 600; color: var(--ink, #141a24); font-size: 13px; }
+.list-name-cell .sub { font-size: 11px; color: var(--ink-3, #6b7488); margin-top: 1px; }
 
-.date { color: #4B5563; font-size: 12px; white-space: nowrap; }
+.date { color: var(--ink-2, #475066); font-size: 12px; white-space: nowrap; }
 
-.author-cell { display: inline-flex; align-items: center; gap: 6px; color: #4B5563; font-size: 12px; }
+.author-cell { display: inline-flex; align-items: center; gap: 6px; color: var(--ink-2, #475066); font-size: 12px; }
 .author-cell .av {
   width: 22px; height: 22px; border-radius: 50%;
   color: #fff; font-size: 10px; font-weight: 700;
@@ -479,48 +482,48 @@ void initials; void avatarStyle; // legacy helpers kept for ref after table refa
 
 .source-chip {
   display: inline-flex; align-items: center;
-  font-size: 11px; color: #6B7280;
-  background: #F4F5F8; padding: 2px 7px; border-radius: 5px;
+  font-size: 11px; color: var(--ink-3, #6b7488);
+  background: var(--surface-3, #f1f4f9); padding: 2px 7px; border-radius: 5px;
 }
 
 .num-cell {
-  font-family: "JetBrains Mono", Menlo, Consolas, monospace;
+  font-family: "Roboto Mono", "JetBrains Mono", Menlo, Consolas, monospace;
   font-size: 13px; font-weight: 600;
   font-variant-numeric: tabular-nums; text-align: right;
 }
-.num-cell.green { color: #047857; }
-.num-cell.red { color: #B91C1C; }
-.num-cell.amber { color: #B45309; }
-.num-cell.blue { color: #1D4ED8; }
-.num-cell.muted { color: #9CA3AF; font-weight: 400; }
+.num-cell.green { color: #157f3c; }
+.num-cell.red { color: #b42318; }
+.num-cell.amber { color: #b45309; }
+.num-cell.blue { color: var(--brand-700, #0b5880); }
+.num-cell.muted { color: var(--ink-4, #97a0b3); font-weight: 400; }
 
 .progress-cell { min-width: 120px; }
 .progress-bar {
   display: flex; height: 6px; border-radius: 99px;
-  overflow: hidden; background: #F4F5F8;
+  overflow: hidden; background: var(--surface-3, #f1f4f9);
 }
 .progress-bar > i { display: block; height: 100%; }
-.progress-bar .ok { background: #10B981; }
-.progress-bar .warn { background: #F59E0B; }
-.progress-bar .bad { background: #EF4444; }
+.progress-bar .ok { background: var(--success, #12b76a); }
+.progress-bar .warn { background: var(--warning, #f5a524); }
+.progress-bar .bad { background: var(--error, #f04438); }
 
 .status-chip {
   display: inline-flex; align-items: center; gap: 4px;
   padding: 2px 8px; border-radius: 99px;
   font-size: 10.5px; font-weight: 600; white-space: nowrap;
 }
-.status-chip.done { background: #D1FAE5; color: #047857; }
-.status-chip.processing { background: #FEF3C7; color: #B45309; }
-.status-chip.archived { background: #E5E7EB; color: #4B5563; }
+.status-chip.done { background: var(--success-soft, #e7f7ef); color: #157f3c; }
+.status-chip.processing { background: var(--warning-soft, #fdf3e2); color: #b45309; }
+.status-chip.archived { background: var(--surface-3, #f1f4f9); color: var(--ink-2, #475066); }
 
 .row-actions { text-align: right; white-space: nowrap; }
 .icon-btn {
   width: 26px; height: 26px; border-radius: 5px;
-  border: none; background: transparent; color: #6B7280;
+  border: none; background: transparent; color: var(--ink-3, #6b7488);
   cursor: pointer; margin-left: 2px;
   display: inline-flex; align-items: center; justify-content: center;
 }
-.icon-btn:hover { background: #F4F5F8; color: #111827; }
+.icon-btn:hover { background: var(--surface-3, #f1f4f9); color: var(--ink, #141a24); }
 
 /* ───── Phase Multi-Source Lead Ads 2026-05-27 ───── */
 .stats-row {
@@ -528,39 +531,39 @@ void initials; void avatarStyle; // legacy helpers kept for ref after table refa
   margin-bottom: 12px;
 }
 .stat-card {
-  background: #fff; border: 1px solid #E5E7EB; border-radius: 10px;
+  background: var(--surface, #fff); border: 1px solid var(--line, #e7eaf0); border-radius: 10px;
   padding: 12px 14px; text-align: left; cursor: pointer;
   font-family: inherit; transition: all 120ms;
 }
-.stat-card:hover { border-color: #C7D2FE; }
-.stat-card.active { border-color: #4F46E5; background: #EEF2FF; }
+.stat-card:hover { border-color: var(--brand-soft, #cfe6f3); }
+.stat-card.active { border-color: var(--brand, #1786be); background: var(--brand-softer, #f2f8fc); }
 .stat-card-readonly { cursor: default; }
-.stat-card-readonly:hover { border-color: #E5E7EB; }
+.stat-card-readonly:hover { border-color: var(--line, #e7eaf0); }
 .stat-num {
-  font-size: 22px; font-weight: 700; color: #111827;
+  font-size: 22px; font-weight: 700; color: var(--ink, #141a24);
   font-variant-numeric: tabular-nums; line-height: 1.1;
 }
-.stat-label { font-size: 11px; color: #6B7280; margin-top: 4px; }
+.stat-label { font-size: 11px; color: var(--ink-3, #6b7488); margin-top: 4px; }
 
 .source-chip.source-leadads {
-  background: #FEF3C7; color: #92400E; border: 1px solid #FCD34D;
+  background: var(--warning-soft, #fdf3e2); color: #92400e; border: 1px solid #f1c97a;
 }
 .source-chip.source-import {
-  background: #DBEAFE; color: #1E40AF; border: 1px solid #93C5FD;
+  background: var(--brand-soft, #e4f1f8); color: var(--brand-700, #0b5880); border: 1px solid #9fcfe7;
 }
 .key-chip {
   display: inline-flex; align-items: center; padding: 2px 8px;
-  font-family: 'Courier New', monospace; font-weight: 600;
-  font-size: 11px; background: #F3F4F6; color: #1F2937;
+  font-family: "Roboto Mono", 'Courier New', monospace; font-weight: 600;
+  font-size: 11px; background: var(--surface-3, #f1f4f9); color: var(--ink, #141a24);
   border-radius: 4px; letter-spacing: .5px;
 }
 .key-chip.unrouted {
-  background: #FEE2E2; color: #B91C1C;
+  background: #fdeceb; color: #b42318;
 }
 .share-chip {
   display: inline-flex; align-items: center; gap: 3px;
   font-size: 11px; padding: 2px 7px; border-radius: 99px;
-  background: #DCFCE7; color: #166534; font-weight: 500;
+  background: var(--success-soft, #e7f7ef); color: #157f3c; font-weight: 500;
 }
-.muted { color: #9CA3AF; font-size: 12px; }
+.muted { color: var(--ink-4, #97a0b3); font-size: 12px; }
 </style>

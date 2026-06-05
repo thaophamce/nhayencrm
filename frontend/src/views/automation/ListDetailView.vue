@@ -735,12 +735,12 @@ async function onDelete() {
  * Phase Marketing rename 2026-05-23 — "Mục tiêu" namespace.
  * Click "Tạo Mục tiêu từ tệp này" → navigate sang trang tạo Mục tiêu mới,
  * truyền listId qua query để pre-fill (Ngày 2 sẽ refactor route đích thành MucTieuWizard).
- * Hiện tại route /automation/muc-tieu/tao-moi alias trỏ FriendInviteCreateView.vue.
+ * Hiện tại route /marketing/triggers/tao-moi alias trỏ FriendInviteCreateView.vue.
  */
 function onCreateMucTieu() {
   if (!listId.value) return;
   router.push({
-    path: '/automation/muc-tieu/tao-moi',
+    path: '/marketing/triggers/tao-moi',
     query: { listId: listId.value },
   });
 }

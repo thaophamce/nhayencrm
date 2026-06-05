@@ -13,17 +13,14 @@
         <div class="flow-line" />
         <div class="delay-pill">
           <v-icon size="14">mdi-timer-sand</v-icon>
-          <v-text-field
+          <span class="delay-prefix">Chờ</span>
+          <!-- 2026-06-04 — ô nhập số + đơn vị (Giây/Phút/Giờ/Ngày), auto-chọn. -->
+          <TimeAmountInput
             :model-value="step.delayMinutes"
-            @update:model-value="updateDelay(idx, $event)"
-            variant="plain"
-            density="compact"
-            type="number"
-            min="0"
-            hide-details
-            class="delay-input"
+            base-unit="minute"
+            :units="['minute','hour','day']"
+            @update:model-value="(v: number) => updateDelay(idx, v)"
           />
-          <span class="delay-unit">phút</span>
         </div>
       </div>
 
@@ -143,6 +140,7 @@
 import { ref, computed } from 'vue';
 import { ACTION_TYPE_LABELS, ACTION_TYPE_ICONS, type SequenceStep, type Block, type BlockActionType } from '@/api/automation/types';
 import { ACTION_TYPE_COLOR } from './design-tokens';
+import TimeAmountInput from '@/components/automation/TimeAmountInput.vue';
 
 const props = defineProps<{
   steps: SequenceStep[];

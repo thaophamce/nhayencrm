@@ -24,7 +24,6 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '../../../shared/database/prisma-client.js';
 import { logger } from '../../../shared/utils/logger.js';
 import { isFriendInviteSegmentSpec } from './skip-precompute.js';
-import { automationTaskStub as _automationTaskStub } from '../engine/_automation-task-stub.js';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -68,10 +67,29 @@ export interface MucTieuListItem {
   noZaloCount: number;
   processedCount: number;
   completedKHCount: number;
+  // I3 2026-06-03 — sequence-aware "Còn X KH" (Phase 1 pending + Phase 2 campaign active).
+  stillRunning: number;
+  // 2026-06-05 — Phase 2 "đang chạy": số KH đang trong chuỗi bám đuổi (campaign active).
+  enrollingSequence: number;
+  // 2026-06-05 — alias = completedKHCount (số KH đã đi hết chuỗi). Tử số Phase 2.
+  completedSequence: number;
+  // I3 2026-06-03 — ETA dự đoán còn lại (Lai A→B). null nếu Mục tiêu không active.
+  eta: MucTieuEta | null;
   lastActivityAt: string | null;
+  // 2026-06-05 — Cột "Ngày kết thúc": ISO khi state='completed' (= updatedAt lúc flip),
+  // null khi đang chạy/hẹn lịch (FE hiện ETA dự đoán thay thế).
+  completedAt: string | null;
   // BE T4 2026-05-30 — ISO khi state='scheduled' (FE render countdown "Sẽ chạy lúc HH:mm dd/MM").
   // null khi trigger không lên lịch (chế độ "now").
   scheduledAt: string | null;
+}
+
+// I3 2026-06-03 — ETA payload. mode='formula' (A, Mục tiêu mới <1 ngày) | 'measured'
+// (B, đo tốc độ thực ≥1 ngày) | 'stalled' (tốc độ gần đây = 0 → đình trệ).
+export interface MucTieuEta {
+  mode: 'formula' | 'measured' | 'stalled';
+  etaDays: number | null;   // null khi stalled
+  label: string;            // "⏱ Còn ~2.5 ngày (ước tính)" | "⏸ Đang đình trệ"
 }
 
 export interface MucTieuListResponse {
@@ -245,7 +263,8 @@ export async function listMucTieuForOrg(
     take: limit,
     include: {
       createdBy: { select: { id: true, fullName: true } },
-      sequence: { select: { id: true, name: true } },
+      // I3 2026-06-03 — steps cần cho ETA (tổng delayMinutes các bước chuỗi).
+      sequence: { select: { id: true, name: true, steps: true } },
     },
   });
 
@@ -283,7 +302,7 @@ export async function listMucTieuForOrg(
         hasZaloCount,
         noZaloCount,
         friendSent,
-        acceptedContactIds,
+        friendAccepted,
         replyCount,
         blockCount,
         lastOutbox,
@@ -304,23 +323,33 @@ export async function listMucTieuForOrg(
         prisma.customerListEntry.count({
           where: { triggerId: t.id, hasZalo: false },
         }),
-        // 3. friend requests sent (success OR tentative)
-        prisma.friendRequestOutbox.count({
-          where: {
-            triggerId: t.id,
-            sendStatus: { in: ['success', 'tentative'] },
-            kind: 'FRIEND_REQUEST',
-          },
-        }),
-        // 4. friendAccepted — query distinct contactIds touched by this trigger,
-        // then count accepted Friend rows for that set scoped to org.
-        // Two-step keeps the JOIN bounded by trigger's contact set.
-        prisma.customerListEntry
-          .findMany({
-            where: { triggerId: t.id, contactId: { not: null } },
-            select: { contactId: true },
+        // 3. friendSent — PER-KH (2026-06-05 fix). Trước dùng .count() = per-row
+        // (đếm LƯỢT gửi, 1 KH gửi qua nhiều nick = nhiều row → phình mẫu số Phase 1).
+        // groupBy distinct contactId = số KHÁCH đã được gửi lời mời (giống dashboard).
+        prisma.friendRequestOutbox
+          .groupBy({
+            by: ['contactId'],
+            where: {
+              triggerId: t.id,
+              sendStatus: { in: ['success', 'tentative'] },
+              kind: 'FRIEND_REQUEST',
+            },
           })
-          .then((rows) => rows.map((r) => r.contactId).filter((x): x is string => !!x)),
+          .then((rows) => rows.length),
+        // 4. friendAccepted — PER-KH (2026-06-05 fix). Trước dùng prisma.friend.count()
+        // = đếm ROW Friend (1 KH × N nick = N row) → ra 3 khi chỉ 1 KH đồng ý. SAI.
+        // ĐÚNG (giống dashboard accepted): DISTINCT contactId + JOIN ràng nick gửi =
+        // nick accept (friends.zalo_account_id = outbox.nick_id) + status='accepted'.
+        prisma.$queryRaw<Array<{ contact_id: string }>>`
+          SELECT DISTINCT o.contact_id
+          FROM friend_request_outbox o
+          JOIN friends f
+            ON f.contact_id = o.contact_id
+           AND f.zalo_account_id = o.nick_id
+           AND f.friendship_status = 'accepted'
+          WHERE o.trigger_id = ${t.id}
+            AND o.kind = 'FRIEND_REQUEST'
+        `.then((rows) => rows.length),
         // 5. replyCount — Wave 3, AutomationTask.skipReason='reply'. Returns 0
         // defensively when the engine hasn't started writing this yet.
         safeTaskSkipReasonCount(orgId, t.id, 'reply'),
@@ -334,34 +363,63 @@ export async function listMucTieuForOrg(
         }),
       ]);
 
-      // friendAccepted: count accepted Friend rows for those contacts in org
-      let friendAccepted = 0;
-      if (acceptedContactIds.length > 0) {
-        friendAccepted = await prisma.friend.count({
-          where: {
-            orgId,
-            contactId: { in: acceptedContactIds },
-            friendshipStatus: 'accepted',
-          },
-        });
-      }
-
       // completedKHCount — KH đã đi hết Sequence (semantic deriveKHFinalState='sequence_done').
-      // Đếm distinct contactId có AutomationTask khớp sequence của trigger + state in ('done','skipped').
-      // Distinct qua groupBy để tránh đếm trùng khi 1 KH có nhiều task row cho sequence.
+      // FIX v2 2026-06-03 (code-review CONFIRMED): bản fix I4 đếm AutomationCampaign
+      // state='completed' SAI — 1 campaign phục vụ NHIỀU KH (campaign-materializer.ts:268
+      // findFirst-then-reuse per trigger×sequence, segmentSnapshot chứa tất cả contactId).
+      // → đếm campaign completed ra 0/1, KHÔNG phải số KH xong → tiến độ vẫn kẹt ~0%.
+      // ĐÚNG: đếm distinct contactId có event 'sequence_step_sent' ở BƯỚC CUỐI
+      // (metadata.stepIdx = totalSteps-1) → mỗi KH hoàn tất chuỗi tính 1. Bước cuối gửi
+      // xong = KH đi hết sequence. Index idx_automation_event_log_trigger_contact_type cover.
+      const seqStepsArr = Array.isArray(t.sequence?.steps) ? (t.sequence!.steps as unknown[]) : [];
+      const totalStepsForTrigger = seqStepsArr.length;
       let completedKHCount = 0;
-      if (acceptedContactIds.length > 0 && t.sequenceId) {
-        const doneGroups = await ((prisma as any).automationTask ?? _automationTaskStub).groupBy({
+      if (totalStepsForTrigger > 0) {
+        const lastStepIdx = totalStepsForTrigger - 1;
+        const doneGroups = await prisma.automationEventLog.groupBy({
           by: ['contactId'],
           where: {
             orgId,
-            sequenceId: t.sequenceId,
-            contactId: { in: acceptedContactIds },
-            state: { in: ['done', 'skipped'] },
+            triggerId: t.id,
+            eventType: 'sequence_step_sent',
+            contactId: { not: null },
+            // metadata.stepIdx = bước cuối. Json path filter (Prisma Json equals).
+            metadata: { path: ['stepIdx'], equals: lastStepIdx },
           },
         });
         completedKHCount = doneGroups.length;
       }
+
+      // I3 2026-06-03 — ETA "Còn ~X ngày" (Lai A→B). stillRunning = KH chưa xong cả 2
+      // phase: Phase 1 (queued_for_pickup + processing) + Phase 2 (campaign state='active').
+      // Pattern giống detail (friend-invite-routes.ts:922-924). campaignStateGroups chỉ
+      // còn dùng cho enrollingSequence (active) — campaign-level đếm KH đang trong chuỗi.
+      const [campaignStateGroups, phase1Pending] = await Promise.all([
+        prisma.automationCampaign.groupBy({
+          by: ['state'],
+          where: { orgId, triggerId: t.id, state: 'active' },
+          _count: { id: true },
+        }),
+        prisma.customerListEntry.count({
+          where: { triggerId: t.id, queueStatus: { in: ['queued_for_pickup', 'processing'] } },
+        }),
+      ]);
+      const enrollingSequence = campaignStateGroups.find((g) => g.state === 'active')?._count.id ?? 0;
+      const stillRunning = phase1Pending + enrollingSequence;
+
+      // ETA chỉ tính cho Mục tiêu đang chạy (active). Done/scheduled/paused → null.
+      const etaInfo =
+        normalizeState(t.state, t.scheduledAt) === 'active'
+          ? await computeEtaForTrigger({
+              orgId,
+              triggerId: t.id,
+              stillRunning,
+              nickCount: nickIds.length,
+              minFriendReqGapMs: t.minFriendReqGapMs ?? null,
+              sequenceSteps: t.sequence?.steps ?? null,
+              createdAt: t.createdAt,
+            })
+          : null;
 
       const percent =
         totalContactsCount > 0
@@ -406,7 +464,25 @@ export async function listMucTieuForOrg(
         noZaloCount,
         processedCount,
         completedKHCount,
+        // 2026-06-05 — alias completedSequence = completedKHCount (cùng query: distinct
+        // contactId có event sequence_step_sent ở bước cuối). Đặt tên khớp dashboard để
+        // FE tính Phase 2 = completedSequence / (enrollingSequence + completedSequence).
+        completedSequence: completedKHCount,
+        // I3 2026-06-03 — sequence-aware "Còn X KH" + ETA dự đoán còn lại.
+        stillRunning,
+        // 2026-06-05 — Cột Phase 2 cần tách "đang chạy": expose enrollingSequence
+        // (đã tính ở line ~402, trước đây bị nuốt vào stillRunning rồi vứt). 0 query mới.
+        enrollingSequence,
+        eta: etaInfo,
         lastActivityAt: lastOutbox?.createdAt ? lastOutbox.createdAt.toISOString() : null,
+        // 2026-06-05 — Cột "Ngày kết thúc": AutomationTrigger KHÔNG có cột completedAt.
+        // Phương án A (0 query mới, anh chốt): khi state='completed' dùng updatedAt
+        // (sweeper set NOW() lúc flip completed). Trigger đang chạy → null (FE hiện ETA
+        // dự đoán thay thế). updatedAt có sẵn vì findMany dùng include (mọi scalar field).
+        completedAt:
+          normalizeState(t.state, t.scheduledAt) === 'completed'
+            ? t.updatedAt.toISOString()
+            : null,
         scheduledAt: t.scheduledAt ? t.scheduledAt.toISOString() : null,
       };
     }),
@@ -423,25 +499,127 @@ export async function listMucTieuForOrg(
  * Defensive helper: AutomationTask.skipReason='reply'/'block' chưa được engine
  * stop-on-reply ship (Wave 2). Bọc try/catch để 1 query lỗi không bể cả list.
  */
+// FIX 2026-06-03 (I4): nguồn cũ đọc AutomationTask.skipReason đã DROP (migration
+// 20260601182155) → stub trả 0 → cột "Phản hồi" LUÔN hiện 0 dù KH nhắn/chặn thật.
+// Đổi sang đếm distinct contactId trong AutomationEventLog theo eventType — đây là
+// nơi event-hooks.ts (customer_reply) + friend-event-handler.ts (customer_block) ghi
+// thật. groupBy contactId để 1 KH nhắn nhiều lần chỉ tính 1 (semantic "bao nhiêu KH
+// phản hồi", không phải "bao nhiêu lượt"). Index idx_automation_event_log_trigger_contact_type
+// cover (triggerId, contactId, eventType).
 async function safeTaskSkipReasonCount(
   orgId: string,
   triggerId: string,
   reason: 'reply' | 'block',
 ): Promise<number> {
+  const eventType = reason === 'reply' ? 'customer_reply' : 'customer_block';
   try {
-    return await ((prisma as any).automationTask ?? _automationTaskStub).count({
+    const groups = await prisma.automationEventLog.groupBy({
+      by: ['contactId'],
       where: {
         orgId,
-        skipReason: reason,
-        campaign: {
-          triggerId,
-        },
+        triggerId,
+        eventType,
+        contactId: { not: null },
       },
     });
+    return groups.length;
   } catch (err) {
     logger.debug(
       `[muc-tieu-list] safeTaskSkipReasonCount(${reason}) for trigger=${triggerId} returned 0 (${err instanceof Error ? err.message : String(err)})`,
     );
     return 0;
   }
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// I3 2026-06-03 — ETA "Còn ~X ngày" cho Mục tiêu đang chạy (PHƯƠNG ÁN LAI A→B)
+// ════════════════════════════════════════════════════════════════════════
+// Anh chốt: mới chạy <1 ngày → công thức (A); ≥1 ngày → đo tốc độ thực (B);
+// tốc độ gần đây = 0 → "đình trệ". Reaction-accept KHÔNG chi phối ETA (chuỗi không
+// chờ accept — xem I2). 2 yếu tố chính: số KH còn lại ÷ tốc độ + tổng delay chuỗi.
+const ETA_WORKING_HOURS_PER_DAY = 16;   // 6h–22h VN (M51.4)
+const ETA_DEFAULT_DELAY_MIN = 30;       // fallback khi trigger chưa set gap
+const ETA_MEASURE_WINDOW_DAYS = 5;      // cửa sổ đo tốc độ thực (B)
+
+function etaFormatLabel(days: number, suffix: string): string {
+  if (!Number.isFinite(days) || days <= 0) return `⏱ Sắp xong ${suffix}`;
+  if (days < 1) {
+    const hours = Math.round(days * 24);
+    return `⏱ Còn ~${Math.max(1, hours)} giờ ${suffix}`;
+  }
+  if (days >= 100) return `⏱ Còn ~${Math.round(days)} ngày ${suffix}`;
+  return `⏱ Còn ~${days.toFixed(1)} ngày ${suffix}`;
+}
+
+function etaSumSequenceDelayDays(steps: unknown): number {
+  if (!Array.isArray(steps)) return 0;
+  let totalMin = 0;
+  for (const s of steps) {
+    if (s && typeof s === 'object' && 'delayMinutes' in s) {
+      const dm = (s as { delayMinutes: unknown }).delayMinutes;
+      if (typeof dm === 'number' && Number.isFinite(dm) && dm >= 0) totalMin += dm;
+    }
+  }
+  return totalMin / (60 * 24);
+}
+
+async function computeEtaForTrigger(input: {
+  orgId: string;
+  triggerId: string;
+  stillRunning: number;
+  nickCount: number;
+  minFriendReqGapMs: number | null;
+  sequenceSteps: unknown;
+  createdAt: Date;
+}): Promise<MucTieuEta | null> {
+  const { orgId, triggerId, stillRunning, nickCount, minFriendReqGapMs, sequenceSteps, createdAt } = input;
+
+  // FIX 2026-06-03 (code-review PLAUSIBLE): trả null (KHÔNG phải object "Sắp xong")
+  // khi không còn KH chạy. FE chỉ check `v-if="item.eta"` → object non-null khiến
+  // "⏱ Sắp xong" hiện vĩnh viễn trên trigger active đã hết KH. null → FE ẩn dòng ETA.
+  if (stillRunning <= 0) {
+    return null;
+  }
+  const nicks = Math.max(1, nickCount);
+  const sequenceDelayDays = etaSumSequenceDelayDays(sequenceSteps);
+
+  // ── Tuổi Mục tiêu (để chọn A hay B) ──
+  const ageMs = Date.now() - createdAt.getTime();
+  const ageDays = ageMs / (24 * 3600_000);
+
+  // ── B: đo tốc độ thực từ AutomationEventLog (friend_request_sent + sequence_step_sent) ──
+  // ≥1 ngày tuổi mới đủ dữ liệu. Đếm số event gửi trong cửa sổ gần nhất ÷ số ngày.
+  if (ageDays >= 1) {
+    try {
+      const since = new Date(Date.now() - ETA_MEASURE_WINDOW_DAYS * 24 * 3600_000);
+      const sentCount = await prisma.automationEventLog.count({
+        where: {
+          orgId,
+          triggerId,
+          eventType: { in: ['friend_request_sent', 'sequence_step_sent'] },
+          createdAt: { gte: since },
+        },
+      });
+      const windowDays = Math.min(ETA_MEASURE_WINDOW_DAYS, Math.max(1, ageDays));
+      const ratePerDay = sentCount / windowDays;
+      if (ratePerDay <= 0) {
+        // Tốc độ gần đây = 0 → đình trệ (nick chết / pause hết / hết giờ gửi).
+        return { mode: 'stalled', etaDays: null, label: '⏸ Đang đình trệ — kiểm tra nick' };
+      }
+      const etaDays = stillRunning / ratePerDay + sequenceDelayDays;
+      return { mode: 'measured', etaDays, label: etaFormatLabel(etaDays, '(ước tính)') };
+    } catch (err) {
+      logger.debug(`[muc-tieu-list] ETA measured failed trigger=${triggerId}, fallback formula: ${err instanceof Error ? err.message : String(err)}`);
+      // rơi xuống công thức A
+    }
+  }
+
+  // ── A: công thức (Mục tiêu mới <1 ngày hoặc B lỗi) ──
+  const delayMin = minFriendReqGapMs && minFriendReqGapMs > 0
+    ? minFriendReqGapMs / 60_000
+    : ETA_DEFAULT_DELAY_MIN;
+  const perNickPerDay = (60 / Math.max(1, delayMin)) * ETA_WORKING_HOURS_PER_DAY;
+  const systemPerDay = nicks * perNickPerDay;
+  const etaDays = systemPerDay > 0 ? stillRunning / systemPerDay + sequenceDelayDays : 0;
+  return { mode: 'formula', etaDays, label: etaFormatLabel(etaDays, '(sơ bộ)') };
 }

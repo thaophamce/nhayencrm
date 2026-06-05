@@ -34,8 +34,7 @@
           :key="item.to"
           :to="item.to"
           class="sidebar-link"
-          :class="{ 'is-primary': item.isPrimary }"
-          active-class="is-active"
+          :class="{ 'is-primary': item.isPrimary, 'is-active': isLinkActive(item.to) }"
           :title="item.label"
           @click="drawerOpen = false"
         >
@@ -72,16 +71,38 @@ const drawerOpen = ref(false);
 const navItems = [
   // Wave 4.1 (2026-06-02) — Anh chốt: tách Luồng và Khối thành 2 menu riêng.
   // Khối = nội dung dùng hàng ngày (sale gửi 1-1 + ghép vào Luồng), KHÔNG phải admin-only.
-  { to: '/automation/muc-tieu/tao-moi', label: 'Tạo Mục tiêu mới',   icon: 'mdi-plus-circle',         isPrimary: true },
-  { to: '/automation/muc-tieu',         label: 'Mục tiêu đang chạy', icon: 'mdi-target' },
+  { to: '/marketing/triggers/tao-moi',  label: 'Tạo Mục tiêu mới',   icon: 'mdi-plus-circle',         isPrimary: true },
+  { to: '/marketing/triggers',          label: 'Mục tiêu',           icon: 'mdi-target' },
   { to: '/marketing/sequences',         label: 'Luồng kịch bản',     icon: 'mdi-format-list-numbered' },
   { to: '/marketing/blocks',            label: 'Khối nội dung',      icon: 'mdi-puzzle' },
   { to: '/marketing/broadcasts',        label: 'Gửi tin hàng loạt',  icon: 'mdi-bullhorn' },
   { to: '/marketing/lists',             label: 'Tệp khách hàng',     icon: 'mdi-folder-account' },
 ];
 
+// 2026-06-05 — Longest-prefix match. /marketing/triggers/tao-moi (wizard) là prefix-
+// con của /marketing/triggers (Mục tiêu) → nếu dùng startsWith thường, cả 2 item cùng
+// "active". Chọn item có `to` DÀI NHẤT khớp path để chỉ 1 item sáng: ở /tao-moi →
+// "Tạo Mục tiêu mới"; ở /triggers hoặc /triggers/:id → "Mục tiêu".
+function matchLen(to: string): number {
+  if (route.path === to) return to.length + 1; // exact thắng prefix cùng độ dài
+  if (route.path.startsWith(to + '/')) return to.length;
+  return -1;
+}
+const activeTo = computed(() => {
+  let best = '';
+  let bestLen = -1;
+  for (const n of navItems) {
+    const len = matchLen(n.to);
+    if (len > bestLen) { bestLen = len; best = n.to; }
+  }
+  return bestLen >= 0 ? best : '';
+});
+function isLinkActive(to: string): boolean {
+  return to === activeTo.value;
+}
+
 const activeNavLabel = computed(() => {
-  const match = navItems.find((n) => route.path.startsWith(n.to));
+  const match = navItems.find((n) => n.to === activeTo.value);
   return match?.label ?? 'Marketing';
 });
 
@@ -90,25 +111,27 @@ watch(() => route.path, () => { drawerOpen.value = false; });
 </script>
 
 <style scoped>
+/* HS re-skin 2026-06-05: sidebar theo .mkt-side HS (token --brand/--ink/--surface).
+   Giữ nguyên template + navItems + drawer logic — chỉ đổi giao diện. */
 .bot-auto-shell {
   display: flex;
-  height: calc(100vh - var(--smax-topnav-h, 46px));
+  height: calc(100vh - var(--nav-h, 48px));
   position: relative;
-  background: var(--at-canvas);
+  background: var(--surface-2);
 }
 
 /* ─── Mobile hamburger trigger (visible <768) ─────────────────────────── */
 .mobile-trigger {
   display: none;
   align-items: center;
-  gap: var(--at-s-sm);
-  background: var(--at-canvas);
-  border-bottom: 1px solid var(--at-hairline);
+  gap: 8px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
   border-top: 0; border-left: 0; border-right: 0;
-  padding: var(--at-s-sm) var(--at-s-md);
+  padding: 8px 14px;
   font-size: 15px;
-  font-weight: 500;
-  color: var(--at-ink);
+  font-weight: 600;
+  color: var(--ink);
   cursor: pointer;
   width: 100%;
   font-family: inherit;
@@ -129,24 +152,24 @@ watch(() => route.path, () => { drawerOpen.value = false; });
   background: transparent;
   border: 0;
   cursor: pointer;
-  color: var(--at-muted);
+  color: var(--ink-3);
   padding: 6px;
-  border-radius: var(--at-r-sm);
+  border-radius: var(--r-sm, 8px);
   min-width: 44px;
   min-height: 44px;
 }
-.drawer-close:hover { background: var(--at-surface-soft); }
+.drawer-close:hover { background: var(--surface-3); }
 
-/* ─── Sidebar (desktop default: full 240px) ───────────────────────────── */
+/* ─── Sidebar HS .mkt-side (desktop 244px) ───────────────────────────── */
 .bot-auto-sidebar {
-  width: 240px;
+  width: 244px;
   flex-shrink: 0;
-  background: var(--at-canvas);
-  border-right: 1px solid var(--at-hairline);
+  background: var(--surface);
+  border-right: 1px solid var(--line);
   display: flex;
   flex-direction: column;
-  padding: var(--at-s-lg) var(--at-s-md);
-  gap: var(--at-s-lg);
+  padding: 16px 12px;
+  gap: 16px;
   overflow-y: auto;
   transition: width 0.15s ease;
 }
@@ -154,35 +177,34 @@ watch(() => route.path, () => { drawerOpen.value = false; });
 .sidebar-header {
   display: flex;
   align-items: center;
-  gap: var(--at-s-sm);
-  padding: 0 var(--at-s-xxs);
+  gap: 11px;
+  padding: 0 4px;
 }
 .sidebar-header__body { min-width: 0; flex: 1; overflow: hidden; }
 .sidebar-logo {
   width: 40px;
   height: 40px;
-  border-radius: var(--at-r-md);
-  background: var(--at-ink);
-  color: var(--at-on-primary);
+  border-radius: var(--r-md, 10px);
+  background: linear-gradient(150deg, var(--brand), var(--brand-700));
+  color: #fff;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
 }
 .sidebar-title {
-  font-size: 18px;
-  font-weight: 500;
-  line-height: 1.2;
-  color: var(--at-ink);
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1.1;
+  color: var(--ink);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .sidebar-subtitle {
-  font-size: 12px;
-  color: var(--at-muted);
+  font-size: 11.5px;
+  color: var(--ink-4);
   margin-top: 2px;
-  letter-spacing: 0.16px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -191,41 +213,43 @@ watch(() => route.path, () => { drawerOpen.value = false; });
 .sidebar-nav {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 3px;
 }
 .sidebar-link {
   display: flex;
   align-items: center;
-  gap: var(--at-s-sm);
+  gap: 10px;
   padding: 10px 12px;
-  border-radius: var(--at-r-sm);
-  color: var(--at-body);
-  font-size: 14px;
-  font-weight: 500;
+  border-radius: var(--r-sm, 8px);
+  color: var(--ink-2);
+  font-size: 13.5px;
+  font-weight: 600;
   text-decoration: none;
   border: 1px solid transparent;
-  min-height: 44px;
 }
-.sidebar-link:active { background: var(--at-surface-soft); }
+.sidebar-link__icon { color: var(--ink-4); }
+.sidebar-link:hover { background: var(--surface-3); }
 .sidebar-link.is-active {
-  background: var(--at-ink);
-  color: var(--at-on-primary);
-  border-color: var(--at-ink);
+  background: var(--ink);
+  color: #fff;
+  border-color: var(--ink);
 }
-/* Wave 4 (2026-06-02) — CTA "Tạo Mục tiêu mới" nổi bật so với các mục theo dõi. */
+.sidebar-link.is-active .sidebar-link__icon { color: #fff; }
+/* CTA "Tạo Mục tiêu mới" — brand HS metallic blue (thay #0068ff cũ) */
 .sidebar-link.is-primary {
-  background: #0068ff;
-  color: #ffffff;
-  border-color: #0068ff;
-  font-weight: 600;
+  background: var(--brand);
+  color: #fff;
+  border-color: var(--brand);
+  font-weight: 700;
 }
+.sidebar-link.is-primary .sidebar-link__icon { color: #fff; }
 .sidebar-link.is-primary:hover {
-  background: #0747a6;
-  border-color: #0747a6;
+  background: var(--brand-600);
+  border-color: var(--brand-600);
 }
 .sidebar-link.is-primary.is-active {
-  background: #0747a6;
-  border-color: #0747a6;
+  background: var(--brand-700);
+  border-color: var(--brand-700);
   box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.3);
 }
 .sidebar-link__icon { flex-shrink: 0; }
@@ -239,20 +263,21 @@ watch(() => route.path, () => { drawerOpen.value = false; });
   margin-top: auto;
 }
 .sidebar-foot-card {
-  padding: var(--at-s-md);
-  background: var(--at-cream);
-  border-radius: var(--at-r-md);
+  padding: 13px;
+  background: var(--brand-softer);
+  border: 1px solid var(--brand-soft);
+  border-radius: var(--r-md, 10px);
 }
 .sidebar-foot-card__title {
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--at-ink);
-  margin-bottom: 4px;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--brand-700);
+  margin-bottom: 5px;
 }
 .sidebar-foot-card__desc {
-  font-size: 12px;
-  line-height: 1.45;
-  color: var(--at-body);
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--ink-3);
   margin: 0;
 }
 
@@ -260,7 +285,7 @@ watch(() => route.path, () => { drawerOpen.value = false; });
   flex: 1;
   padding: 0;
   overflow-y: auto;
-  background: var(--at-surface-soft);
+  background: var(--surface-2);
   min-width: 0; /* prevent grid overflow */
 }
 /* 2026-06-04 — Mỗi view tự render layout topbar+content phù hợp shell.
@@ -271,8 +296,8 @@ watch(() => route.path, () => { drawerOpen.value = false; });
 @media (min-width: 768px) and (max-width: 1023px) {
   .bot-auto-sidebar {
     width: 72px;
-    padding: var(--at-s-md) var(--at-s-xs);
-    gap: var(--at-s-md);
+    padding: 16px 8px;
+    gap: 16px;
   }
   .sidebar-header { justify-content: center; padding: 0; }
   .sidebar-header__body,
@@ -282,7 +307,7 @@ watch(() => route.path, () => { drawerOpen.value = false; });
     justify-content: center;
     padding: 12px;
   }
-  .bot-auto-content { padding: var(--at-s-lg); }
+  .bot-auto-content { padding: 24px; }
 }
 
 /* ─── MOBILE (<768): drawer slide-in ──────────────────────────────────── */

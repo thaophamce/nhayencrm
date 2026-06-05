@@ -479,4 +479,158 @@ export async function systemNotifyRoutes(app: FastifyInstance): Promise<void> {
       };
     },
   );
+
+  // ════════════════════════════════════════════════════════════════════════
+  // 2026-06-04 (Anh chốt) — LOG THÔNG BÁO HỆ THỐNG
+  // GET /logs: list SystemNotification (filter type/status/channel/date) +
+  //   JOIN Message theo zaloMsgId lấy deliveredAt/seenAt (đã nhận/đã xem).
+  //   delivered/seen ĐÃ CÓ SẴN (Message.delivered_at/seen_at, listener Zalo
+  //   seen_messages/delivered_messages) — chỉ đọc, không thêm cột.
+  // POST /logs/:id/retry: gửi lại tin failed.
+  // ════════════════════════════════════════════════════════════════════════
+  app.get(
+    '/api/v1/system-notifications/logs',
+    { preHandler: requireRole('owner', 'admin') },
+    async (request: FastifyRequest) => {
+      const currentUser = request.user!;
+      const q = (request.query ?? {}) as {
+        type?: string;
+        status?: string;
+        channel?: string;
+        from?: string;
+        to?: string;
+        targetUserId?: string;
+        limit?: string;
+        offset?: string;
+      };
+      const limit = Math.min(Math.max(parseInt(q.limit ?? '50', 10) || 50, 1), 200);
+      const offset = Math.max(parseInt(q.offset ?? '0', 10) || 0, 0);
+
+      const where: Record<string, unknown> = { orgId: currentUser.orgId };
+      if (q.type) where.type = q.type;
+      if (q.status) where.status = q.status;
+      if (q.channel) where.channel = q.channel;
+      if (q.targetUserId) where.targetUserId = q.targetUserId;
+      if (q.from || q.to) {
+        const createdAt: Record<string, Date> = {};
+        if (q.from) { const d = new Date(q.from); if (!Number.isNaN(d.getTime())) createdAt.gte = d; }
+        if (q.to) { const d = new Date(q.to); if (!Number.isNaN(d.getTime())) createdAt.lte = d; }
+        if (Object.keys(createdAt).length) where.createdAt = createdAt;
+      }
+
+      // Summary counts theo status + theo type (cho chip + thống kê đầu trang).
+      // Dùng where KHÔNG kèm status để đếm toàn bộ scope filter còn lại.
+      const summaryWhere = { ...where };
+      delete summaryWhere.status;
+      delete summaryWhere.type;
+      const [rows, total, byStatus, byType] = await Promise.all([
+        prisma.systemNotification.findMany({
+          where,
+          orderBy: { createdAt: 'desc' },
+          take: limit,
+          skip: offset,
+          select: {
+            id: true,
+            type: true,
+            title: true,
+            content: true,
+            priority: true,
+            channel: true,
+            status: true,
+            zaloMsgId: true,
+            error: true,
+            createdAt: true,
+            sentAt: true,
+            conversationId: true,
+            targetUser: { select: { id: true, fullName: true, email: true } },
+            senderZaloAccount: { select: { id: true, displayName: true } },
+          },
+        }),
+        prisma.systemNotification.count({ where }),
+        prisma.systemNotification.groupBy({
+          by: ['status'],
+          where: summaryWhere,
+          _count: { _all: true },
+        }),
+        prisma.systemNotification.groupBy({
+          by: ['type'],
+          where: summaryWhere,
+          _count: { _all: true },
+        }),
+      ]);
+
+      // JOIN Message theo zaloMsgId (tin gửi qua Zalo) lấy delivered/seen.
+      const msgIds = rows.map((r) => r.zaloMsgId).filter((x): x is string => !!x);
+      const msgMap = new Map<string, { deliveredAt: Date | null; seenAt: Date | null }>();
+      if (msgIds.length) {
+        const msgs = await prisma.message.findMany({
+          where: { zaloMsgId: { in: msgIds }, senderType: 'self' },
+          select: { zaloMsgId: true, deliveredAt: true, seenAt: true },
+        });
+        for (const m of msgs) {
+          if (m.zaloMsgId) msgMap.set(m.zaloMsgId, { deliveredAt: m.deliveredAt, seenAt: m.seenAt });
+        }
+      }
+
+      const items = rows.map((r) => {
+        const m = r.zaloMsgId ? msgMap.get(r.zaloMsgId) : undefined;
+        return {
+          id: r.id,
+          type: r.type,
+          title: r.title,
+          content: r.content,
+          priority: r.priority,
+          channel: r.channel,
+          status: r.status,
+          error: r.error,
+          createdAt: r.createdAt,
+          sentAt: r.sentAt,
+          conversationId: r.conversationId,
+          targetUser: r.targetUser,
+          senderNick: r.senderZaloAccount,
+          // Đã nhận / đã xem (chỉ tin gửi qua Zalo thành công mới có).
+          deliveredAt: m?.deliveredAt ?? null,
+          seenAt: m?.seenAt ?? null,
+        };
+      });
+
+      const statusCounts = byStatus.reduce<Record<string, number>>((acc, g) => {
+        acc[g.status] = g._count._all;
+        return acc;
+      }, {});
+      const typeCounts = byType.reduce<Record<string, number>>((acc, g) => {
+        acc[g.type] = g._count._all;
+        return acc;
+      }, {});
+
+      return { items, total, limit, offset, statusCounts, typeCounts };
+    },
+  );
+
+  app.post(
+    '/api/v1/system-notifications/logs/:id/retry',
+    { preHandler: requireRole('owner', 'admin') },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const currentUser = request.user!;
+      const { id } = request.params as { id: string };
+
+      const original = await prisma.systemNotification.findFirst({
+        where: { id, orgId: currentUser.orgId },
+        select: { id: true, type: true, title: true, content: true, priority: true, targetUserId: true, status: true },
+      });
+      if (!original) return reply.status(404).send({ error: 'Không tìm thấy thông báo' });
+
+      // Gửi lại = tạo bản ghi gửi mới (giữ log gốc làm lịch sử). Reuse service.
+      const notification = await sendSystemNotificationToUser({
+        orgId: currentUser.orgId,
+        targetUserId: original.targetUserId,
+        type: original.type,
+        title: original.title,
+        content: original.content,
+        priority: (original.priority as 'low' | 'normal' | 'high') ?? 'normal',
+      });
+
+      return { ok: notification.status === 'sent', notification };
+    },
+  );
 }
