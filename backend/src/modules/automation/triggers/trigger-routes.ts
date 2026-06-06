@@ -31,6 +31,7 @@ import {
 import { automationEventBus } from '../engine/event-bus.js';
 import { getOwnerScope, applyOwnerScope } from '../../rbac/owner-scope.js';
 import { registerCronTrigger, unregisterCronTrigger } from '../engine/cron-event-scheduler.js';
+import { deleteFriendInviteTrigger } from '../friend-invite/friend-invite-routes.js';
 
 const BASE = '/api/v1/automation/triggers';
 
@@ -286,7 +287,11 @@ export async function triggerRoutes(app: FastifyInstance): Promise<void> {
     }
   });
 
-  // Hard delete — disallow if active campaigns exist (state machine integrity)
+  // Hard delete — phân luồng theo eventType (gộp 2026-06-06, Anh chốt).
+  //  - friend_invite_to_list → deleteFriendInviteTrigger() (stop workers + unlink
+  //    entries + xóa campaigns/outbox/eventlog; chỉ khi state cancelled/draft/completed).
+  //  - còn lại → logic chung: disallow nếu còn active campaigns (state machine integrity).
+  // Trước đây 2 file cùng khai báo DELETE /triggers/:id → FST_ERR_DUPLICATED_ROUTE.
   app.delete(`${BASE}/:id`, { preHandler: requireRole('owner', 'admin') }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const user = request.user!;
@@ -299,6 +304,20 @@ export async function triggerRoutes(app: FastifyInstance): Promise<void> {
         },
       });
       if (!existing) return reply.status(404).send({ error: 'trigger not found' });
+
+      // Mục tiêu friend-invite có quy tắc xóa riêng → delegate.
+      if (existing.eventType === 'friend_invite_to_list') {
+        const result = await deleteFriendInviteTrigger({ triggerId: id, orgId: user.orgId });
+        if (!result.ok) {
+          return reply.status(result.status).send({
+            error: result.error,
+            ...(result.current ? { current: result.current } : {}),
+            ...(result.hint ? { hint: result.hint } : {}),
+          });
+        }
+        unregisterCronTrigger(id); // safe no-op
+        return { success: true };
+      }
 
       if (existing._count.campaigns > 0) {
         return reply.status(409).send({

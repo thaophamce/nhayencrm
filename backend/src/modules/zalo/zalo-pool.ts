@@ -44,6 +44,10 @@ interface ZaloInstance {
   displayName?: string;
   zaloUid?: string;
   lastActivity: Date;
+  // Fix flap 2026-06-06: mỗi lần connect/reconnect cấp 1 epoch tăng dần. Listener
+  // factory giữ epoch của nó; sự kiện 'closed' chỉ được xử lý nếu epoch khớp instance
+  // hiện tại → bỏ qua 'closed' đến từ listener cũ đã bị thay thế (chống self-collision loop).
+  epoch: number;
 }
 
 // Map zaloPool status → ZaloStatus enum cho status log.
@@ -76,6 +80,13 @@ class ZaloAccountPool {
   // Circuit breaker: track disconnect timestamps per account
   private disconnectHistory = new Map<string, number[]>();
 
+  // ── Fix flap 2026-06-06 ──
+  // epochCounter: nguồn epoch tăng dần toàn cục cho mọi connect/reconnect.
+  private epochCounter = 0;
+  // reconnecting: in-flight guard per account — chặn 2 luồng (autoReconnect 30s timer +
+  // health-check cron) cùng vào reconnect() tạo WS chồng nhau.
+  private reconnecting = new Set<string>();
+
   // ── Sprint v3 (2026-06-03) — Sticky 24h Hold notification timers ──
   // Mỗi nick disconnect tạo 3 setTimeout (T+2 phút, T+6h, T+23h). Khi nick
   // reconnect, clear toàn bộ chain. Tránh notify "trễ" sau khi nick đã hồi.
@@ -91,10 +102,36 @@ class ZaloAccountPool {
     return this.io;
   }
 
+  /**
+   * Fix flap 2026-06-06: dọn instance + listener + message-sync CŨ của 1 account
+   * TRƯỚC khi tạo instance mới trong loginQR()/reconnect().
+   *
+   * Root cause flap: reconnect() ghi đè instances Map nhưng KHÔNG stop listener cũ →
+   * WS cũ vẫn sống (retryOnClose) → Zalo thấy 2 WS cùng 1 nick → đóng bớt → 'closed' →
+   * onDisconnected → autoReconnect → lặp vô hạn (nick Thành Phạm: 30 đứt/30 phút).
+   *
+   * stop() = ws.close(1000) + reset listener — an toàn cho cả instance đã chết.
+   * Không xoá key Map ở đây vì caller set entry mới ngay sau đó.
+   */
+  private teardownExisting(accountId: string): void {
+    const prev = this.instances.get(accountId);
+    if (prev?.api?.listener) {
+      try {
+        prev.api.listener.stop();
+      } catch (err) {
+        logger.warn(`[zalo:${accountId}] teardownExisting: stop old listener failed:`, err);
+      }
+    }
+    stopMessageSync(accountId);
+  }
+
   // Initiate QR-based login; emits QR events to frontend via Socket.IO
   async loginQR(accountId: string, proxyUrl?: string | null): Promise<void> {
+    // Fix flap 2026-06-06: dọn listener/WS cũ trước khi tạo mới (tránh duplicate WS).
+    this.teardownExisting(accountId);
+    const epoch = ++this.epochCounter;
     const zalo = new Zalo({ logging: false, selfListen: true, imageMetadataGetter });
-    this.instances.set(accountId, { zalo, api: null, status: 'qr_pending', lastActivity: new Date() });
+    this.instances.set(accountId, { zalo, api: null, status: 'qr_pending', lastActivity: new Date(), epoch });
 
     try {
       const api: any = await withProxy(proxyUrl, () => zalo.loginQR({}, (event: any) => {
@@ -175,8 +212,20 @@ class ZaloAccountPool {
 
   // Reconnect using previously saved session credentials
   async reconnect(accountId: string, credentials: ZaloCredentials, proxyUrl?: string | null): Promise<void> {
+    // Fix flap 2026-06-06: in-flight guard — chặn 2 luồng cùng reconnect 1 nick
+    // (autoReconnect 30s timer + health-check cron) tạo WS chồng nhau.
+    if (this.reconnecting.has(accountId)) {
+      logger.info(`[zalo:${accountId}] reconnect() already in-flight, skip duplicate`);
+      return;
+    }
+    this.reconnecting.add(accountId);
+
+    // Fix flap 2026-06-06: dọn listener/WS cũ trước khi tạo mới (tránh duplicate WS
+    // → Zalo evict → 'closed' loop). stop() = ws.close(1000)+reset, an toàn.
+    this.teardownExisting(accountId);
+    const epoch = ++this.epochCounter;
     const zalo = new Zalo({ logging: false, selfListen: true, imageMetadataGetter });
-    this.instances.set(accountId, { zalo, api: null, status: 'connecting', lastActivity: new Date() });
+    this.instances.set(accountId, { zalo, api: null, status: 'connecting', lastActivity: new Date(), epoch });
 
     try {
       const api: any = await withProxy(proxyUrl, () => zalo.login({
@@ -236,6 +285,9 @@ class ZaloAccountPool {
       if (instance) instance.status = 'disconnected';
       await this.updateAccountDB(accountId, 'qr_pending', null, 'reconnect_failed');
       this.io?.emit('zalo:reconnect-failed', { accountId, error: String(err) });
+    } finally {
+      // Fix flap 2026-06-06: luôn nhả in-flight guard dù thành công hay lỗi.
+      this.reconnecting.delete(accountId);
     }
   }
 
@@ -264,13 +316,24 @@ class ZaloAccountPool {
 
   // Delegate listener setup to zalo-listener-factory
   private attachListener(accountId: string, api: any): void {
+    // Fix flap 2026-06-06: capture epoch của instance HIỆN TẠI tại thời điểm attach.
+    // 'closed' event đến từ listener cũ (epoch lỗi thời) sẽ bị bỏ qua trong onDisconnected.
+    const myEpoch = this.instances.get(accountId)?.epoch ?? this.epochCounter;
     attachZaloListener({
       accountId,
       api,
       io: this.io,
       userInfoCache: this.userInfoCache,
       onDisconnected: (id) => {
-        const inst = this.instances.get(id);
+        // Fix flap 2026-06-06: nếu instance hiện tại có epoch khác → listener này đã bị
+        // thay thế bởi 1 reconnect mới hơn. Bỏ qua 'closed' của nó để không set
+        // disconnected oan + không dồn circuit breaker bằng disconnect ma.
+        const cur = this.instances.get(id);
+        if (cur && cur.epoch !== myEpoch) {
+          logger.info(`[zalo:${id}] Ignoring stale 'closed' from superseded listener (epoch ${myEpoch} != current ${cur.epoch})`);
+          return;
+        }
+        const inst = cur;
         if (inst) inst.status = 'disconnected';
         this.updateAccountDB(id, 'disconnected', null, 'disconnect');
         stopMessageSync(id);

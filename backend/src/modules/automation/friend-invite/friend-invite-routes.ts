@@ -11,6 +11,7 @@
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '../../../shared/database/prisma-client.js';
 import { authMiddleware } from '../../auth/auth-middleware.js';
+import { requireRole } from '../../auth/role-middleware.js';
 import { logger } from '../../../shared/utils/logger.js';
 import { precomputeAndSeedPool, isFriendInviteSegmentSpec } from './skip-precompute.js';
 import { startNickWorker, stopNickWorker, getNickWorkerState } from './nick-worker.js';
@@ -170,6 +171,64 @@ export function invalidateTaskProgressCache(triggerId?: string | null): void {
   } else {
     taskProgressCache.clear();
   }
+}
+
+/**
+ * Xóa HẲN (vĩnh viễn) Mục tiêu friend_invite_to_list — logic nghiệp vụ riêng (Anh chốt
+ * 2026-06-05): chỉ xóa khi state ∈ cancelled/draft/completed, stop nick-workers trước,
+ * unlink entries (giữ KH trong tệp gốc), xóa campaigns/outbox/eventlog rồi trigger.
+ *
+ * Tách khỏi route DELETE để route chung /triggers/:id (trigger-routes) phân luồng
+ * theo eventType — tránh 2 file cùng khai báo DELETE /triggers/:id (FST_ERR_DUPLICATED_ROUTE).
+ * Trả discriminated result để caller map đúng HTTP status.
+ */
+export type DeleteFriendInviteResult =
+  | { ok: true }
+  | { ok: false; status: number; error: string; current?: string; hint?: string };
+
+export async function deleteFriendInviteTrigger(opts: {
+  triggerId: string;
+  orgId: string;
+}): Promise<DeleteFriendInviteResult> {
+  const { triggerId: id, orgId } = opts;
+  const trigger = await prisma.automationTrigger.findFirst({
+    where: { id, orgId, eventType: 'friend_invite_to_list' },
+    select: { id: true, state: true, segmentSpec: true, isSystemTrigger: true },
+  });
+  if (!trigger) return { ok: false, status: 404, error: 'trigger_not_found' };
+  // M9 — system trigger KHÔNG cho xóa.
+  if (trigger.isSystemTrigger)
+    return { ok: false, status: 403, error: 'system_trigger_protected' };
+  if (!['cancelled', 'draft', 'completed'].includes(trigger.state))
+    return {
+      ok: false,
+      status: 409,
+      error: 'must_cancel_first',
+      current: trigger.state,
+      hint: 'Hãy Xóa (đưa vào thùng rác) trước khi xoá hẳn',
+    };
+
+  // Stop workers trước.
+  const spec = trigger.segmentSpec;
+  if (isFriendInviteSegmentSpec(spec)) {
+    for (const nickId of spec.nickIds) void stopNickWorker(nickId);
+  }
+
+  // FK order: campaigns (onDelete SetNull) → entries unlink (giữ KH trong tệp gốc)
+  // → outbox → eventlog → trigger. 3 bảng con KHÔNG cascade nên xóa thủ công.
+  await prisma.$transaction([
+    prisma.automationCampaign.deleteMany({ where: { orgId, triggerId: id } }),
+    prisma.customerListEntry.updateMany({
+      where: { triggerId: id },
+      data: { triggerId: null, queueStatus: null },
+    }),
+    prisma.friendRequestOutbox.deleteMany({ where: { triggerId: id } }),
+    prisma.automationEventLog.deleteMany({ where: { triggerId: id } }),
+    prisma.automationTrigger.delete({ where: { id } }),
+  ]);
+
+  invalidateTaskProgressCache(id);
+  return { ok: true };
 }
 
 // ── Helper: parse quiet/working hour "HH:MM" → int hour 0-23 (Wave 4 #C) ───
@@ -800,6 +859,38 @@ export async function friendInviteRoutes(app: FastifyInstance): Promise<void> {
 
     return reply.send({ ok: true, state: 'cancelled' });
   });
+
+  // ── POST /:id/restore — Khôi phục từ thùng rác (cancelled → paused) ────────
+  // 2026-06-05 (Anh chốt): Mục tiêu đã Xóa (state='cancelled') nằm trong thùng rác,
+  // bấm "Khôi phục" đưa về 'paused' (an toàn — KHÔNG tự chạy lại). Sale phải bấm
+  // "Bắt đầu" (/activate) để re-precompute pool. KHÔNG spawn worker ở đây.
+  app.post<{ Params: { id: string } }>(`${BASE}/:id/restore`, async (request, reply) => {
+    const user = request.user!;
+    const { id } = request.params;
+
+    const trigger = await prisma.automationTrigger.findFirst({
+      where: { id, orgId: user.orgId, eventType: 'friend_invite_to_list' },
+      select: { id: true, state: true },
+    });
+    if (!trigger) return reply.status(404).send({ error: 'trigger_not_found' });
+    if (trigger.state !== 'cancelled')
+      return reply.status(400).send({ error: 'not_cancelled', current: trigger.state });
+
+    await prisma.automationTrigger.update({
+      where: { id: trigger.id },
+      data: { state: 'paused', pausedUntil: null },
+    });
+
+    invalidateTaskProgressCache(id);
+    return reply.send({ ok: true, state: 'paused' });
+  });
+
+  // ── DELETE /:id — đã GỘP vào route chung trigger-routes.ts ────────────────
+  // 2026-06-06: route DELETE /api/v1/automation/triggers/:id trước đây khai báo
+  // CẢ ở đây lẫn trigger-routes.ts → Fastify FST_ERR_DUPLICATED_ROUTE → app crash
+  // không lên được. Anh chốt gộp 1 route phân luồng theo eventType. Logic xóa hẳn
+  // Mục tiêu friend-invite giờ ở deleteFriendInviteTrigger() (export trên đầu file),
+  // được trigger-routes.ts gọi khi eventType='friend_invite_to_list'.
 
   // ── GET /:id/dashboard ────────────────────────────────────────────────────
   app.get<{ Params: { id: string } }>(`${BASE}/:id/dashboard`, async (request, reply) => {
