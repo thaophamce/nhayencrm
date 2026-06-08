@@ -39,7 +39,7 @@
           aria-label="Quản lý thư mục Nick Zalo"
           @click="$emit('manage-folders')"
         >
-          <span class="ic">📁</span>
+          <FolderTreeIcon class="ic" :size="18" :stroke-width="1.9" />
           <span v-if="filters.state.folderId !== null" class="dot-only"></span>
         </button>
 
@@ -52,7 +52,7 @@
           aria-label="Bộ lọc đã lưu"
           @click.stop="togglePopover('preset')"
         >
-          <span class="ic">⭐</span>
+          <StarIcon class="ic" :size="18" :stroke-width="1.9" />
           <span class="badge">{{ filters.presets.value.length }}</span>
         </button>
 
@@ -135,7 +135,7 @@
       >
         <div class="po-header">
           <div class="po-title">
-            <span>{{ popoverEmoji }} {{ popoverTitle }}</span>
+            <span class="po-title-text"><component :is="popoverIcon" v-if="popoverIcon" :size="15" :stroke-width="2" /> {{ popoverTitle }}</span>
             <span v-if="popoverActiveCount > 0" class="po-badge">{{ popoverActiveCount }}</span>
           </div>
           <button class="po-close" type="button" @click="openPopover = null" aria-label="Đóng"><XIcon :size="16" :stroke-width="2" /></button>
@@ -303,15 +303,15 @@
           <!-- EVENT -->
           <template v-if="openPopover === 'event'">
             <div class="event-row" :class="{ checked: filters.state.birthdayWithin7d }" @click="filters.state.birthdayWithin7d = !filters.state.birthdayWithin7d">
-              <div class="left"><span class="icon">🎂</span><span class="lbl">Sinh nhật 7 ngày tới</span></div>
+              <div class="left"><span class="icon"><CakeIcon :size="14" :stroke-width="2" /></span><span class="lbl">Sinh nhật 7 ngày tới</span></div>
               <span v-if="eventCounts.birthday > 0" class="right-count">{{ eventCounts.birthday }}</span>
             </div>
             <div class="event-row" :class="{ checked: filters.state.appointmentWithin24h }" @click="filters.state.appointmentWithin24h = !filters.state.appointmentWithin24h">
-              <div class="left"><span class="icon">📞</span><span class="lbl">Lịch hẹn 24h tới</span></div>
+              <div class="left"><span class="icon"><PhoneIcon :size="14" :stroke-width="2" /></span><span class="lbl">Lịch hẹn 24h tới</span></div>
               <span v-if="eventCounts.appointmentSoon > 0" class="right-count amber">{{ eventCounts.appointmentSoon }}</span>
             </div>
             <div class="event-row" :class="{ checked: filters.state.appointmentOverdue }" @click="filters.state.appointmentOverdue = !filters.state.appointmentOverdue">
-              <div class="left"><span class="icon">⚠️</span><span class="lbl">Hẹn quá hạn</span></div>
+              <div class="left"><span class="icon"><AlertTriangleIcon :size="14" :stroke-width="2" /></span><span class="lbl">Hẹn quá hạn</span></div>
               <span v-if="eventCounts.appointmentOverdue > 0" class="right-count">{{ eventCounts.appointmentOverdue }}</span>
             </div>
           </template>
@@ -340,7 +340,7 @@
 
       <!-- ══════ FOLDER PICKER (compact, 3 modes) ══════ -->
       <div class="folder-picker">
-        <div class="fp-label">📁 Phạm vi xem</div>
+        <div class="fp-label"><FolderTreeIcon :size="14" :stroke-width="2" /> Phạm vi xem</div>
         <button class="fp-current" type="button" @click="$emit('manage-folders')" :title="folderPickerTitle">
           <div class="fp-thumb">
             <!-- Mode 3: Single nick -->
@@ -379,7 +379,7 @@
 
       <!-- ══════ SAVED PRESET BAR (horizontal) ══════ -->
       <div class="saved-bar">
-        <span class="saved-label">⭐</span>
+        <span class="saved-label"><StarIcon :size="14" :stroke-width="2" /></span>
         <button
           v-for="preset in filters.presets.value"
           :key="preset.id"
@@ -398,7 +398,7 @@
         <!-- 🏷 TAG -->
         <section class="section" :class="{ collapsed: !sectionsOpen.tag }">
           <header class="section-header" tabindex="0" role="button" :aria-expanded="sectionsOpen.tag" @click="toggleSection('tag')" @keydown.enter.prevent="toggleSection('tag')" @keydown.space.prevent="toggleSection('tag')">
-            <div class="left"><span class="emoji">🏷</span>Tag</div>
+            <div class="left"><span class="emoji"><Tag :size="14" :stroke-width="2" /></span>Tag</div>
             <div class="right">
               <span v-if="tagActiveCount > 0" class="count-badge">{{ tagActiveCount }}</span>
               <span v-else class="count-badge zero">0</span>
@@ -475,7 +475,7 @@
         <!-- 📊 SCORE & STAGE -->
         <section class="section" :class="{ collapsed: !sectionsOpen.score }">
           <header class="section-header" tabindex="0" role="button" :aria-expanded="sectionsOpen.score" @click="toggleSection('score')" @keydown.enter.prevent="toggleSection('score')" @keydown.space.prevent="toggleSection('score')">
-            <div class="left"><span class="emoji">📊</span>Score &amp; Stage</div>
+            <div class="left"><span class="emoji"><Gauge :size="14" :stroke-width="2" /></span>Score &amp; Stage</div>
             <div class="right">
               <span v-if="scoreActiveCount > 0" class="count-badge">{{ scoreActiveCount }}</span>
               <span v-else class="count-badge zero">0</span>
@@ -553,7 +553,7 @@
         <!-- 🕐 THỜI GIAN -->
         <section class="section" :class="{ collapsed: !sectionsOpen.time }">
           <header class="section-header" tabindex="0" role="button" :aria-expanded="sectionsOpen.time" @click="toggleSection('time')" @keydown.enter.prevent="toggleSection('time')" @keydown.space.prevent="toggleSection('time')">
-            <div class="left"><span class="emoji">🕐</span>Thời gian</div>
+            <div class="left"><span class="emoji"><Clock :size="14" :stroke-width="2" /></span>Thời gian</div>
             <div class="right">
               <span v-if="timeActiveCount > 0" class="count-badge">{{ timeActiveCount }}</span>
               <span v-else class="count-badge zero">0</span>
@@ -594,7 +594,7 @@
         <!-- 📅 SỰ KIỆN -->
         <section class="section" :class="{ collapsed: !sectionsOpen.event }">
           <header class="section-header" tabindex="0" role="button" :aria-expanded="sectionsOpen.event" @click="toggleSection('event')" @keydown.enter.prevent="toggleSection('event')" @keydown.space.prevent="toggleSection('event')">
-            <div class="left"><span class="emoji">📅</span>Sự kiện sắp tới</div>
+            <div class="left"><span class="emoji"><CalendarClock :size="14" :stroke-width="2" /></span>Sự kiện sắp tới</div>
             <div class="right">
               <span v-if="eventActiveCount > 0" class="count-badge">{{ eventActiveCount }}</span>
               <span v-else class="count-badge zero">0</span>
@@ -603,15 +603,15 @@
           </header>
           <div class="section-body">
             <div class="event-row" :class="{ checked: filters.state.birthdayWithin7d }" @click="filters.state.birthdayWithin7d = !filters.state.birthdayWithin7d">
-              <div class="left"><span class="icon">🎂</span><span class="lbl">Sinh nhật 7 ngày tới</span></div>
+              <div class="left"><span class="icon"><CakeIcon :size="14" :stroke-width="2" /></span><span class="lbl">Sinh nhật 7 ngày tới</span></div>
               <span v-if="eventCounts.birthday > 0" class="right-count">{{ eventCounts.birthday }}</span>
             </div>
             <div class="event-row" :class="{ checked: filters.state.appointmentWithin24h }" @click="filters.state.appointmentWithin24h = !filters.state.appointmentWithin24h">
-              <div class="left"><span class="icon">📞</span><span class="lbl">Lịch hẹn 24h tới</span></div>
+              <div class="left"><span class="icon"><PhoneIcon :size="14" :stroke-width="2" /></span><span class="lbl">Lịch hẹn 24h tới</span></div>
               <span v-if="eventCounts.appointmentSoon > 0" class="right-count amber">{{ eventCounts.appointmentSoon }}</span>
             </div>
             <div class="event-row" :class="{ checked: filters.state.appointmentOverdue }" @click="filters.state.appointmentOverdue = !filters.state.appointmentOverdue">
-              <div class="left"><span class="icon">⚠️</span><span class="lbl">Hẹn quá hạn</span></div>
+              <div class="left"><span class="icon"><AlertTriangleIcon :size="14" :stroke-width="2" /></span><span class="lbl">Hẹn quá hạn</span></div>
               <span v-if="eventCounts.appointmentOverdue > 0" class="right-count">{{ eventCounts.appointmentOverdue }}</span>
             </div>
           </div>
@@ -620,7 +620,7 @@
         <!-- 👨‍💼 SALE -->
         <section class="section" :class="{ collapsed: !sectionsOpen.sale }">
           <header class="section-header" tabindex="0" role="button" :aria-expanded="sectionsOpen.sale" @click="toggleSection('sale')" @keydown.enter.prevent="toggleSection('sale')" @keydown.space.prevent="toggleSection('sale')">
-            <div class="left"><span class="emoji">👨‍💼</span>Sale phụ trách</div>
+            <div class="left"><span class="emoji"><UserRoundCog :size="14" :stroke-width="2" /></span>Sale phụ trách</div>
             <div class="right">
               <span v-if="saleActiveCount > 0" class="count-badge">{{ saleActiveCount }}</span>
               <span v-else class="count-badge zero">0</span>
@@ -646,7 +646,7 @@
         <!-- TIER 2: TƯƠNG TÁC (Phase 8 — Engagement pattern filter) -->
         <section class="section" :class="{ collapsed: !sectionsOpen.engagement }">
           <header class="section-header" tabindex="0" role="button" :aria-expanded="sectionsOpen.engagement" @click="toggleEngagementSection" @keydown.enter.prevent="toggleEngagementSection" @keydown.space.prevent="toggleEngagementSection">
-            <div class="left"><span class="emoji">💬</span>Tương tác</div>
+            <div class="left"><span class="emoji"><MessageCircleIcon :size="14" :stroke-width="2" /></span>Tương tác</div>
             <div class="right">
               <span v-if="engagementActiveCount > 0" class="count-badge">{{ engagementActiveCount }}</span>
               <span v-else class="count-badge zero">0</span>
@@ -667,7 +667,7 @@
         <!-- TIER 2: HỒ SƠ KH -->
         <section class="section collapsed">
           <header class="section-header" tabindex="0" role="button" aria-expanded="false">
-            <div class="left"><span class="emoji">👤</span>Hồ sơ KH</div>
+            <div class="left"><span class="emoji"><UserCircleIcon :size="14" :stroke-width="2" /></span>Hồ sơ KH</div>
             <div class="right">
               <span class="count-badge zero">0</span>
               <span class="chevron"><ChevronDownIcon :size="14" :stroke-width="2" /></span>
@@ -678,7 +678,7 @@
         <!-- TIER 2: NGUỒN -->
         <section class="section collapsed">
           <header class="section-header" tabindex="0" role="button" aria-expanded="false">
-            <div class="left"><span class="emoji">📡</span>Nguồn &amp; Attribution</div>
+            <div class="left"><span class="emoji"><MegaphoneIcon :size="14" :stroke-width="2" /></span>Nguồn &amp; Attribution</div>
             <div class="right">
               <span class="count-badge zero">0</span>
               <span class="chevron"><ChevronDownIcon :size="14" :stroke-width="2" /></span>
@@ -689,7 +689,7 @@
         <!-- TIER 3: BUSINESS (defer) -->
         <section class="section collapsed disabled">
           <header class="section-header" :title="'Defer — chờ tích hợp invoice'">
-            <div class="left"><span class="emoji">💼</span>Business value</div>
+            <div class="left"><span class="emoji"><BriefcaseIcon :size="14" :stroke-width="2" /></span>Business value</div>
             <div class="right">
               <span class="defer-tag">defer</span>
               <span class="chevron"><ChevronDownIcon :size="14" :stroke-width="2" /></span>
@@ -700,7 +700,7 @@
         <!-- TIER 3: AI SIGNAL (defer) -->
         <section class="section collapsed disabled">
           <header class="section-header" :title="'Defer — chờ AI pipeline'">
-            <div class="left"><span class="emoji">🤖</span>AI signal</div>
+            <div class="left"><span class="emoji"><BotIcon :size="14" :stroke-width="2" /></span>AI signal</div>
             <div class="right">
               <span class="defer-tag">defer</span>
               <span class="chevron"><ChevronDownIcon :size="14" :stroke-width="2" /></span>
@@ -752,6 +752,17 @@ import {
   X as XIcon,
   Search as SearchIcon,
   Globe as GlobeIcon,
+  // 2026-06-08 (anh chốt): nhãn section panel + strip — bỏ emoji nhãn, đồng bộ Lucide.
+  Star as StarIcon,
+  FolderTree as FolderTreeIcon,
+  MessageCircle as MessageCircleIcon,
+  UserCircle as UserCircleIcon,
+  Megaphone as MegaphoneIcon,
+  Briefcase as BriefcaseIcon,
+  Bot as BotIcon,
+  Cake as CakeIcon,
+  Phone as PhoneIcon,
+  AlertTriangle as AlertTriangleIcon,
 } from 'lucide-vue-next';
 import { useAuthStore } from '@/stores/auth';
 
@@ -805,17 +816,19 @@ function togglePopover(k: PopoverKey) {
   openPopover.value = openPopover.value === k ? null : k;
 }
 
-const POPOVER_META: Record<PopoverKey, { title: string; emoji: string; iconIndex: number }> = {
-  preset: { title: 'Bộ lọc đã lưu', emoji: '⭐', iconIndex: 1 },
-  tag: { title: 'Tag', emoji: '🏷', iconIndex: 2 },
-  score: { title: 'Score & Stage', emoji: '📊', iconIndex: 3 },
-  time: { title: 'Thời gian', emoji: '🕐', iconIndex: 4 },
-  event: { title: 'Sự kiện sắp tới', emoji: '📅', iconIndex: 5 },
-  sale: { title: 'Sale phụ trách', emoji: '👨‍💼', iconIndex: 6 },
+// icon = component Lucide (anh chốt 2026-06-08, thay emoji nhãn) — khớp icon strip thu gọn.
+// iconIndex giữ nguyên (dùng tính vị trí Y popover theo layout strip).
+const POPOVER_META: Record<PopoverKey, { title: string; icon: unknown; iconIndex: number }> = {
+  preset: { title: 'Bộ lọc đã lưu', icon: StarIcon, iconIndex: 1 },
+  tag: { title: 'Tag', icon: Tag, iconIndex: 2 },
+  score: { title: 'Score & Stage', icon: Gauge, iconIndex: 3 },
+  time: { title: 'Thời gian', icon: Clock, iconIndex: 4 },
+  event: { title: 'Sự kiện sắp tới', icon: CalendarClock, iconIndex: 5 },
+  sale: { title: 'Sale phụ trách', icon: UserRoundCog, iconIndex: 6 },
 };
 
 const popoverTitle = computed(() => openPopover.value ? POPOVER_META[openPopover.value].title : '');
-const popoverEmoji = computed(() => openPopover.value ? POPOVER_META[openPopover.value].emoji : '');
+const popoverIcon = computed(() => openPopover.value ? POPOVER_META[openPopover.value].icon : null);
 const popoverActiveCount = computed(() => {
   switch (openPopover.value) {
     case 'tag': return tagActiveCount.value;
@@ -2194,4 +2207,13 @@ onMounted(async () => {
 .clear-all { gap: 4px; }
 .chevron svg, .po-close svg, .c-clear-btn svg, .collapse-btn svg, .all-thumb svg,
 .clear-all svg, .tag-search-clear svg, .f-chip .x svg, .tag-search .ic svg { display: block; }
+
+/* Nhãn section + popover header + list-event icon — Lucide thay emoji (2026-06-08). */
+.section .left .emoji, .fp-label, .saved-label, .po-title-text,
+.event-row .left .icon, .ev-row .left .icon {
+  display: inline-flex; align-items: center; gap: 6px;
+}
+.section .left .emoji { margin-right: 2px; }
+.section .left .emoji svg, .fp-label svg, .saved-label svg, .po-title-text svg,
+.left .icon svg { display: block; flex-shrink: 0; }
 </style>
