@@ -10,7 +10,7 @@
  * Issue 3: parseLead chỉ extract identifiers; processLog mới gọi Graph API (run trong worker)
  * Issue 10: throw nếu shape sai → worker mark failed
  */
-import crypto from 'node:crypto';
+import { verifyHmacSignature } from '../../../shared/security/hmac.js';
 import { prisma } from '../../../shared/database/prisma-client.js';
 import { logger } from '../../../shared/utils/logger.js';
 import { normalizePhone } from '../../../shared/utils/phone.js';
@@ -29,18 +29,9 @@ const GRAPH_API_VERSION = 'v19.0';
  * @param appSecret — App Secret từ Meta App config
  */
 export function verifyWebhook(rawBody: Buffer | string, signature: string | undefined, appSecret: string): boolean {
+  // FB gửi 'sha256=<hex>' — strip prefix rồi verify timing-safe qua util chung (Phase 5).
   if (!signature || !signature.startsWith('sha256=')) return false;
-  const expected = crypto
-    .createHmac('sha256', appSecret)
-    .update(rawBody)
-    .digest('hex');
-  const provided = signature.slice('sha256='.length);
-  // Timing-safe compare
-  try {
-    return crypto.timingSafeEqual(Buffer.from(expected, 'hex'), Buffer.from(provided, 'hex'));
-  } catch {
-    return false;
-  }
+  return verifyHmacSignature(rawBody, signature.slice('sha256='.length), appSecret);
 }
 
 /** Lightweight parse trong webhook handler — chỉ lấy leadgen_id để dedup. */
