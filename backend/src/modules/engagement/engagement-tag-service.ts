@@ -164,16 +164,19 @@ export async function syncEngagementTag(contactId: string): Promise<void> {
 }
 
 /**
- * Cron pass: sync engagement tag cho mọi contact có engagement data (28 ngày).
- * Chạy TUẦN TỰ sau classification trong engagement-cron — tự bound concurrency.
+ * Cron pass (1 org): sync engagement tag cho mọi contact có engagement data (28 ngày)
+ * thuộc orgId. Chạy TUẦN TỰ sau classification trong engagement-cron — tự bound concurrency.
+ *
+ * Phase 1a: cron gọi hàm này TRONG withTenant(orgId, …) nên mọi query org-scoped đi qua
+ * đúng tenant context. orgId được truyền tay để 2 query nguồn cũng filter theo org.
  */
-export async function syncEngagementTagsAll(): Promise<{ synced: number; durationMs: number }> {
+export async function syncEngagementTagForOrg(orgId: string): Promise<{ synced: number; durationMs: number }> {
   const start = Date.now();
   const cutoff = new Date(Date.now() - 28 * 24 * 60 * 60 * 1000);
 
   // Nguồn 1: contact có engagement data 28 ngày (cần (re)classify tag theo pattern mới).
   const withData = await prisma.contactEngagementDaily.findMany({
-    where: { date: { gte: cutoff } },
+    where: { orgId, date: { gte: cutoff } },
     select: { contactId: true },
     distinct: ['contactId'],
   });
@@ -182,7 +185,7 @@ export async function syncEngagementTagsAll(): Promise<{ synced: number; duratio
   // (pattern=noise/null hoặc đã nguội hẳn) — phải sync để DỌN tag cũ sót, nếu không tag
   // engagement đứng im mãi (gap phát hiện khi verify 2026-06-06).
   const withTag = await prisma.friendTag.findMany({
-    where: { removedAt: null, tag: { source: 'auto_engagement' } },
+    where: { removedAt: null, tag: { source: 'auto_engagement', orgId } },
     select: { friend: { select: { contactId: true } } },
     distinct: ['friendId'],
   });
@@ -200,6 +203,6 @@ export async function syncEngagementTagsAll(): Promise<{ synced: number; duratio
   }
 
   const durationMs = Date.now() - start;
-  logger.info('[engagement-tag] sync pass done', { synced, durationMs });
+  logger.info('[engagement-tag] sync pass done', { orgId, synced, durationMs });
   return { synced, durationMs };
 }

@@ -27,6 +27,7 @@ import { prisma } from '../../../shared/database/prisma-client.js';
 import { logger } from '../../../shared/utils/logger.js';
 import { zaloOps } from '../../../shared/zalo-operations.js';
 import { logEvent } from './event-log-service.js';
+import { withTenant, runSystemQuery } from '../../../shared/tenant/tenant-context.js';
 
 let probeInterval: NodeJS.Timeout | null = null;
 let busy = false;
@@ -56,12 +57,15 @@ async function isWithinWorkingHours(): Promise<boolean> {
     // Fix 2026-05-30 22:55 — lookup từ Sequence nào liên kết với outbox WELCOME_PROBE
     // đang pending (kể cả trigger completed). Trước đây query trigger.state='active'
     // bỏ sót outbox của trigger đã completed → tin chào không bao giờ gửi.
-    const seqs = await prisma.automationSequence.findMany({
-      where: {
-        triggers: { some: { eventType: 'friend_invite_to_list' } },
-      },
-      select: { runtimeRules: true },
-    });
+    // Phase 1a 2026-06-08 — working-hours lookup quét sequence cross-org → system query.
+    const seqs = await runSystemQuery(() =>
+      prisma.automationSequence.findMany({
+        where: {
+          triggers: { some: { eventType: 'friend_invite_to_list' } },
+        },
+        select: { runtimeRules: true },
+      }),
+    );
     let s = 24, e = 0;
     for (const seq of seqs) {
       const rules = seq.runtimeRules as { allowedHourRange?: [number, number] } | null;
@@ -424,11 +428,13 @@ async function runProbeTick(): Promise<void> {
     // 60s `created_at` floor doubles as a stale-claim recovery: if a prior process crashed
     // mid-tick, the row becomes re-claimable on the next eligible tick.
     const claimToken = 'claim:' + (++tickCounter) + ':' + process.pid;
+    // Phase 1a 2026-06-08 — claim quét outbox cross-org (mỗi row tự mang org_id)
+    // → chạy ở chế độ system; xử lý từng row trong withTenant(row.org_id) bên dưới.
     // Wave 2 refactor 2026-05-29 — delay floor now comes from the trigger
     // (welcome_delay_seconds), not from the organization.
     // #3 2026-06-06 (Anh chốt): sàn an toàn trước đây hardcode 60s nay đọc từ cột
     // welcome_min_floor_seconds (Anh chỉnh được). Độ trễ thực = GREATEST(sàn, welcome_delay).
-    const rows = await prisma.$queryRaw<ProbeRow[]>`
+    const rows = await runSystemQuery(() => prisma.$queryRaw<ProbeRow[]>`
       UPDATE friend_request_outbox
       SET welcome_last_error = ${claimToken}
       WHERE id IN (
@@ -453,9 +459,10 @@ async function runProbeTick(): Promise<void> {
         welcome_retry_count,
         nick_first_offline_at,
         (SELECT org_id FROM automation_triggers WHERE id = friend_request_outbox.trigger_id) AS org_id
-    `;
+    `);
     for (const row of rows) {
-      await processRow(row).catch(async (err) => {
+      // Phase 1a 2026-06-08 — mỗi outbox row xử lý trong tenant scope của org nó.
+      await withTenant(row.org_id, () => processRow(row)).catch(async (err) => {
         const errMsg = (err?.message ?? String(err)).slice(0, 500);
         logger.error(
           `[welcome-probe] processRow ${row.id} failed: ${errMsg}`,
@@ -465,10 +472,12 @@ async function runProbeTick(): Promise<void> {
         // Without this, a processRow throw leaves welcome_last_error = 'claim:...'
         // and the row is permanently filtered out by the claim WHERE.
         try {
-          await prisma.friendRequestOutbox.update({
-            where: { id: row.id },
-            data: { welcomeLastError: errMsg },
-          });
+          await withTenant(row.org_id, () =>
+            prisma.friendRequestOutbox.update({
+              where: { id: row.id },
+              data: { welcomeLastError: errMsg },
+            }),
+          );
         } catch (recoverErr) {
           logger.error(
             `[welcome-probe] failed to release claim on ${row.id}:`,
