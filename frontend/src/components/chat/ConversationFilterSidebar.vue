@@ -12,8 +12,8 @@
         <PrivacyLockBadge v-if="canUsePrivacy" @click="onLockBadgeClick" />
       </div>
       <button class="collapse-btn" :title="collapsed ? 'Mở rộng sidebar' : 'Thu gọn sidebar'" :aria-label="collapsed ? 'Mở rộng sidebar' : 'Thu gọn sidebar'" @click="toggleCollapsed">
-        <span v-if="collapsed">»</span>
-        <span v-else>‹‹</span>
+        <ChevronsRightIcon v-if="collapsed" :size="16" :stroke-width="2" />
+        <ChevronsLeftIcon v-else :size="16" :stroke-width="2" />
       </button>
     </header>
 
@@ -121,7 +121,7 @@
 
       <div v-if="filters.hasActiveFilter.value" class="c-footer">
         <div class="c-total-badge" :title="`${filters.activeFilterChips.value.length} filter đang áp`">{{ filters.activeFilterChips.value.length }}</div>
-        <button class="c-clear-btn" type="button" :title="'Xoá tất cả filter'" aria-label="Xoá tất cả filter" @click="filters.clearAll">⨉</button>
+        <button class="c-clear-btn" type="button" :title="'Xoá tất cả filter'" aria-label="Xoá tất cả filter" @click="filters.clearAll"><XIcon :size="16" :stroke-width="2" /></button>
       </div>
 
       <!-- Popover overlay (anchored beside icon strip) -->
@@ -138,16 +138,16 @@
             <span>{{ popoverEmoji }} {{ popoverTitle }}</span>
             <span v-if="popoverActiveCount > 0" class="po-badge">{{ popoverActiveCount }}</span>
           </div>
-          <button class="po-close" type="button" @click="openPopover = null" aria-label="Đóng">✕</button>
+          <button class="po-close" type="button" @click="openPopover = null" aria-label="Đóng"><XIcon :size="16" :stroke-width="2" /></button>
         </div>
 
         <div class="po-body">
           <!-- TAG -->
           <template v-if="openPopover === 'tag'">
             <div v-if="totalTagDefsCount > 8" class="tag-search">
-              <span class="ic">🔍</span>
+              <span class="ic"><SearchIcon :size="14" :stroke-width="2" /></span>
               <input v-model="tagSearch" type="text" placeholder="Tìm tag..." aria-label="Tìm tag" />
-              <button v-if="tagSearch" type="button" class="tag-search-clear" @click="tagSearch = ''">✕</button>
+              <button v-if="tagSearch" type="button" class="tag-search-clear" @click="tagSearch = ''"><XIcon :size="13" :stroke-width="2" /></button>
             </div>
             <div v-if="filteredCrmTags.length > 0" class="po-sub-label">
               Tag CRM ({{ crmTagsList.length }})
@@ -361,7 +361,7 @@
             </template>
             <!-- Mode 1: ALL -->
             <template v-else>
-              <div class="single all-thumb">🌐</div>
+              <div class="single all-thumb"><GlobeIcon :size="16" :stroke-width="2" /></div>
             </template>
           </div>
           <div class="fp-body">
@@ -402,20 +402,20 @@
             <div class="right">
               <span v-if="tagActiveCount > 0" class="count-badge">{{ tagActiveCount }}</span>
               <span v-else class="count-badge zero">0</span>
-              <span class="chevron">▾</span>
+              <span class="chevron"><ChevronDownIcon :size="14" :stroke-width="2" /></span>
             </div>
           </header>
           <div class="section-body">
             <!-- Tag search input (shared for both CRM + Zalo) -->
             <div v-if="totalTagDefsCount > 8" class="tag-search">
-              <span class="ic">🔍</span>
+              <span class="ic"><SearchIcon :size="14" :stroke-width="2" /></span>
               <input
                 v-model="tagSearch"
                 type="text"
                 placeholder="Tìm tag..."
                 aria-label="Tìm tag"
               />
-              <button v-if="tagSearch" type="button" class="tag-search-clear" @click="tagSearch = ''" aria-label="Xoá tìm kiếm">✕</button>
+              <button v-if="tagSearch" type="button" class="tag-search-clear" @click="tagSearch = ''" aria-label="Xoá tìm kiếm"><XIcon :size="13" :stroke-width="2" /></button>
             </div>
 
             <div v-if="filteredCrmTags.length > 0" class="subsection-label">
@@ -479,7 +479,7 @@
             <div class="right">
               <span v-if="scoreActiveCount > 0" class="count-badge">{{ scoreActiveCount }}</span>
               <span v-else class="count-badge zero">0</span>
-              <span class="chevron">▾</span>
+              <span class="chevron"><ChevronDownIcon :size="14" :stroke-width="2" /></span>
             </div>
           </header>
           <div class="section-body">
@@ -557,7 +557,7 @@
             <div class="right">
               <span v-if="timeActiveCount > 0" class="count-badge">{{ timeActiveCount }}</span>
               <span v-else class="count-badge zero">0</span>
-              <span class="chevron">▾</span>
+              <span class="chevron"><ChevronDownIcon :size="14" :stroke-width="2" /></span>
             </div>
           </header>
           <div class="section-body">
@@ -598,7 +598,7 @@
             <div class="right">
               <span v-if="eventActiveCount > 0" class="count-badge">{{ eventActiveCount }}</span>
               <span v-else class="count-badge zero">0</span>
-              <span class="chevron">▾</span>
+              <span class="chevron"><ChevronDownIcon :size="14" :stroke-width="2" /></span>
             </div>
           </header>
           <div class="section-body">
@@ -624,7 +624,7 @@
             <div class="right">
               <span v-if="saleActiveCount > 0" class="count-badge">{{ saleActiveCount }}</span>
               <span v-else class="count-badge zero">0</span>
-              <span class="chevron">▾</span>
+              <span class="chevron"><ChevronDownIcon :size="14" :stroke-width="2" /></span>
             </div>
           </header>
           <div class="section-body">
@@ -650,7 +650,7 @@
             <div class="right">
               <span v-if="engagementActiveCount > 0" class="count-badge">{{ engagementActiveCount }}</span>
               <span v-else class="count-badge zero">0</span>
-              <span class="chevron">▾</span>
+              <span class="chevron"><ChevronDownIcon :size="14" :stroke-width="2" /></span>
             </div>
           </header>
           <div class="section-body">
@@ -670,7 +670,7 @@
             <div class="left"><span class="emoji">👤</span>Hồ sơ KH</div>
             <div class="right">
               <span class="count-badge zero">0</span>
-              <span class="chevron">▾</span>
+              <span class="chevron"><ChevronDownIcon :size="14" :stroke-width="2" /></span>
             </div>
           </header>
         </section>
@@ -681,7 +681,7 @@
             <div class="left"><span class="emoji">📡</span>Nguồn &amp; Attribution</div>
             <div class="right">
               <span class="count-badge zero">0</span>
-              <span class="chevron">▾</span>
+              <span class="chevron"><ChevronDownIcon :size="14" :stroke-width="2" /></span>
             </div>
           </header>
         </section>
@@ -692,7 +692,7 @@
             <div class="left"><span class="emoji">💼</span>Business value</div>
             <div class="right">
               <span class="defer-tag">defer</span>
-              <span class="chevron">▾</span>
+              <span class="chevron"><ChevronDownIcon :size="14" :stroke-width="2" /></span>
             </div>
           </header>
         </section>
@@ -703,7 +703,7 @@
             <div class="left"><span class="emoji">🤖</span>AI signal</div>
             <div class="right">
               <span class="defer-tag">defer</span>
-              <span class="chevron">▾</span>
+              <span class="chevron"><ChevronDownIcon :size="14" :stroke-width="2" /></span>
             </div>
           </header>
         </section>
@@ -724,9 +724,9 @@
               type="button"
               class="f-chip"
               @click="chip.remove()"
-            >{{ chip.label }}<span class="x">✕</span></button>
+            >{{ chip.label }}<span class="x"><XIcon :size="12" :stroke-width="2" /></span></button>
           </div>
-          <button class="clear-all" type="button" @click="filters.clearAll">⨉ Xoá tất cả filter</button>
+          <button class="clear-all" type="button" @click="filters.clearAll"><XIcon :size="13" :stroke-width="2" /> Xoá tất cả filter</button>
         </div>
       </div>
 
@@ -743,7 +743,16 @@ import LeadFloatingButton from '@/components/lead-pool/LeadFloatingButton.vue';
 import PrivacyUnlockOtpModal from '@/components/privacy/PrivacyUnlockOtpModal.vue';
 import { usePrivacyStore } from '@/stores/privacy';
 // Icon Lucide thay emoji thô cho strip lọc (/plan-design-review 2026-06-06).
-import { Tag, Gauge, Clock, CalendarClock, UserRoundCog } from 'lucide-vue-next';
+// 2026-06-08 (anh chốt): mở rộng cho chrome panel — chevron section, close, search, collapse.
+import {
+  Tag, Gauge, Clock, CalendarClock, UserRoundCog,
+  ChevronDown as ChevronDownIcon,
+  ChevronsRight as ChevronsRightIcon,
+  ChevronsLeft as ChevronsLeftIcon,
+  X as XIcon,
+  Search as SearchIcon,
+  Globe as GlobeIcon,
+} from 'lucide-vue-next';
 import { useAuthStore } from '@/stores/auth';
 
 const props = defineProps<{
@@ -2176,4 +2185,13 @@ onMounted(async () => {
   border-radius: 10px;
   line-height: 1;
 }
+
+/* Icon Lucide chrome — căn giữa với nội dung (anh chốt 2026-06-08). */
+.chevron, .po-close, .c-clear-btn, .collapse-btn, .all-thumb,
+.clear-all, .tag-search-clear, .f-chip .x, .tag-search .ic {
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.clear-all { gap: 4px; }
+.chevron svg, .po-close svg, .c-clear-btn svg, .collapse-btn svg, .all-thumb svg,
+.clear-all svg, .tag-search-clear svg, .f-chip .x svg, .tag-search .ic svg { display: block; }
 </style>

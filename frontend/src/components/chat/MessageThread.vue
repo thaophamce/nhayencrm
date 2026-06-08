@@ -84,7 +84,7 @@
                     {{ currentLabel.emoji ? currentLabel.emoji + ' ' : '' }}{{ currentLabel.text }}
                   </span>
                   <span v-else class="zlbl-empty">Phân loại</span>
-                  <span class="zlbl-caret">▾</span>
+                  <span class="zlbl-caret"><ChevronDownIcon :size="13" :stroke-width="2" /></span>
                 </button>
               </template>
               <div class="zlbl-dropdown zalo-native">
@@ -92,7 +92,7 @@
 
                 <div v-else-if="!allLabels.length" class="zlbl-empty-state">
                   Tài khoản chưa có thẻ phân loại nào.<br />
-                  <button class="zlbl-inline-sync" @click="onSyncLabels">⟳ Đồng bộ từ Zalo</button>
+                  <button class="zlbl-inline-sync" @click="onSyncLabels"><RefreshCwIcon :size="13" :stroke-width="2" /> Đồng bộ từ Zalo</button>
                 </div>
 
                 <div v-else class="zlbl-options">
@@ -103,17 +103,17 @@
                     :class="{ active: currentLabel?.id === lbl.id }"
                     @click="onPickLabel(lbl)"
                   >
-                    <span class="zlbl-flag" :style="`color: ${lbl.color}`">⚑</span>
+                    <span class="zlbl-flag" :style="`color: ${lbl.color}`"><FlagIcon :size="13" :stroke-width="2" /></span>
                     <span class="zlbl-name">
                       <span v-if="lbl.emoji">{{ lbl.emoji }} </span>{{ lbl.text }}
                     </span>
-                    <span v-if="currentLabel?.id === lbl.id" class="zlbl-check">✓</span>
+                    <span v-if="currentLabel?.id === lbl.id" class="zlbl-check"><CheckIcon :size="13" :stroke-width="2.2" /></span>
                   </button>
                 </div>
 
                 <div class="zlbl-divider"></div>
                 <button class="zlbl-manage" @click="goToLabelsSettings">
-                  <span class="manage-icon">⚙</span>
+                  <span class="manage-icon"><SettingsIcon :size="14" :stroke-width="2" /></span>
                   Quản lý thẻ phân loại
                 </button>
               </div>
@@ -151,7 +151,7 @@
                   <span class="nick-name">
                     {{ conversation.zaloAccount?.displayName || '—' }}
                   </span>
-                  <span class="nick-caret">▾</span>
+                  <span class="nick-caret"><ChevronDownIcon :size="13" :stroke-width="2" /></span>
                 </span>
               </template>
               <div class="nick-dd-panel">
@@ -199,8 +199,8 @@
               class="msg-counts"
               :title="`Tin nhắn 1-1 RIÊNG cặp nick × KH này: ${msgInCount} đến / ${msgOutCount} gửi. (Tổng toàn KH ${contactTotalIn}/${contactTotalOut} qua mọi nick chăm)`"
             >
-              <span class="cnt-in">{{ msgInCount }}</span>↘
-              <span class="cnt-out">{{ msgOutCount }}</span>↗
+              <span class="cnt-in">{{ msgInCount }}</span><ArrowDownLeftIcon class="cnt-arrow" :size="12" :stroke-width="2" />
+              <span class="cnt-out">{{ msgOutCount }}</span><ArrowUpRightIcon class="cnt-arrow" :size="12" :stroke-width="2" />
             </span>
             <!-- M53 2026-05-30: Virtual KH → chấm đỏ nháy + "KH chưa bật tìm kiếm Zalo công khai" -->
             <template v-if="isVirtualConv">
@@ -225,7 +225,7 @@
           <!-- Đã kết bạn: hover hiện thêm nút Huỷ kết bạn (destructive secondary) -->
           <div v-if="friendshipState === 'friend'" class="friend-hover-group">
             <button class="btn-action btn-friend-already" disabled>
-              <span class="ic">✓</span> Đã KB
+              <span class="ic"><UserCheckIcon :size="14" :stroke-width="2" /></span> Đã KB
               <span v-if="friendDaysLabel" class="sub-meta">{{ friendDaysLabel }}</span>
             </button>
             <button
@@ -233,7 +233,7 @@
               :disabled="actionLoading"
               @click="onRemoveFriend"
             >
-              <span class="ic">✗</span> Huỷ KB
+              <span class="ic"><UserXIcon :size="14" :stroke-width="2" /></span> Huỷ KB
             </button>
           </div>
           <!-- Sale đã gửi mời, đợi KH accept: primary "Đã mời" + secondary "Thu hồi" -->
@@ -243,7 +243,7 @@
               :title="pendingSentTooltip"
               disabled
             >
-              <span class="ic">📤</span> Đã mời <span class="sub-meta">{{ pendingDaysLabel }}</span>
+              <span class="ic"><SendIcon :size="14" :stroke-width="2" /></span> Đã mời <span class="sub-meta">{{ pendingDaysLabel }}</span>
             </button>
             <button
               class="btn-action btn-cancel-invite"
@@ -251,7 +251,7 @@
               :disabled="actionLoading"
               @click="onCancelInvite"
             >
-              <span class="ic">↩️</span> Thu hồi
+              <span class="ic"><Undo2Icon :size="14" :stroke-width="2" /></span> Thu hồi
             </button>
           </template>
           <!-- KH đã gửi mời, sale chưa accept: primary "Chấp nhận" + secondary "Từ chối" -->
@@ -262,7 +262,7 @@
               :disabled="actionLoading"
               @click="onAcceptInvite"
             >
-              <span class="ic">✋</span> Chấp nhận <span class="sub-meta">{{ pendingDaysLabel }}</span>
+              <span class="ic"><HandIcon :size="14" :stroke-width="2" /></span> Chấp nhận <span class="sub-meta">{{ pendingDaysLabel }}</span>
             </button>
             <button
               class="btn-action btn-reject-invite"
@@ -270,7 +270,7 @@
               :disabled="actionLoading"
               @click="onRejectInvite"
             >
-              <span class="ic">✗</span> Từ chối
+              <span class="ic"><UserXIcon :size="14" :stroke-width="2" /></span> Từ chối
             </button>
           </template>
           <!-- 'ghost' = trước từng là friend, đã unfriend -->
@@ -281,7 +281,7 @@
             :disabled="actionLoading"
             @click="onOpenInviteDialog"
           >
-            <span class="ic">↻</span> Mời lại
+            <span class="ic"><RotateCcwIcon :size="14" :stroke-width="2" /></span> Mời lại
           </button>
           <button
             v-else-if="conversation.threadType === 'user'"
@@ -290,7 +290,7 @@
             :disabled="actionLoading"
             @click="onOpenInviteDialog"
           >
-            <span class="ic">+</span> Kết bạn
+            <span class="ic"><UserPlusIcon :size="14" :stroke-width="2" /></span> Kết bạn
           </button>
 
           <!-- 2026-06-03 Anh chốt: ẩn Webhook button khỏi header (chưa cần).
@@ -300,7 +300,7 @@
           <!-- More dropdown: gộp Lịch sử / Tìm / Note -->
           <v-menu>
             <template #activator="{ props: act }">
-              <button class="icon-btn" v-bind="act" title="Thêm">⋮</button>
+              <button class="icon-btn" v-bind="act" title="Thêm"><MoreVerticalIcon :size="16" :stroke-width="2" /></button>
             </template>
             <v-list density="compact" min-width="220">
               <!-- 2026-06-06 (Anh chốt): toggle cột 4 (thông tin KH) đưa vào menu ... -->
@@ -318,7 +318,7 @@
               <v-list-item
                 v-if="conversation.contact"
                 prepend-icon="mdi-merge"
-                title="🔗 Gắn vào KH Cha (merge)"
+                title="Gắn vào KH Cha (merge)"
                 @click="showLinkParentDialog = true"
               />
               <v-divider />
@@ -331,7 +331,7 @@
 
       <!-- M53 2026-05-30: Banner cam cho virtual conv — sticky top dưới header -->
       <div v-if="isVirtualConv" class="virtual-banner">
-        <div class="virtual-banner-icon">i</div>
+        <div class="virtual-banner-icon"><InfoIcon :size="14" :stroke-width="2" /></div>
         <div class="virtual-banner-body">
           <div class="virtual-banner-title">Chat nội bộ — tin nhắn KHÔNG gửi đi Zalo</div>
           <div class="virtual-banner-sub">
@@ -702,7 +702,7 @@
           :disabled="lightboxIndex <= 0"
           title="Ảnh trước (←)"
           @click.stop="lightboxPrev"
-        >‹</button>
+        ><ChevronLeftIcon :size="28" :stroke-width="2" /></button>
         <img :src="previewImageUrl" alt="Preview" class="lightbox-img" />
         <button
           v-if="lightboxList.length > 1"
@@ -710,7 +710,7 @@
           :disabled="lightboxIndex >= lightboxList.length - 1"
           title="Ảnh sau (→)"
           @click.stop="lightboxNext"
-        >›</button>
+        ><ChevronRightIcon :size="28" :stroke-width="2" /></button>
         <div class="lightbox-meta">
           <span v-if="lightboxList.length > 1">{{ lightboxIndex + 1 }} / {{ lightboxList.length }} ·</span>
           Nhấn vùng tối để đóng
@@ -844,6 +844,25 @@ import {
   Zap as ZapIcon,
   Sparkles as SparklesIcon,
   Package as PackageIcon,
+  // Header action + chrome icons (anh chốt 2026-06-08 — bỏ emoji thô, đồng bộ Lucide)
+  UserPlus as UserPlusIcon,
+  UserCheck as UserCheckIcon,
+  UserX as UserXIcon,
+  Undo2 as Undo2Icon,
+  Hand as HandIcon,
+  RotateCcw as RotateCcwIcon,
+  MoreVertical as MoreVerticalIcon,
+  ChevronDown as ChevronDownIcon,
+  ChevronLeft as ChevronLeftIcon,
+  ChevronRight as ChevronRightIcon,
+  RefreshCw as RefreshCwIcon,
+  Settings as SettingsIcon,
+  ArrowDownLeft as ArrowDownLeftIcon,
+  ArrowUpRight as ArrowUpRightIcon,
+  Info as InfoIcon,
+  Check as CheckIcon,
+  Flag as FlagIcon,
+  Send as SendIcon,
 } from 'lucide-vue-next';
 
 // Reaction detail popup state — anh chốt 2026-05-22: click reaction box → popup
@@ -3135,7 +3154,19 @@ watch(() => props.editingMessage?.id, async (id) => {
 .btn-action .ic {
   font-size: 13px;
   line-height: 1;
+  display: inline-flex; align-items: center;
 }
+/* Icon Lucide (svg) trong header chat — căn giữa, không lệch baseline (2026-06-08). */
+.btn-action .ic > svg,
+.nick-caret > svg,
+.zlbl-caret > svg,
+.zlbl-flag > svg,
+.zlbl-check > svg,
+.zlbl-inline-sync > svg,
+.zlbl-manage .manage-icon > svg,
+.virtual-banner-icon > svg { display: block; }
+.msg-counts .cnt-arrow { vertical-align: middle; opacity: 0.55; margin: 0 1px 0 -1px; }
+.nick-caret, .zlbl-caret { display: inline-flex; align-items: center; }
 .btn-action .sub-meta {
   font-size: 10px;
   opacity: 0.7;

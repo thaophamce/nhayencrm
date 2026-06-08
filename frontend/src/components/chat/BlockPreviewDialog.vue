@@ -16,21 +16,21 @@
         <div class="bpd-head-info">
           <div class="bpd-title">{{ block.name }}</div>
           <div class="bpd-meta">
-            <span v-if="block.folder?.visibility === 'private'" class="bpd-vis private">🔒 Riêng tư</span>
-            <span v-else class="bpd-vis public">🔓 Công khai</span>
-            <span v-if="block.folder"> · 📁 {{ block.folder.name }}</span>
-            <span> · 📦 {{ componentsCount }} thành phần</span>
-            <span v-if="variantCount > 0"> · 🔀 {{ variantCount }} mẫu</span>
-            <span v-if="randomBadge" class="bpd-random-chip">🎲 {{ randomBadge }}</span>
+            <span v-if="block.folder?.visibility === 'private'" class="bpd-vis private"><LockIcon :size="12" :stroke-width="2" /> Riêng tư</span>
+            <span v-else class="bpd-vis public"><UnlockIcon :size="12" :stroke-width="2" /> Công khai</span>
+            <span v-if="block.folder" class="bpd-meta-seg"> · <FolderIcon :size="12" :stroke-width="2" /> {{ block.folder.name }}</span>
+            <span class="bpd-meta-seg"> · <PackageIcon :size="12" :stroke-width="2" /> {{ componentsCount }} thành phần</span>
+            <span v-if="variantCount > 0" class="bpd-meta-seg"> · <ShuffleIcon :size="12" :stroke-width="2" /> {{ variantCount }} mẫu</span>
+            <span v-if="randomBadge" class="bpd-random-chip"><DicesIcon :size="12" :stroke-width="2" /> {{ randomBadge }}</span>
           </div>
         </div>
-        <button v-if="hasTextVariants" class="bpd-random-btn" @click="rerollPreview">🔄 Random variant khác</button>
-        <button class="bpd-close" @click="emit('close')">✕</button>
+        <button v-if="hasTextVariants" class="bpd-random-btn" @click="rerollPreview"><RefreshCwIcon :size="14" :stroke-width="2" /> Random variant khác</button>
+        <button class="bpd-close" @click="emit('close')"><XIcon :size="18" :stroke-width="2" /></button>
       </header>
 
       <!-- Body: Zalo preview -->
       <div class="bpd-body">
-        <div class="bpd-time-label">📱 KH sẽ thấy thế này trên Zalo · {{ contactName }} · {{ currentHHmm }}</div>
+        <div class="bpd-time-label"><SmartphoneIcon :size="13" :stroke-width="2" /> KH sẽ thấy thế này trên Zalo · {{ contactName }} · {{ currentHHmm }}</div>
 
         <div class="bpd-zalo-window">
           <template v-if="block.actionType === 'send_message'">
@@ -72,7 +72,7 @@
         </div>
 
         <div class="bpd-info">
-          ⏱️ Tổng thời gian gửi: ~{{ estimatedSeconds }} giây · KH thấy {{ renderedComponents.length || 1 }} tin liên tiếp như đang chat thật
+          <TimerIcon :size="13" :stroke-width="2" /> Tổng thời gian gửi: ~{{ estimatedSeconds }} giây · KH thấy {{ renderedComponents.length || 1 }} tin liên tiếp như đang chat thật
         </div>
       </div>
 
@@ -80,7 +80,7 @@
       <footer class="bpd-foot">
         <!-- previewOnly: dùng trong builder Luồng → chỉ xem trước, không gửi -->
         <div v-if="previewOnly" class="bpd-recipient">
-          <div class="bpd-recipient-avatar">👁️</div>
+          <div class="bpd-recipient-avatar"><EyeIcon :size="18" :stroke-width="2" /></div>
           <div class="bpd-recipient-info">
             <div class="bpd-recipient-label">Xem trước khối</div>
             <div class="bpd-recipient-nick">KH mẫu thấy như thế này trên Zalo</div>
@@ -93,8 +93,10 @@
             <div class="bpd-recipient-nick">Qua nick <b>{{ nickName }}</b></div>
           </div>
         </div>
-        <button class="bpd-btn" @click="emit('close')">{{ previewOnly ? 'Đóng' : '← Quay lại chọn Khối' }}</button>
-        <button v-if="!previewOnly" class="bpd-btn-primary" @click="onConfirmSend">📤 Gửi cho KH</button>
+        <button class="bpd-btn" @click="emit('close')">
+          <ArrowLeftIcon v-if="!previewOnly" :size="14" :stroke-width="2" />{{ previewOnly ? 'Đóng' : ' Quay lại chọn Khối' }}
+        </button>
+        <button v-if="!previewOnly" class="bpd-btn-primary" @click="onConfirmSend"><SendIcon :size="14" :stroke-width="2" /> Gửi cho KH</button>
       </footer>
     </div>
   </v-dialog>
@@ -104,6 +106,22 @@
 import { computed, ref } from 'vue';
 import type { Block } from '@/api/automation/types';
 import { applyRichFormat, plainFormat, type StyleMark } from '@/composables/use-rich-format';
+// Icon chrome — Lucide line (anh chốt 2026-06-08, bỏ emoji nút).
+import {
+  RefreshCw as RefreshCwIcon,
+  X as XIcon,
+  ArrowLeft as ArrowLeftIcon,
+  Send as SendIcon,
+  Lock as LockIcon,
+  Unlock as UnlockIcon,
+  Folder as FolderIcon,
+  Package as PackageIcon,
+  Shuffle as ShuffleIcon,
+  Dices as DicesIcon,
+  Smartphone as SmartphoneIcon,
+  Eye as EyeIcon,
+  Timer as TimerIcon,
+} from 'lucide-vue-next';
 
 const props = withDefaults(
   defineProps<{
@@ -531,4 +549,14 @@ function onConfirmSend() {
   font-family: inherit;
 }
 .bpd-btn-primary:hover { background: #1d4ed8; }
+
+/* Icon Lucide chrome — căn giữa với text (2026-06-08). */
+.bpd-btn, .bpd-btn-primary, .bpd-random-btn, .bpd-close,
+.bpd-vis, .bpd-meta-seg, .bpd-random-chip, .bpd-time-label, .bpd-info,
+.bpd-recipient-avatar { display: inline-flex; align-items: center; gap: 4px; }
+.bpd-time-label, .bpd-info { gap: 5px; }
+.bpd-recipient-avatar { justify-content: center; }
+.bpd-icon svg, .bpd-close svg, .bpd-random-btn svg, .bpd-btn svg, .bpd-btn-primary svg,
+.bpd-vis svg, .bpd-meta-seg svg, .bpd-random-chip svg, .bpd-time-label svg,
+.bpd-info svg, .bpd-recipient-avatar svg { display: block; }
 </style>

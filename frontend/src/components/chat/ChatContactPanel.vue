@@ -40,14 +40,14 @@
         :class="{ active: activeTab === 'profile' }"
         @click="activeTab = 'profile'"
       >
-        <span class="ic">👤</span> Hồ sơ
+        <span class="ic"><UserIcon :size="15" :stroke-width="2" /></span> Hồ sơ
       </button>
       <button
         class="ip-tab"
         :class="{ active: activeTab === 'crm' }"
         @click="activeTab = 'crm'"
       >
-        <span class="ic">🎯</span> CRM
+        <span class="ic"><TargetIcon :size="15" :stroke-width="2" /></span> CRM
         <span v-if="crmBadgeCount" class="tab-badge">{{ crmBadgeCount }}</span>
       </button>
       <button
@@ -56,7 +56,7 @@
         data-fly-target="activity-tab"
         @click="activeTab = 'activity'"
       >
-        <span class="ic">📅</span> Lịch hẹn
+        <span class="ic"><CalendarClockIcon :size="15" :stroke-width="2" /></span> Lịch hẹn
         <span v-if="activityBadgeCount || pendingAptBump" class="tab-badge">{{ (activityBadgeCount ?? 0) + pendingAptBump }}</span>
       </button>
       <button
@@ -66,7 +66,7 @@
         :title="`Điểm KH: ${props.contact?.leadScore ?? 0}`"
         @click="activeTab = 'score'"
       >
-        <span class="ic">⭐</span> Điểm
+        <span class="ic"><StarIcon :size="15" :stroke-width="2" /></span> Điểm
         <span v-if="(props.contact?.leadScore ?? 0) > 0" class="tab-badge tab-badge-score">
           {{ props.contact?.leadScore }}
         </span>
@@ -594,6 +594,13 @@ import ContactDealStageSelector from '@/components/chat/ContactDealStageSelector
 import { useAuthStore } from '@/stores/auth';
 import { useToast } from '@/composables/use-toast';
 import { api } from '@/api';
+// Icon top-tab — Lucide line (anh chốt 2026-06-08, đồng bộ bottom-tab SVG).
+import {
+  User as UserIcon,
+  Target as TargetIcon,
+  CalendarClock as CalendarClockIcon,
+  Star as StarIcon,
+} from 'lucide-vue-next';
 import CustomerTimelineSection from './CustomerTimelineSection.vue';
 import EngagementHeatmap from './EngagementHeatmap.vue';
 import ScoreBanner from './ScoreBanner.vue';
@@ -1397,7 +1404,8 @@ async function onRegenerateHandoff() {
   position: relative;
   transition: color 0.15s;
 }
-.ip-tab .ic { font-size: 13px; line-height: 1; }
+.ip-tab .ic { font-size: 13px; line-height: 1; display: inline-flex; align-items: center; }
+.ip-tab .ic > svg { display: block; }
 .ip-tab:hover { color: var(--smax-primary); background: var(--smax-grey-100); }
 .ip-tab.active {
   color: var(--smax-primary);

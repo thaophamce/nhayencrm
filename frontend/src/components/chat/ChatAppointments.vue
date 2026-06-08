@@ -52,7 +52,7 @@
           {{ statusLabel(effectiveStatus(apt)) }}
         </span>
         <button class="apt-edit-btn" title="Sửa nhắc hẹn" @click="openEditor(apt)">
-          ✎
+          <PencilIcon :size="14" :stroke-width="2" />
         </button>
       </div>
 
@@ -81,22 +81,22 @@
           class="qa-btn qa-success"
           :disabled="changingId === apt.id && changingTo === 'completed'"
           @click="quickChangeStatus(apt, 'completed')"
-        >✓ Hoàn thành</button>
+        ><CheckIcon :size="14" :stroke-width="2" /> Hoàn thành</button>
         <button
           class="qa-btn qa-danger"
           :disabled="changingId === apt.id && changingTo === 'no_show'"
           @click="quickChangeStatus(apt, 'no_show')"
-        >⊘ Không đến</button>
+        ><BanIcon :size="14" :stroke-width="2" /> Không đến</button>
         <button
           class="qa-btn qa-ghost"
           :disabled="changingId === apt.id && changingTo === 'cancelled'"
           @click="quickChangeStatus(apt, 'cancelled')"
-        >✕ Huỷ</button>
+        ><XIcon :size="14" :stroke-width="2" /> Huỷ</button>
       </div>
 
       <!-- Audit line: ai đổi status + lúc nào -->
       <div v-if="apt.statusChangedBy && apt.status !== 'scheduled' && apt.status !== 'overdue'" class="apt-audit">
-        ✓ {{ apt.statusChangedBy.fullName || apt.statusChangedBy.email }}<span v-if="apt.statusChangedAt"> · {{ formatRelativeTime(apt.statusChangedAt) }}</span>
+        <CheckIcon :size="12" :stroke-width="2" /> {{ apt.statusChangedBy.fullName || apt.statusChangedBy.email }}<span v-if="apt.statusChangedAt"> · {{ formatRelativeTime(apt.statusChangedAt) }}</span>
       </div>
     </div>
 
@@ -109,6 +109,13 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
 import { api } from '@/api/index';
+// Icon nút — Lucide line (anh chốt 2026-06-08, bỏ ký tự thô).
+import {
+  Pencil as PencilIcon,
+  Check as CheckIcon,
+  Ban as BanIcon,
+  X as XIcon,
+} from 'lucide-vue-next';
 import AppointmentEditor from '@/components/appointments/AppointmentEditor.vue';
 import { useAuthStore } from '@/stores/auth';
 const _authStoreChatApt = useAuthStore();
@@ -425,4 +432,10 @@ function formatRelativeTime(iso: string): string {
   padding: 14px 0;
   font-style: italic;
 }
+
+/* Icon Lucide nút — căn giữa với text (2026-06-08). */
+.apt-edit-btn { display: inline-flex; align-items: center; justify-content: center; }
+.qa-btn { display: inline-flex; align-items: center; justify-content: center; gap: 4px; }
+.apt-audit { display: inline-flex; align-items: center; gap: 4px; }
+.apt-edit-btn svg, .qa-btn svg, .apt-audit svg { display: block; }
 </style>
