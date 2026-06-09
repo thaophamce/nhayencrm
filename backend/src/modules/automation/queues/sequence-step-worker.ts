@@ -562,7 +562,7 @@ export function startSequenceStepWorker(): Worker {
     QUEUE_NAMES.SEQUENCE_STEP,
     // Phase 1a 2026-06-08 — bọc withTenant(job.data.orgId) để mọi query của job
     // mang tenant context (tenant-guard + RLS khi enforce).
-    (job: { data: { orgId: string } }) => withTenant(job.data.orgId, () => processJob(job)),
+    (job: Job<SequenceStepJobData, SequenceStepResult>) => withTenant(job.data.orgId, () => processJob(job)),
     {
       connection: getBullMQRedis(),
       // Per-nick concurrency = 1 (BullMQ global concurrency cao hơn cho cross-nick parallel).

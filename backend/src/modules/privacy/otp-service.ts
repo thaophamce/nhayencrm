@@ -449,7 +449,7 @@ export async function verifyOtp(args: {
   }
 
   logger.info(`[privacy-otp] unlock OK user=${args.userId} duration=${token.sessionDurationMinutes}m`);
-  return { sessionToken, expiresAt, durationMinutes: token.sessionDurationMinutes as SessionDuration };
+  return { action: 'unlock', sessionToken, expiresAt, durationMinutes: token.sessionDurationMinutes as SessionDuration };
 }
 
 // ── Op 3: Admin reset lock ─────────────────────────────────────────────────

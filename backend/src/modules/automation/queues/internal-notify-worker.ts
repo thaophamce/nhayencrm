@@ -398,7 +398,7 @@ export function startInternalNotifyWorker(): Worker {
   workerInstance = new Worker<InternalNotifyJobData>(
     QUEUE_NAMES.INTERNAL_NOTIFY,
     // Phase 1a 2026-06-08 — tenant context cho mọi query của job.
-    (job: { data: { orgId: string } }) => withTenant(job.data.orgId, () => processJob(job)),
+    (job: Job<InternalNotifyJobData>) => withTenant(job.data.orgId, () => processJob(job)),
     {
       connection: getBullMQRedis(),
       // Notify nhanh, không lock 1 nick — concurrency cao

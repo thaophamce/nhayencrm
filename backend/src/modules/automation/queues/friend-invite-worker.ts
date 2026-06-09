@@ -376,7 +376,7 @@ export function startFriendInviteWorker(opts?: Partial<WorkerOptions>): Worker {
   workerInstance = new Worker<FriendInviteJobData, FriendInviteResult>(
     QUEUE_NAMES.FRIEND_INVITE,
     // Phase 1a 2026-06-08 — tenant context cho mọi query của job.
-    (job: { data: { orgId: string } }) => withTenant(job.data.orgId, () => processJob(job)),
+    (job: Job<FriendInviteJobData, FriendInviteResult>) => withTenant(job.data.orgId, () => processJob(job)),
     {
       connection: getBullMQRedis(),
       // Concurrency 1 per nick — sequential. Future: multi-worker per nick = Zalo ban risk.

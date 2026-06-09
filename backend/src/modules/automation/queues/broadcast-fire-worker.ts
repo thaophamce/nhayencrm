@@ -798,7 +798,7 @@ export function startBroadcastFireWorker(): void {
   workerInstance = new Worker<BroadcastFireJobData, BroadcastFireResult>(
     QUEUE_NAMES.BROADCAST_FIRE,
     // Phase 1a 2026-06-08 — tenant context cho mọi query của job.
-    (job: { data: { orgId: string } }) => withTenant(job.data.orgId, () => processBroadcastTick(job)),
+    (job: Job<BroadcastFireJobData, BroadcastFireResult>) => withTenant(job.data.orgId, () => processBroadcastTick(job)),
     {
       connection: getBullMQRedis(),
       concurrency: 2,
