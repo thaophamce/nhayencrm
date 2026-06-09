@@ -12,6 +12,8 @@ import { PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { normalizePhone } from '../utils/phone.js';
 import { checkTenantGuard } from '../tenant/tenant-guard.js';
+import { getTenantContext, runWithRlsApplied } from '../tenant/tenant-context.js';
+import { config } from '../../config/index.js';
 
 // $extends() returns a structurally-different type — alias to host extended client.
 type ExtendedPrisma = ReturnType<typeof createPrismaClient>;
@@ -78,8 +80,66 @@ function createPrismaClient() {
         },
       },
     },
+  }).$extends({
+    // Phase 1a RLS connection-binding 2026-06-09 (Giai đoạn 0).
+    // Gắn `app.current_org` (hoặc `app.bypass_rls`) vào connection để Postgres RLS đọc
+    // được tenant. Gated bởi config.rlsSetConfig — mặc định OFF → return query thẳng,
+    // ZERO overhead/đổi hành vi. Khi ON: wrap mỗi op auto-commit trong $transaction
+    // dạng MẢNG [setConfig, query] → cả 2 chạy CÙNG 1 connection/transaction (SET LOCAL
+    // mới có hiệu lực). Bỏ qua khi đã ở trong tenantTransaction (rlsConfigApplied) để
+    // tránh LỒNG transaction. Query ngoài mọi context (ctx undefined) → không set →
+    // RLS sẽ chặn (fail-safe; warn-mode/tenant-guard bắt các chỗ này trước).
+    name: 'tenant-rls-setconfig',
+    query: {
+      $allModels: {
+        async $allOperations({ args, query }): Promise<unknown> {
+          if (!config.rlsSetConfig) return query(args);
+          const ctx = getTenantContext();
+          if (!ctx || ctx.rlsConfigApplied) return query(args);
+          // Dùng `base` (PrismaClient cụ thể, chưa $extends) cho raw + transaction để
+          // tránh vòng lặp type khi tham chiếu client đã-extend trong chính định nghĩa nó.
+          const setStmt =
+            ctx.bypassTenantGuard || ctx.orgId === '*'
+              ? base.$executeRaw`SELECT set_config('app.bypass_rls', 'on', true)`
+              : base.$executeRaw`SELECT set_config('app.current_org', ${ctx.orgId}, true)`;
+          const [, result] = await base.$transaction([setStmt, query(args)]);
+          return result;
+        },
+      },
+    },
   });
 }
+
+/**
+ * tenantTransaction — interactive transaction CÓ gắn tenant cho RLS (Giai đoạn 0).
+ *
+ * Thay cho `prisma.$transaction(async (tx) => ...)` ở MỌI call-site org-scoped: set
+ * `app.current_org`/`app.bypass_rls` MỘT LẦN trên connection của tx (SET LOCAL), rồi
+ * chạy callback với `tx`. Đánh dấu rlsConfigApplied=true để op bên trong KHÔNG bị
+ * RLS-setconfig extension wrap lồng transaction.
+ *
+ * Khi config.rlsSetConfig=OFF → hành xử y hệt prisma.$transaction (không set gì).
+ */
+export function tenantTransaction<T>(
+  fn: (tx: TxClient) => Promise<T>,
+  opts?: { maxWait?: number; timeout?: number; isolationLevel?: unknown },
+): Promise<T> {
+  const ctx = getTenantContext();
+  return (prisma.$transaction as any)(async (tx: TxClient) => {
+    if (config.rlsSetConfig && ctx) {
+      if (ctx.bypassTenantGuard || ctx.orgId === '*') {
+        await tx.$executeRaw`SELECT set_config('app.bypass_rls', 'on', true)`;
+      } else {
+        await tx.$executeRaw`SELECT set_config('app.current_org', ${ctx.orgId}, true)`;
+      }
+    }
+    return runWithRlsApplied(() => fn(tx));
+  }, opts);
+}
+
+// Transaction client trong callback $transaction. Dùng alias `any` (call-site hiện hành
+// đều để `(tx)` untyped) — tránh suy luận type mong manh từ overload của $transaction.
+type TxClient = any;
 
 export const prisma = globalForPrisma.prisma || createPrismaClient();
 

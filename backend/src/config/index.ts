@@ -129,4 +129,13 @@ export const config = {
   // Mặc định false trong giai đoạn cutover (token 7d cũ còn lưu hành). Bật true SAU
   // khi bump jwtTokenVersion toàn bộ + telemetry xác nhận legacy hết (mọi socket ≤15').
   socketRequireAccessTyp: (envValue('SOCKET_REQUIRE_ACCESS_TYP') || 'false').toLowerCase() === 'true',
+
+  /* --- Phase 1a RLS connection-binding 2026-06-09 (Giai đoạn 0) --- */
+  // Bật cơ chế set `app.current_org` per-connection (SET LOCAL trong transaction) để
+  // Postgres RLS đọc được tenant hiện hành. MẶC ĐỊNH false → cơ chế NẰM IM hoàn toàn
+  // (không wrap query, không đổi hành vi). Chỉ bật =true trên staging SAU khi:
+  //   (a) mọi interactive transaction đã chuyển sang tenantTransaction(),
+  //   (b) đã apply tenant-rls.sql (có clause bypass) + role app NOSUPERUSER.
+  // Bật khi RLS CHƯA apply cũng an toàn (chỉ set 1 GUC vô hại) nhưng tốn 1 round-trip/query.
+  rlsSetConfig: (envValue('RLS_SET_CONFIG') || 'false').toLowerCase() === 'true',
 };

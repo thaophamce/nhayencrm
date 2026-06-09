@@ -36,6 +36,13 @@ export interface TenantContext {
    * Mặc định false. Đặt true PHẢI có lý do rõ ràng tại call-site.
    */
   bypassTenantGuard?: boolean;
+  /**
+   * Phase 1a RLS (Giai đoạn 0): đánh dấu rằng `app.current_org` (hoặc bypass) ĐÃ được
+   * set trên connection của transaction hiện hành (qua tenantTransaction). Khi true,
+   * Prisma RLS-setconfig extension KHÔNG wrap thêm $transaction (tránh lồng transaction).
+   * Chỉ tenantTransaction() đặt cờ này.
+   */
+  rlsConfigApplied?: boolean;
 }
 
 const storage = new AsyncLocalStorage<TenantContext>();
@@ -105,4 +112,17 @@ export function runSystemQuery<T>(fn: () => Promise<T>): Promise<T> {
     { orgId: '*', userId: 'system', role: 'system', bypassTenantGuard: true },
     fn,
   );
+}
+
+/**
+ * Phase 1a RLS (Giai đoạn 0): chạy `fn` trong frame con kế thừa context hiện hành
+ * nhưng đánh dấu `rlsConfigApplied = true`. Dùng BÊN TRONG tenantTransaction() sau khi
+ * đã SET LOCAL app.current_org trên tx — để các op Prisma lồng bên trong KHÔNG bị
+ * RLS-setconfig extension wrap thêm $transaction (tránh lồng transaction → lỗi).
+ * Không có context → chạy thẳng (no-op).
+ */
+export function runWithRlsApplied<T>(fn: () => Promise<T>): Promise<T> {
+  const ctx = storage.getStore();
+  if (!ctx) return fn();
+  return storage.run({ ...ctx, rlsConfigApplied: true }, fn);
 }
