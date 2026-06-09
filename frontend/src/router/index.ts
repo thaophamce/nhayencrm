@@ -89,7 +89,7 @@ const routes: RouteRecordRaw[] = [
       { path: 'org/profile', name: 'Settings.OrgProfile', component: () => import('@/components/settings/OrgSettings.vue'), meta: { resource: 'settings' } },
       { path: 'org/system-notifications', name: 'Settings.SystemNotifications', component: () => import('@/views/settings/SystemNotificationsPage.vue'), meta: { resource: 'settings' } },
       { path: 'org/billing', name: 'Settings.Billing',   component: () => import('@/views/settings/SettingsComingSoon.vue'), props: { feature: 'billing' }, meta: { resource: 'settings' } },
-      { path: 'org/audit',   name: 'Settings.Audit',     component: () => import('@/views/settings/SettingsComingSoon.vue'), props: { feature: 'audit' }, meta: { resource: 'audit_log' } },
+      { path: 'org/audit',   name: 'Settings.Audit',     component: () => import('@/views/settings/AuditLogView.vue'), meta: { resource: 'audit_log' } },
 
       // 👥 Team — Variant C menu reorg 2026-05-22: legacy team/* redirect → rbac/*
       // Em giữ 3 route legacy nhưng redirect sang RBAC pages mới để không break deep link.

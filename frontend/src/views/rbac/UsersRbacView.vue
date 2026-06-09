@@ -76,6 +76,25 @@
       <span class="at-count">{{ filteredUsers.length }} / {{ stats.total }} nhân viên</span>
     </div>
 
+    <!-- 2026-06-09 (anh chốt FN4): thanh thao tác hàng loạt — hiện khi chọn ≥1 nhân viên. -->
+    <div v-if="canBulk && selectedIds.size > 0" class="bulk-bar">
+      <span class="bulk-count">Đã chọn {{ selectedIds.size }} nhân viên</span>
+      <select v-model="bulkDept" class="bulk-select">
+        <option value="__none__">— Gán phòng ban —</option>
+        <option value="">(Bỏ phòng ban)</option>
+        <option v-for="d in flatDepts" :key="d.id" :value="d.id">{{ d.name }}</option>
+      </select>
+      <select v-model="bulkGroup" class="bulk-select">
+        <option value="__none__">— Gán nhóm quyền —</option>
+        <option value="">(Bỏ nhóm quyền)</option>
+        <option v-for="g in flatGroups" :key="g.id" :value="g.id">{{ g.name }}</option>
+      </select>
+      <button class="bulk-apply" :disabled="bulkBusy || (bulkDept==='__none__' && bulkGroup==='__none__')" @click="applyBulk">
+        {{ bulkBusy ? 'Đang gán…' : 'Áp dụng' }}
+      </button>
+      <button class="bulk-clear" @click="clearSelection">Bỏ chọn</button>
+    </div>
+
     <div v-if="loading" class="loading-state">
       <div class="skel-card" v-for="i in 4" :key="i" style="height: 44px"></div>
     </div>
@@ -100,6 +119,9 @@
       <table class="at-table">
         <thead>
           <tr>
+            <th v-if="canBulk" class="th-check">
+              <input type="checkbox" :checked="allSelected" @change="toggleAll" @click.stop title="Chọn tất cả" />
+            </th>
             <th class="th-num">#</th>
             <th class="th-name">Nhân viên</th>
             <th class="th-phone">📱 SĐT</th>
@@ -117,9 +139,12 @@
           <tr
             v-for="(u, i) in filteredUsers"
             :key="u.id"
-            :class="{ 'row-active': selectedUser?.id === u.id, 'row-inactive': !u.isActive }"
+            :class="{ 'row-active': selectedUser?.id === u.id, 'row-inactive': !u.isActive, 'row-checked': selectedIds.has(u.id) }"
             @click="openPanel(u)"
           >
+            <td v-if="canBulk" class="cell-check" @click.stop>
+              <input type="checkbox" :checked="selectedIds.has(u.id)" @change="toggleOne(u.id)" />
+            </td>
             <td class="cell-num">{{ i + 1 }}</td>
             <td class="cell-name">
               <img
@@ -295,6 +320,7 @@ import {
   type OnboardingSummary,
 } from '@/stores/rbac';
 import { useAuthStore } from '@/stores/auth';
+import { api } from '@/api/index';
 import UserEditPanel from '@/components/rbac/UserEditPanel.vue';
 import CreateUserWithZaloModal from '@/components/users/CreateUserWithZaloModal.vue';
 
@@ -337,6 +363,48 @@ const currentUserRole = computed(() => authStore.user?.role ?? 'member');
 // Phase user-create-with-zalo 2026-05-27 — DUY NHẤT 1 kênh tạo user (qua Zalo).
 // 2026-06-07 anh chốt: bỏ "Tạo nhanh" (POST /users) — credentials tổng hợp 1 text copy ở bước 3 modal.
 const canCreateUser = computed(() => ['owner', 'admin'].includes(currentUserRole.value));
+
+// 2026-06-09 (anh chốt FN4) — chọn nhiều + gán phòng/nhóm hàng loạt (owner/admin).
+const canBulk = computed(() => ['owner', 'admin'].includes(currentUserRole.value));
+const selectedIds = ref<Set<string>>(new Set());
+const bulkDept = ref('__none__');   // __none__ = không đổi; '' = bỏ phòng ban
+const bulkGroup = ref('__none__');
+const bulkBusy = ref(false);
+const allSelected = computed(() =>
+  filteredUsers.value.length > 0 && filteredUsers.value.every((u) => selectedIds.value.has(u.id)),
+);
+function toggleOne(id: string) {
+  const next = new Set(selectedIds.value);
+  if (next.has(id)) next.delete(id); else next.add(id);
+  selectedIds.value = next;
+}
+function toggleAll() {
+  if (allSelected.value) { selectedIds.value = new Set(); }
+  else { selectedIds.value = new Set(filteredUsers.value.map((u) => u.id)); }
+}
+function clearSelection() {
+  selectedIds.value = new Set();
+  bulkDept.value = '__none__';
+  bulkGroup.value = '__none__';
+}
+async function applyBulk() {
+  if (selectedIds.value.size === 0) return;
+  const payload: Record<string, unknown> = { userIds: [...selectedIds.value] };
+  if (bulkDept.value !== '__none__') payload.departmentId = bulkDept.value || null;
+  if (bulkGroup.value !== '__none__') payload.permissionGroupId = bulkGroup.value || null;
+  if (!('departmentId' in payload) && !('permissionGroupId' in payload)) return;
+  bulkBusy.value = true;
+  try {
+    const { data } = await api.post('/users/bulk-assign', payload);
+    await store.loadUsers();
+    clearSelection();
+    alert(`Đã gán cho ${data.affected} nhân viên.`);
+  } catch (e: any) {
+    alert(e?.response?.data?.error || e?.response?.data?.message || 'Lỗi thao tác hàng loạt');
+  } finally {
+    bulkBusy.value = false;
+  }
+}
 const createWithZaloOpen = ref(false);
 function openCreateWithZaloDialog() { createWithZaloOpen.value = true; }
 async function onCreatedWithZalo() {
@@ -581,6 +649,31 @@ function onboardingTooltip(s: OnboardingSummary): string {
   font-weight: 600;
 }
 .status-chip:focus-visible { outline: 2px solid var(--smax-primary, #1786be); outline-offset: 1px; }
+
+/* 2026-06-09 — Thao tác hàng loạt */
+.bulk-bar {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  background: #e4f1f8; border: 1px solid #1786be; border-radius: 10px;
+  padding: 10px 14px; margin-bottom: 12px;
+}
+.bulk-count { font-weight: 600; color: #0e6491; font-size: 13px; }
+.bulk-select {
+  font-size: 13px; padding: 6px 10px; border: 1px solid #bae6fd; border-radius: 8px;
+  background: #fff; color: #2b2f36;
+}
+.bulk-apply {
+  background: #1786be; color: #fff; border: none; font-weight: 600;
+  padding: 7px 16px; border-radius: 8px; cursor: pointer; font-size: 13px;
+}
+.bulk-apply:hover:not(:disabled) { background: #0e6491; }
+.bulk-apply:disabled { opacity: 0.5; cursor: not-allowed; }
+.bulk-clear {
+  background: none; border: none; color: #0e6491; cursor: pointer;
+  font-size: 13px; text-decoration: underline; margin-left: auto;
+}
+.th-check, .cell-check { width: 34px; text-align: center; }
+.cell-check input, .th-check input { cursor: pointer; }
+.row-checked td { background: #f0f9ff !important; }
 
 /* Airtable table */
 .at-table-wrap {

@@ -180,6 +180,54 @@
           </section>
 
           <!-- ── Danger zone ─────────────────────── -->
+          <!-- 2026-06-09 (anh báo thiếu): admin đặt lại mật khẩu cho sale quên pw.
+               BE PUT /users/:id/password đã có sẵn: hash + force đổi lần đầu + revoke JWT cũ. -->
+          <section v-if="canResetPassword" class="section">
+            <h3 class="section-title">Mật khẩu</h3>
+            <p class="field-hint">
+              Đặt lại mật khẩu cho nhân viên quên/mất mật khẩu. Hệ thống sinh mật khẩu mới,
+              nhân viên sẽ phải đổi lại khi đăng nhập lần đầu.
+            </p>
+            <div v-if="resetPwResult" class="reset-pw-result">
+              <div class="reset-pw-row">
+                <span class="reset-pw-label">Mật khẩu mới:</span>
+                <code class="reset-pw-code">{{ resetPwResult }}</code>
+                <button class="btn-copy-sm" @click="copyResetPw" title="Copy">📋</button>
+              </div>
+              <p class="reset-pw-note">Gửi mật khẩu này cho nhân viên. Họ sẽ buộc đổi lại khi đăng nhập.</p>
+            </div>
+            <button class="btn-reset-pw" :disabled="busy" @click="confirmResetPassword">
+              🔑 Đặt lại mật khẩu
+            </button>
+          </section>
+
+          <!-- 2026-06-09 (anh chốt): BÀN GIAO khi sale nghỉ — chuyển KH + nick + lịch hẹn
+               sang sale khác để không mất khách. Nên bàn giao TRƯỚC khi vô hiệu. -->
+          <section v-if="canHandoff" class="section">
+            <h3 class="section-title">Bàn giao khách hàng</h3>
+            <p class="field-hint">
+              Khi nhân viên nghỉ/chuyển việc: chuyển toàn bộ khách hàng, nick Zalo và lịch hẹn
+              của họ sang một nhân viên khác. Nên làm trước khi vô hiệu hóa.
+            </p>
+            <label class="field-label">Chuyển sang nhân viên</label>
+            <select v-model="handoffToId" class="field-input" :disabled="busy">
+              <option value="">— Chọn người nhận —</option>
+              <option v-for="o in handoffTargets" :key="o.id" :value="o.id">{{ o.fullName }}</option>
+            </select>
+            <div class="handoff-opts">
+              <label class="handoff-check"><input type="checkbox" v-model="handoffTransfer.contacts" /> Khách hàng</label>
+              <label class="handoff-check"><input type="checkbox" v-model="handoffTransfer.nicks" /> Nick Zalo</label>
+              <label class="handoff-check"><input type="checkbox" v-model="handoffTransfer.appointments" /> Lịch hẹn</label>
+            </div>
+            <div v-if="handoffResult" class="handoff-result">
+              ✅ Đã bàn giao sang <strong>{{ handoffResult.to }}</strong>:
+              {{ handoffResult.contacts }} khách, {{ handoffResult.nicks }} nick, {{ handoffResult.appointments }} lịch hẹn.
+            </div>
+            <button class="btn-handoff" :disabled="busy || !handoffToId" @click="confirmHandoff">
+              🔄 Bàn giao ngay
+            </button>
+          </section>
+
           <section v-if="canDeactivate" class="section section-danger">
             <h3 class="section-title danger-title">Vùng nguy hiểm</h3>
             <p class="danger-desc" v-if="user?.isActive">
@@ -260,6 +308,72 @@ const canDeactivate = computed(() => {
   return props.currentUserRole === 'owner' && props.user?.id !== props.currentUserId;
 });
 
+// 2026-06-09 — admin/owner đặt lại mật khẩu cho sale khác (không cho tự reset chính mình ở đây).
+const canResetPassword = computed(() => {
+  return ['owner', 'admin'].includes(props.currentUserRole ?? '') && props.user?.id !== props.currentUserId;
+});
+const resetPwResult = ref<string | null>(null);
+// Sinh mật khẩu dễ đọc cho sale (không ký tự khó gõ): chữ thường + số, 8 ký tự.
+function genPassword(): string {
+  const chars = 'abcdefghjkmnpqrstuvwxyz23456789'; // bỏ o/0/l/1/i gây nhầm
+  let out = '';
+  for (let i = 0; i < 8; i++) out += chars[Math.floor(Math.random() * chars.length)];
+  return out;
+}
+async function confirmResetPassword() {
+  if (!props.user || !canResetPassword.value) return;
+  if (!confirm(`Đặt lại mật khẩu cho "${props.user.fullName}"?\nMật khẩu cũ sẽ mất, nhân viên phải đăng nhập lại bằng mật khẩu mới.`)) return;
+  const newPw = genPassword();
+  busy.value = true;
+  error.value = '';
+  resetPwResult.value = null;
+  try {
+    await api.put(`/users/${props.user.id}/password`, { password: newPw });
+    resetPwResult.value = newPw; // hiện cho admin copy gửi sale
+    emit('changed');
+  } catch (e: any) {
+    error.value = e?.response?.data?.error || e?.response?.data?.message || 'Lỗi đặt lại mật khẩu';
+  } finally {
+    busy.value = false;
+  }
+}
+function copyResetPw() {
+  if (resetPwResult.value) navigator.clipboard?.writeText(resetPwResult.value).catch(() => {});
+}
+
+// 2026-06-09 — Bàn giao khách hàng khi sale nghỉ.
+const store2 = useRbacStore();
+const canHandoff = computed(() =>
+  ['owner', 'admin'].includes(props.currentUserRole ?? '') && props.user?.id !== props.currentUserId,
+);
+// Người nhận = user active khác (loại chính người đang bàn giao).
+const handoffTargets = computed(() =>
+  (store2.users || []).filter((u) => u.id !== props.user?.id && u.isActive),
+);
+const handoffToId = ref('');
+const handoffTransfer = ref({ contacts: true, nicks: true, appointments: true });
+const handoffResult = ref<{ to: string; contacts: number; nicks: number; appointments: number } | null>(null);
+async function confirmHandoff() {
+  if (!props.user || !handoffToId.value) return;
+  const toName = handoffTargets.value.find((u) => u.id === handoffToId.value)?.fullName ?? 'người nhận';
+  if (!confirm(`Bàn giao toàn bộ của "${props.user.fullName}" sang "${toName}"?\nKhách hàng, nick Zalo, lịch hẹn sẽ chuyển sang người nhận.`)) return;
+  busy.value = true;
+  error.value = '';
+  handoffResult.value = null;
+  try {
+    const { data } = await api.post(`/users/${props.user.id}/handoff`, {
+      toUserId: handoffToId.value,
+      transfer: handoffTransfer.value,
+    });
+    handoffResult.value = { to: data.to, contacts: data.contacts, nicks: data.nicks, appointments: data.appointments };
+    emit('changed');
+  } catch (e: any) {
+    error.value = e?.response?.data?.error || e?.response?.data?.message || 'Lỗi bàn giao';
+  } finally {
+    busy.value = false;
+  }
+}
+
 // Phase Onboarding v1 2026-05-24 — màu pill % setup trong section header
 const onboardingPctClass = computed(() => {
   const p = props.user?.onboarding?.percent ?? 0;
@@ -313,6 +427,10 @@ watch(
     localFullName.value = props.user.fullName ?? '';
     localEmail.value = props.user.email ?? '';
     localPhone.value = (props.user as any).phone ?? '';
+    resetPwResult.value = null; // ẩn mật khẩu vừa reset khi chuyển sang user khác
+    handoffToId.value = '';
+    handoffResult.value = null;
+    handoffTransfer.value = { contacts: true, nicks: true, appointments: true };
     deptIdLocal.value = props.user.departmentMember?.departmentId ?? '';
     deptRoleLocal.value = props.user.departmentMember?.deptRole ?? 'member';
     pgIdLocal.value = props.user.permissionGroupId ?? '';
@@ -507,6 +625,52 @@ function avatarColor(name: string): string {
 </script>
 
 <style>
+/* 2026-06-09 — Đặt lại mật khẩu */
+.btn-reset-pw {
+  background: #fff;
+  border: 1px solid #1786be;
+  color: #0e6491;
+  font-weight: 600;
+  padding: 8px 14px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.btn-reset-pw:hover:not(:disabled) { background: #e4f1f8; }
+.btn-reset-pw:disabled { opacity: 0.5; cursor: not-allowed; }
+.reset-pw-result {
+  background: #f0fdf4;
+  border: 1px solid #86efac;
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+}
+.reset-pw-row { display: flex; align-items: center; gap: 8px; }
+.reset-pw-label { font-size: 12.5px; color: #41454d; }
+.reset-pw-code {
+  font-family: ui-monospace, monospace;
+  font-size: 15px; font-weight: 700; letter-spacing: 1px;
+  color: #0e6491; background: #fff; padding: 3px 10px; border-radius: 6px;
+  border: 1px solid #bae6fd;
+}
+.btn-copy-sm { background: none; border: none; cursor: pointer; font-size: 15px; padding: 2px; }
+.reset-pw-note { font-size: 11.5px; color: #6b7280; margin: 6px 0 0; }
+.field-hint { font-size: 12px; color: #6b7280; margin: 0 0 10px; line-height: 1.4; }
+
+/* 2026-06-09 — Bàn giao */
+.handoff-opts { display: flex; gap: 14px; margin: 10px 0; flex-wrap: wrap; }
+.handoff-check { display: flex; align-items: center; gap: 5px; font-size: 13px; color: #41454d; cursor: pointer; }
+.btn-handoff {
+  background: #1786be; color: #fff; border: none; font-weight: 600;
+  padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: 13px;
+}
+.btn-handoff:hover:not(:disabled) { background: #0e6491; }
+.btn-handoff:disabled { opacity: 0.5; cursor: not-allowed; }
+.handoff-result {
+  background: #f0fdf4; border: 1px solid #86efac; border-radius: 8px;
+  padding: 8px 12px; margin-bottom: 10px; font-size: 13px; color: #166534;
+}
+
 .info-status-row {
   display: flex;
   gap: 8px;

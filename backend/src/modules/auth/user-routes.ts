@@ -11,6 +11,32 @@ import { randomUUID } from 'node:crypto';
 import { logger } from '../../shared/utils/logger.js';
 import { normalizePhone } from '../../shared/utils/phone.js';
 
+// 2026-06-09 (anh chốt audit) — ghi nhật ký hành động admin vào ActivityLog có sẵn
+// (category='admin'), KHÔNG tạo model mới. Fire-and-forget: lỗi log KHÔNG chặn nghiệp vụ.
+async function writeAudit(
+  actor: { id: string; orgId: string; email?: string },
+  action: string,
+  targetUserId: string | null,
+  details: Record<string, unknown>,
+) {
+  try {
+    await prisma.activityLog.create({
+      data: {
+        orgId: actor.orgId,
+        userId: actor.id,
+        actorType: 'user',
+        category: 'admin',
+        action,
+        entityType: 'user',
+        entityId: targetUserId,
+        details: details as any,
+      },
+    });
+  } catch (e) {
+    logger.warn(`[audit] write fail action=${action}: ${(e as Error)?.message}`);
+  }
+}
+
 export async function userRoutes(app: FastifyInstance) {
   app.addHook('preHandler', authMiddleware);
   // C1 2026-06-08 — re-check isActive DB (đóng cửa sổ 15' cho quản lý user nhạy cảm).
@@ -204,6 +230,7 @@ export async function userRoutes(app: FastifyInstance) {
     });
 
     logger.info(`User ${id} password reset by ${currentUser.email} (JWT revoked, onboarding force re-flow)`);
+    await writeAudit(currentUser, 'user.reset_password', id, {});
     return { success: true };
   });
 
@@ -224,7 +251,180 @@ export async function userRoutes(app: FastifyInstance) {
       data: { isActive: false },
     });
 
+    await writeAudit(currentUser, 'user.deactivate', id, {});
     return { success: true };
+  });
+
+  // POST /api/v1/users/:id/handoff — BÀN GIAO khi sale nghỉ/chuyển việc (owner/admin).
+  // 2026-06-09 (anh chốt): chuyển KH + nick Zalo + lịch hẹn của 1 sale sang sale khác
+  // trong 1 transaction → không mất khách khi vô hiệu sale. Có log audit (FN3).
+  // Body: { toUserId, transfer?: { contacts?, nicks?, appointments? } } (mặc định chuyển hết).
+  app.post('/api/v1/users/:id/handoff', async (request: FastifyRequest, reply: FastifyReply) => {
+    const currentUser = request.user!;
+    if (!['owner', 'admin'].includes(currentUser.role)) {
+      return reply.status(403).send({ error: 'Chỉ owner/admin được bàn giao' });
+    }
+    const { id: fromUserId } = request.params as { id: string };
+    const body = (request.body ?? {}) as {
+      toUserId?: string;
+      transfer?: { contacts?: boolean; nicks?: boolean; appointments?: boolean };
+    };
+    const toUserId = body.toUserId;
+    const t = body.transfer ?? { contacts: true, nicks: true, appointments: true };
+
+    if (!toUserId) return reply.status(400).send({ error: 'Thiếu người nhận bàn giao' });
+    if (toUserId === fromUserId) return reply.status(400).send({ error: 'Không thể bàn giao cho chính người đó' });
+
+    // Cả 2 user phải cùng org + người nhận đang hoạt động.
+    const [fromU, toU] = await Promise.all([
+      prisma.user.findFirst({ where: { id: fromUserId, orgId: currentUser.orgId }, select: { id: true, fullName: true } }),
+      prisma.user.findFirst({ where: { id: toUserId, orgId: currentUser.orgId }, select: { id: true, fullName: true, isActive: true } }),
+    ]);
+    if (!fromU) return reply.status(404).send({ error: 'Không tìm thấy nhân viên bàn giao' });
+    if (!toU) return reply.status(404).send({ error: 'Không tìm thấy người nhận' });
+    if (!toU.isActive) return reply.status(400).send({ error: 'Người nhận đang bị vô hiệu, chọn người khác' });
+
+    const result = await prisma.$transaction(async (tx) => {
+      let contacts = 0, nicks = 0, appointments = 0, accesses = 0;
+      if (t.contacts) {
+        contacts = (await tx.contact.updateMany({
+          where: { orgId: currentUser.orgId, assignedUserId: fromUserId },
+          data: { assignedUserId: toUserId },
+        })).count;
+        // ContactAccess: chuyển quyền xem KH (bỏ qua nếu người nhận đã có để tránh đụng unique).
+        const existing = await tx.contactAccess.findMany({
+          where: { orgId: currentUser.orgId, userId: toUserId },
+          select: { contactId: true },
+        });
+        const have = new Set(existing.map((e) => e.contactId));
+        const fromAccess = await tx.contactAccess.findMany({
+          where: { orgId: currentUser.orgId, userId: fromUserId },
+          select: { id: true, contactId: true },
+        });
+        const movable = fromAccess.filter((a) => !have.has(a.contactId)).map((a) => a.id);
+        if (movable.length > 0) {
+          accesses = (await tx.contactAccess.updateMany({
+            where: { id: { in: movable } },
+            data: { userId: toUserId },
+          })).count;
+        }
+      }
+      if (t.nicks) {
+        nicks = (await tx.zaloAccount.updateMany({
+          where: { orgId: currentUser.orgId, ownerUserId: fromUserId },
+          data: { ownerUserId: toUserId },
+        })).count;
+      }
+      if (t.appointments) {
+        appointments = (await tx.appointment.updateMany({
+          where: { orgId: currentUser.orgId, assignedUserId: fromUserId },
+          data: { assignedUserId: toUserId },
+        })).count;
+      }
+      return { contacts, nicks, appointments, accesses };
+    });
+
+    logger.info(
+      `[handoff] ${currentUser.email} bàn giao ${fromU.fullName}→${toU.fullName}: ` +
+      `${result.contacts} KH, ${result.nicks} nick, ${result.appointments} lịch hẹn, ${result.accesses} quyền xem`,
+    );
+    await writeAudit(currentUser, 'user.handoff', fromUserId, {
+      fromName: fromU.fullName, toUserId, toName: toU.fullName, ...result,
+    });
+    return { success: true, from: fromU.fullName, to: toU.fullName, ...result };
+  });
+
+  // POST /api/v1/users/bulk-assign — gán phòng ban / nhóm quyền HÀNG LOẠT (owner/admin).
+  // 2026-06-09 (anh chốt FN4): chọn nhiều nhân viên → gán 1 lần, đỡ công onboarding 20-25 sale.
+  // Body: { userIds: string[], departmentId?: string|null, permissionGroupId?: string|null }
+  app.post('/api/v1/users/bulk-assign', async (request: FastifyRequest, reply: FastifyReply) => {
+    const currentUser = request.user!;
+    if (!['owner', 'admin'].includes(currentUser.role)) {
+      return reply.status(403).send({ error: 'Chỉ owner/admin thao tác hàng loạt' });
+    }
+    const body = (request.body ?? {}) as { userIds?: string[]; departmentId?: string | null; permissionGroupId?: string | null };
+    const userIds = (body.userIds || []).filter(Boolean);
+    if (userIds.length === 0) return reply.status(400).send({ error: 'Chưa chọn nhân viên nào' });
+    if (body.departmentId === undefined && body.permissionGroupId === undefined) {
+      return reply.status(400).send({ error: 'Chưa chọn phòng ban hoặc nhóm quyền để gán' });
+    }
+
+    // Chỉ thao tác user cùng org.
+    const valid = await prisma.user.findMany({
+      where: { id: { in: userIds }, orgId: currentUser.orgId },
+      select: { id: true },
+    });
+    const validIds = valid.map((v) => v.id);
+    if (validIds.length === 0) return reply.status(404).send({ error: 'Không tìm thấy nhân viên hợp lệ' });
+
+    let depCount = 0, grpCount = 0;
+    await prisma.$transaction(async (tx) => {
+      // Phòng ban: DepartmentMember (1 user ∈ 1 dept — userId @unique). deptRole mặc định 'member'.
+      if (body.departmentId !== undefined) {
+        for (const uid of validIds) {
+          await tx.departmentMember.deleteMany({ where: { userId: uid } });
+          if (body.departmentId) {
+            await tx.departmentMember.create({
+              data: { id: randomUUID(), userId: uid, departmentId: body.departmentId, deptRole: 'member' },
+            });
+          }
+        }
+        depCount = validIds.length;
+      }
+      // Nhóm quyền: field trực tiếp User.permissionGroupId (null = gỡ nhóm).
+      if (body.permissionGroupId !== undefined) {
+        grpCount = (await tx.user.updateMany({
+          where: { id: { in: validIds }, orgId: currentUser.orgId },
+          data: { permissionGroupId: body.permissionGroupId },
+        })).count;
+      }
+    });
+
+    await writeAudit(currentUser, 'user.bulk_assign', null, {
+      count: validIds.length, departmentId: body.departmentId, permissionGroupId: body.permissionGroupId,
+    });
+    return { success: true, affected: validIds.length, depCount, grpCount };
+  });
+
+  // GET /api/v1/audit-logs — nhật ký hành động admin (owner/admin). 2026-06-09.
+  // Đọc từ ActivityLog category='admin'. Hỗ trợ filter ?action= &actorId= &limit= &offset=.
+  app.get('/api/v1/audit-logs', async (request: FastifyRequest, reply: FastifyReply) => {
+    const currentUser = request.user!;
+    if (!['owner', 'admin'].includes(currentUser.role)) {
+      return reply.status(403).send({ error: 'Chỉ owner/admin xem được nhật ký' });
+    }
+    const q = request.query as { action?: string; actorId?: string; limit?: string; offset?: string };
+    const limit = Math.min(Number(q.limit) || 50, 200);
+    const offset = Number(q.offset) || 0;
+    const where: any = { orgId: currentUser.orgId, category: 'admin' };
+    if (q.action) where.action = q.action;
+    if (q.actorId) where.userId = q.actorId;
+
+    const [rows, total] = await Promise.all([
+      prisma.activityLog.findMany({
+        where, orderBy: { createdAt: 'desc' }, take: limit, skip: offset,
+        select: {
+          id: true, action: true, entityId: true, details: true, createdAt: true,
+          user: { select: { id: true, fullName: true } },
+        },
+      }),
+      prisma.activityLog.count({ where }),
+    ]);
+    // Gắn tên người bị tác động (entityId = targetUserId) để FE hiển thị dễ hiểu.
+    const targetIds = [...new Set(rows.map((r) => r.entityId).filter(Boolean) as string[])];
+    const targets = targetIds.length
+      ? await prisma.user.findMany({ where: { id: { in: targetIds } }, select: { id: true, fullName: true } })
+      : [];
+    const targetMap = new Map(targets.map((t) => [t.id, t.fullName]));
+    return {
+      logs: rows.map((r) => ({
+        id: r.id, action: r.action, createdAt: r.createdAt,
+        actor: r.user ? { id: r.user.id, name: r.user.fullName } : null,
+        target: r.entityId ? { id: r.entityId, name: targetMap.get(r.entityId) ?? '(đã xóa)' } : null,
+        details: r.details,
+      })),
+      total, limit, offset,
+    };
   });
 
   // Phase Privacy v2 2026-05-23 — admin sửa maxPrivacyNicks per user.
