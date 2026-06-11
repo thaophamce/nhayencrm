@@ -159,6 +159,7 @@ export const DEFAULT_PERMISSION_GROUPS = [
       engagement_score: viewAll('engagement_score'),
       audit_log: viewAll('audit_log'),
       settings: { access: true },
+      media: viewAll('media'), // xem cả kho org
     } as GrantsJson,
   },
   {
@@ -180,6 +181,7 @@ export const DEFAULT_PERMISSION_GROUPS = [
       engagement_score: viewAll('engagement_score'),
       audit_log: { access: true },
       settings: { access: true },
+      media: { access: true, create: true, edit: true, delete: true, view_all: true }, // full trong scope dept
     } as GrantsJson,
   },
   {
@@ -198,6 +200,7 @@ export const DEFAULT_PERMISSION_GROUPS = [
       zalo_account: { access: true },
       engagement_score: { access: true },
       audit_log: { access: true },
+      media: { access: true, create: true, edit: true }, // kho của mình (scope owner)
     } as GrantsJson,
   },
   {
@@ -217,6 +220,7 @@ export const DEFAULT_PERMISSION_GROUPS = [
       // Ownership check ở requireAccountManagement đảm bảo chỉ đụng nick mình owner.
       zalo_account: { access: true, create: true, delete: true },
       engagement_score: { access: true },
+      media: { access: true, create: true, edit: true }, // kho của mình (scope owner) — sale dùng nhiều nhất
     } as GrantsJson,
   },
   {
@@ -233,6 +237,7 @@ export const DEFAULT_PERMISSION_GROUPS = [
       block: { access: true, create: true, edit: true, delete: true, view_all: true },
       engagement_score: viewAll('engagement_score'),
       audit_log: { access: true },
+      media: { access: true, create: true, edit: true, delete: true, view_all: true }, // tài sản marketing dùng chung
     } as GrantsJson,
   },
   {
