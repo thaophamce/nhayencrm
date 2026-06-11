@@ -7,17 +7,34 @@
 
     <form class="password-form" @submit.prevent="onSubmit">
       <div class="form-row">
+        <label for="current-pw">Mật khẩu hiện tại</label>
+        <input
+          id="current-pw"
+          v-model="currentPassword"
+          type="password"
+          autocomplete="current-password"
+          required
+          placeholder="Nhập mật khẩu đang dùng"
+        />
+      </div>
+      <div class="form-row">
         <label for="new-pw">Mật khẩu mới</label>
         <input
           id="new-pw"
           v-model="newPassword"
           type="password"
           autocomplete="new-password"
-          minlength="6"
+          minlength="8"
           required
-          placeholder="Tối thiểu 6 ký tự"
+          placeholder="Tối thiểu 8 ký tự, có hoa + thường + số"
         />
       </div>
+      <ul v-if="newPassword" class="pw-strength">
+        <li :class="{ ok: hasLength }">{{ hasLength ? '✓' : '○' }} Ít nhất 8 ký tự</li>
+        <li :class="{ ok: hasUpper }">{{ hasUpper ? '✓' : '○' }} Có chữ HOA</li>
+        <li :class="{ ok: hasLower }">{{ hasLower ? '✓' : '○' }} Có chữ thường</li>
+        <li :class="{ ok: hasDigit }">{{ hasDigit ? '✓' : '○' }} Có chữ số</li>
+      </ul>
       <div class="form-row">
         <label for="confirm-pw">Xác nhận mật khẩu</label>
         <input
@@ -28,6 +45,7 @@
           required
           placeholder="Nhập lại mật khẩu mới"
         />
+        <span v-if="confirmPassword && confirmPassword !== newPassword" class="pw-mismatch">Mật khẩu xác nhận không khớp</span>
       </div>
 
       <div v-if="error" class="form-error">{{ error }}</div>
@@ -52,36 +70,47 @@
 
 <script setup lang="ts">
 import { ref, computed } from 'vue';
+import { useRouter } from 'vue-router';
 import { api } from '@/api/index';
 import { useAuthStore } from '@/stores/auth';
 
 const authStore = useAuthStore();
+const router = useRouter();
 
+const currentPassword = ref('');
 const newPassword = ref('');
 const confirmPassword = ref('');
 const saving = ref(false);
 const error = ref('');
 const success = ref(false);
 
+// 2026-06-11 FIX: trước đây gọi PUT /users/:id/password (field 'password', reset
+// owner/admin) → FE gửi 'newPassword' lệch → luôn báo "tối thiểu 6 ký tự". Giờ dùng
+// POST /me/change-password (verify mật khẩu cũ) như /setup-password, regex 8+/hoa/thường/số.
+const hasLength = computed(() => newPassword.value.length >= 8);
+const hasUpper = computed(() => /[A-Z]/.test(newPassword.value));
+const hasLower = computed(() => /[a-z]/.test(newPassword.value));
+const hasDigit = computed(() => /\d/.test(newPassword.value));
+const allValid = computed(() => hasLength.value && hasUpper.value && hasLower.value && hasDigit.value);
+
 const canSubmit = computed(() =>
-  newPassword.value.length >= 6 &&
-  newPassword.value === confirmPassword.value
+  !!currentPassword.value && allValid.value && newPassword.value === confirmPassword.value
 );
 
 async function onSubmit() {
-  if (!canSubmit.value || !authStore.user) return;
+  if (!canSubmit.value) return;
   error.value = '';
   success.value = false;
-  if (newPassword.value !== confirmPassword.value) {
-    error.value = 'Mật khẩu xác nhận không khớp';
-    return;
-  }
   saving.value = true;
   try {
-    await api.put(`/users/${authStore.user.id}/password`, { newPassword: newPassword.value });
+    await api.post('/me/change-password', {
+      currentPassword: currentPassword.value,
+      newPassword: newPassword.value,
+    });
     success.value = true;
-    newPassword.value = '';
-    confirmPassword.value = '';
+    // change-password revoke JWT cũ → logout + về login đăng nhập lại bằng mật khẩu mới.
+    authStore.logout();
+    router.push('/login?password-changed=1');
   } catch (err: any) {
     error.value = err.response?.data?.error || 'Không thể đổi mật khẩu';
   } finally {
@@ -128,6 +157,18 @@ async function onSubmit() {
   border-color: #5E6AD2;
   box-shadow: 0 0 0 3px rgba(94, 106, 210, 0.12);
 }
+
+.pw-strength {
+  list-style: none;
+  margin: -8px 0 16px;
+  padding: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px 12px;
+}
+.pw-strength li { font-size: 11.5px; color: #9CA3AF; }
+.pw-strength li.ok { color: #16A34A; }
+.pw-mismatch { font-size: 11.5px; color: #EF4444; margin-top: 2px; }
 
 .form-error {
   font-size: 12.5px;
