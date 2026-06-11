@@ -28,7 +28,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
-import { listMedia, sendMediaToConversation, type MediaAssetItem } from '@/api/media';
+import { listMedia, listFavorites, sendMediaToConversation, type MediaAssetItem } from '@/api/media';
 import { useToast } from '@/composables/use-toast';
 
 const props = defineProps<{ conversationId: string }>();
@@ -48,9 +48,12 @@ function setTab(t: any) { tab.value = t; reload(); }
 async function reload() {
   loading.value = true;
   try {
-    // GĐ2: 'recent' = list mặc định (sort lastUsed). 'fav'/'all' tạm dùng cùng list,
-    // bộ sưu tập Yêu thích đầy đủ làm sau (cần album favorite). Chỉ ảnh để chèn nhanh.
-    items.value = await listMedia({ kind: 'image', q: search.value || undefined, limit: 24 });
+    // GĐ5: tab Yêu thích dùng data thật; Gần đây = sort lastUsed; Tất cả = toàn kho ảnh.
+    if (tab.value === 'fav') {
+      items.value = await listFavorites();
+    } else {
+      items.value = await listMedia({ kind: 'image', q: search.value || undefined, limit: 24 });
+    }
   } catch (e: any) {
     toast.warning(e?.response?.data?.error || 'Không tải được kho');
   } finally {

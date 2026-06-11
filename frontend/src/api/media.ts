@@ -104,6 +104,26 @@ export async function listMediaFolders(): Promise<MediaFolder[]> {
   return data.folders as MediaFolder[];
 }
 
+/** Toggle yêu thích 1 ảnh (vào/khỏi bộ sưu tập cá nhân). */
+export async function toggleFavorite(id: string): Promise<{ favorited: boolean }> {
+  const { data } = await api.post(`/media/${id}/favorite`);
+  return data;
+}
+
+/** Danh sách ảnh yêu thích của user. */
+export async function listFavorites(): Promise<MediaAssetItem[]> {
+  const { data } = await api.get('/media/favorites');
+  return data.items as MediaAssetItem[];
+}
+
+/** Gửi nhiều ảnh (album) vào 1 hội thoại 1 lần. */
+export async function sendAlbumToConversation(
+  assetIds: string[], conversationId: string, caption?: string,
+): Promise<{ sent: number }> {
+  const { data } = await api.post('/media/album/send', { assetIds, conversationId, caption });
+  return data;
+}
+
 /** Thống kê kho: top ảnh hay dùng + tổng quan (đo hiệu quả). */
 export async function mediaStats(): Promise<{
   totalAssets: number;

@@ -46,6 +46,7 @@
       </div>
     </div>
     <footer class="p-foot">
+      <button class="btn-fav" :class="{ on: isFav }" @click="doFavorite">{{ isFav ? '★ Đã yêu thích' : '☆ Yêu thích' }}</button>
       <button class="btn-danger" @click="doArchive">🗑 Xóa khỏi kho</button>
     </footer>
   </aside>
@@ -53,7 +54,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue';
-import { updateMedia, archiveMedia, watermarkMedia, type MediaAssetItem, type MediaFolder } from '@/api/media';
+import { updateMedia, archiveMedia, watermarkMedia, toggleFavorite, type MediaAssetItem, type MediaFolder } from '@/api/media';
 import { useToast } from '@/composables/use-toast';
 
 const props = defineProps<{ asset: MediaAssetItem; folders: MediaFolder[] }>();
@@ -66,6 +67,7 @@ const tagIds = ref<string[]>([...props.asset.tagIds]);
 const newTag = ref('');
 const wmUrl = ref<string | null>(null);
 const wmLoading = ref(false);
+const isFav = ref(false);
 
 // Reset khi đổi asset chọn.
 watch(() => props.asset.id, () => {
@@ -73,7 +75,18 @@ watch(() => props.asset.id, () => {
   visibility.value = props.asset.visibility;
   tagIds.value = [...props.asset.tagIds];
   wmUrl.value = null;
+  isFav.value = false;
 });
+
+async function doFavorite() {
+  try {
+    const r = await toggleFavorite(props.asset.id);
+    isFav.value = r.favorited;
+    toast.success(r.favorited ? 'Đã thêm vào Yêu thích' : 'Đã bỏ khỏi Yêu thích');
+  } catch (e: any) {
+    toast.warning(e?.response?.data?.error || 'Không lưu được');
+  }
+}
 
 // Ảnh lưu từ nick Riêng tư không cho public (backend chặn, FE phản ánh) — suy từ private + không đổi được.
 const lockedPrivate = computed(() => false); // backend là nguồn chân lý; nếu 403 sẽ báo lỗi.
@@ -160,6 +173,8 @@ async function doArchive() {
 .tg i { cursor:pointer; font-style:normal; }
 .tg-input { border:1px dashed var(--hairline); border-radius:var(--pill); padding:3px 10px; font-size:11.5px; width:70px; outline:none; }
 .stat div { font-size:13.5px; color:var(--ink); }
-.p-foot { padding:14px 18px; border-top:1px solid var(--hairline); background:var(--canvas); }
-.btn-danger { width:100%; border:1px solid #f0c4b3; background:#fbe9e2; color:var(--coral); border-radius:var(--r-md); padding:9px; font-size:13px; font-weight:500; cursor:pointer; }
+.p-foot { padding:14px 18px; border-top:1px solid var(--hairline); background:var(--canvas); display:flex; gap:8px; }
+.btn-fav { flex:1; border:1px solid var(--hairline); background:var(--canvas); color:var(--body); border-radius:var(--r-md); padding:9px; font-size:13px; font-weight:500; cursor:pointer; }
+.btn-fav.on { background:#fef3c7; border-color:#f4d35e; color:#92710a; }
+.btn-danger { flex:1; border:1px solid #f0c4b3; background:#fbe9e2; color:var(--coral); border-radius:var(--r-md); padding:9px; font-size:13px; font-weight:500; cursor:pointer; }
 </style>

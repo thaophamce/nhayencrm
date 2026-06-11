@@ -586,4 +586,141 @@ export async function mediaRoutes(app: FastifyInstance) {
       };
     },
   );
+
+  // ── Bộ sưu tập YÊU THÍCH cá nhân (GĐ5) — MediaAlbum kind='favorite', 1/user ─
+  async function getOrCreateFavoriteAlbum(orgId: string, userId: string) {
+    let fav = await prisma.mediaAlbum.findFirst({ where: { orgId, ownerUserId: userId, kind: 'favorite' } });
+    if (!fav) {
+      fav = await prisma.mediaAlbum.create({
+        data: { orgId, name: '⭐ Yêu thích của tôi', kind: 'favorite', visibility: 'private', ownerUserId: userId, createdById: userId },
+      });
+    }
+    return fav;
+  }
+
+  // POST /media/:id/favorite — toggle yêu thích (thêm/bỏ khỏi bộ sưu tập cá nhân).
+  app.post(
+    '/api/v1/media/:id/favorite',
+    { preHandler: requireGrant('media', 'access') },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const user = request.user!;
+      const userId = (user as any).userId ?? user.id;
+      const { id } = request.params as { id: string };
+      // asset phải thuộc org + thấy được (của mình hoặc public).
+      const canViewAll = await userHasGrant(userId, 'media', 'view_all');
+      const asset = await prisma.mediaAsset.findFirst({
+        where: { id, orgId: user.orgId, archivedAt: null, ...(canViewAll ? {} : { OR: [{ ownerUserId: userId }, { visibility: 'public' }] }) },
+        select: { id: true },
+      });
+      if (!asset) return reply.status(404).send({ error: 'Không tìm thấy media' });
+
+      const fav = await getOrCreateFavoriteAlbum(user.orgId, userId);
+      const existing = await prisma.mediaAlbumItem.findUnique({
+        where: { albumId_mediaAssetId: { albumId: fav.id, mediaAssetId: id } },
+      });
+      if (existing) {
+        await prisma.mediaAlbumItem.delete({ where: { id: existing.id } });
+        return { favorited: false };
+      }
+      await prisma.mediaAlbumItem.create({ data: { albumId: fav.id, mediaAssetId: id } });
+      return { favorited: true };
+    },
+  );
+
+  // GET /media/favorites — danh sách ảnh yêu thích của user.
+  app.get(
+    '/api/v1/media/favorites',
+    { preHandler: requireGrant('media', 'access') },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const user = request.user!;
+      const userId = (user as any).userId ?? user.id;
+      const fav = await prisma.mediaAlbum.findFirst({ where: { orgId: user.orgId, ownerUserId: userId, kind: 'favorite' } });
+      if (!fav) return { items: [] };
+      const items = await prisma.mediaAlbumItem.findMany({
+        where: { albumId: fav.id, asset: { archivedAt: null } },
+        include: { asset: { include: { blobs: { where: { variantType: 'original' }, take: 1 } } } },
+        orderBy: { createdAt: 'desc' },
+        take: 40,
+      });
+      return {
+        items: items.map(({ asset: a }) => ({
+          id: a.id, name: a.name, kind: a.kind, visibility: a.visibility,
+          url: a.blobs[0]?.publicUrl ?? null,
+          thumbnailUrl: a.thumbnailUrl ?? a.blobs[0]?.publicUrl ?? null,
+          usageCount: a.usageCount,
+        })),
+      };
+    },
+  );
+
+  // POST /media/album/send — gửi NHIỀU asset (cả album) vào 1 hội thoại 1 lần (GĐ5).
+  app.post(
+    '/api/v1/media/album/send',
+    { preHandler: requireGrant('media', 'access') },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const user = request.user!;
+      const userId = (user as any).userId ?? user.id;
+      const body = request.body as { assetIds: string[]; conversationId: string; caption?: string };
+      if (!body?.assetIds?.length || !body.conversationId) return reply.status(400).send({ error: 'assetIds + conversationId required' });
+      if (body.assetIds.length > 12) return reply.status(400).send({ error: 'Tối đa 12 ảnh/lần' });
+
+      const canViewAll = await userHasGrant(userId, 'media', 'view_all');
+      const assets = await prisma.mediaAsset.findMany({
+        where: { id: { in: body.assetIds }, orgId: user.orgId, archivedAt: null, kind: 'image',
+          ...(canViewAll ? {} : { OR: [{ ownerUserId: userId }, { visibility: 'public' }] }) },
+        include: { blobs: { where: { variantType: 'original' }, take: 1 } },
+      });
+      if (assets.length === 0) return reply.status(404).send({ error: 'Không có ảnh hợp lệ' });
+
+      const conversation = await prisma.conversation.findFirst({
+        where: { id: body.conversationId, orgId: user.orgId }, include: { zaloAccount: true },
+      });
+      if (!conversation) return reply.status(404).send({ error: 'Không tìm thấy hội thoại' });
+      const instance = zaloPool.getInstance(conversation.zaloAccountId);
+      if (!instance?.api || instance.status !== 'connected') {
+        return reply.status(400).send({ error: 'Nick Zalo chưa kết nối', code: 'NICK_NOT_CONNECTED' });
+      }
+      if (conversation.zaloAccount.privacyMode === 'main' && conversation.zaloAccount.ownerUserId !== userId) {
+        return reply.status(403).send({ error: 'Nick Riêng tư — chỉ chính chủ gửi.', code: 'PRIVACY_LOCKED' });
+      }
+      const limits = await zaloRateLimiter.checkLimits(conversation.zaloAccountId);
+      if (!limits.allowed) return reply.status(429).send({ error: limits.reason });
+
+      const threadId = conversation.externalThreadId || '';
+      const threadType = conversation.threadType === 'group' ? 1 : 0;
+      const io = (app as any).io as Server;
+      const userFullName = await getUserFullName(user.id);
+
+      // download tất cả ảnh về temp → gửi 1 lần (sendFile nhiều path).
+      const tmps: Array<{ path: string; cleanup: () => Promise<void> }> = [];
+      try {
+        for (const a of assets) {
+          const blob = a.blobs[0];
+          if (!blob) continue;
+          const tmp = await downloadMediaToTemp({ url: blob.publicUrl, filename: a.name }, 'image');
+          tmps.push(tmp);
+        }
+        zaloRateLimiter.recordSend(conversation.zaloAccountId);
+        const sendResult: any = await zaloOps.sendFile(
+          conversation.zaloAccountId, threadId, threadType as 0 | 1, tmps.map((t) => t.path), io, body.caption ?? '',
+        );
+        const zaloMsgId = String(sendResult?.msgId || sendResult?.data?.msgId || '');
+        const msg = await createMediaMessage({
+          conversationId: conversation.id, zaloAccount: conversation.zaloAccount, repliedByUserId: user.id,
+          zaloMsgId, contentType: 'image',
+          content: JSON.stringify({ href: assets[0].blobs[0]?.publicUrl, album: true, count: assets.length }),
+          metadata: { sender: { kind: 'user_crm', name: userFullName } }, sentVia: 'user',
+        });
+        await prisma.conversation.update({ where: { id: conversation.id }, data: { lastMessageAt: new Date(), isReplied: true, unreadCount: 0 } });
+        for (const a of assets) await bumpUsage(a.id);
+        await emitChatMessage({ io, orgId: user.orgId, accountId: conversation.zaloAccountId, conversationId: conversation.id, message: msg, privacyMode: conversation.zaloAccount.privacyMode, ownerUserId: conversation.zaloAccount.ownerUserId });
+        return { message: msg, sent: assets.length };
+      } catch (err: any) {
+        logger.error('[media] album send error:', err);
+        return reply.status(500).send({ error: err?.message ?? 'gửi album lỗi' });
+      } finally {
+        for (const t of tmps) await t.cleanup().catch(() => {});
+      }
+    },
+  );
 }
