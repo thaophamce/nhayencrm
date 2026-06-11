@@ -395,9 +395,11 @@ export async function mediaRoutes(app: FastifyInstance) {
   );
 
   // ── DELETE /api/v1/media/:id — archive (xóa MỀM, giữ object MinIO) ─────────
+  // archive: grant 'edit' đủ (sale archive ảnh CỦA MÌNH). Xóa của người khác cần
+  // view_all (admin/marketing). delete grant không bắt buộc — archive ≠ hard delete.
   app.delete(
     '/api/v1/media/:id',
-    { preHandler: requireGrant('media', 'delete') },
+    { preHandler: requireGrant('media', 'edit') },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const user = request.user!;
       const userId = (user as any).userId ?? user.id;

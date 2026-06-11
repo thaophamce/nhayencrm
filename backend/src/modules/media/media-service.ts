@@ -22,6 +22,7 @@ import { readFile } from 'node:fs/promises';
 import { resolve as resolvePath } from 'node:path';
 import { prisma } from '../../shared/database/prisma-client.js';
 import { uploadBuffer } from '../../shared/storage/minio-client.js';
+import { candidateDownloadUrls } from '../chat/chat-media-helpers.js';
 import { logger } from '../../shared/utils/logger.js';
 import type { MediaAsset, MediaBlob } from '@prisma/client';
 
@@ -285,8 +286,16 @@ export async function generateWatermarkVariant(args: {
   const original = asset.blobs.find((b) => b.variantType === 'original');
   if (!original) throw new Error('Asset chưa có dữ liệu gốc');
 
-  // Tải bytes gốc về (từ MinIO qua URL nội bộ).
-  const srcBuf = Buffer.from(await (await fetch(original.publicUrl)).arrayBuffer());
+  // Tải bytes gốc về — thử URL public rồi fallback host nội bộ s3Endpoint
+  // (từ trong container, URL public có thể không resolve được — như forward media).
+  let srcBuf: Buffer | null = null;
+  for (const u of candidateDownloadUrls(original.publicUrl)) {
+    try {
+      const resp = await fetch(u, { signal: AbortSignal.timeout(30_000) });
+      if (resp.ok) { srcBuf = Buffer.from(await resp.arrayBuffer()); break; }
+    } catch { /* thử URL kế */ }
+  }
+  if (!srcBuf) throw new Error('Không tải được ảnh gốc để đóng watermark');
   const logo = await loadLogo();
 
   const base = sharp(srcBuf);
