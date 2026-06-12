@@ -173,6 +173,14 @@ describe('PUT /api/v1/organization (branding)', () => {
     expect(res.statusCode).toBe(400);
   });
 
+  it('validation — logoUrl protocol-relative //evil.com → 400', async () => {
+    const res = await buildApp().inject({
+      method: 'PUT', url: PUT, payload: { logoUrl: '//evil.com/pixel.png' },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(prismaMock.organization.update).not.toHaveBeenCalled();
+  });
+
   it('validation — logoUrl http://localhost (kho media nội bộ) → OK', async () => {
     prismaMock.organization.update.mockResolvedValue({
       id: 'org-1', name: 'HS', timezone: '+07:00',

@@ -19,8 +19,10 @@ function normalizeTimezone(raw: unknown): string | null {
 }
 
 // ── Login branding 2026-06-12 — validate 4 trường hiển thị ngoài /login ───────
-// logoUrl chỉ chấp nhận path nội bộ "/..." hoặc https:// (chặn http: mixed-content
-// và tránh nhúng pixel theo dõi bên ngoài qua URL tùy ý). emailDomain dạng tên miền.
+// logoUrl: path nội bộ "/..." (KHÔNG nhận protocol-relative "//host" — browser sẽ
+// resolve ra host ngoài), hoặc https:// (admin tin cậy, gated RBAC settings:edit),
+// hoặc http:// CHỈ từ kho media nội bộ (S3_PUBLIC_URL). Chặn http ngoài (mixed-content)
+// và mọi scheme khác (javascript:/data:/...). emailDomain dạng tên miền.
 const EMAIL_DOMAIN_REGEX = /^(?=.{1,255}$)([a-z0-9](-?[a-z0-9])*\.)+[a-z]{2,}$/i;
 
 type BrandingResult = { value: string | null } | { error: string };
@@ -37,7 +39,11 @@ function normalizeLogoUrl(raw: unknown): BrandingResult {
   const t = raw.trim();
   if (t.length === 0) return { value: null };
   if (t.length > 2048) return { error: 'Đường dẫn logo quá dài' };
-  if (t.startsWith('/')) return { value: t }; // path nội bộ (asset tĩnh /brand/...)
+  if (t.startsWith('/')) {
+    // Chặn protocol-relative "//host" và "/\host" — browser resolve thành host ngoài.
+    if (t.startsWith('//') || t.startsWith('/\\')) return { error: 'Đường dẫn logo không hợp lệ' };
+    return { value: t }; // path nội bộ (asset tĩnh /brand/...)
+  }
 
   let u: URL;
   try { u = new URL(t); } catch { return { error: 'Logo phải là đường dẫn nội bộ (/...) hoặc URL hợp lệ' }; }
