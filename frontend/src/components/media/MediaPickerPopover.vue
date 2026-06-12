@@ -42,9 +42,9 @@
           <span v-else class="ph">{{ a.kind === 'video' ? '🎬' : a.kind === 'file' ? '📄' : '🖼' }}</span>
           <span class="mp-name">{{ a.name }}</span>
           <!-- Số thứ tự theo lượt chọn (anh chốt): tick ảnh nào trước → số nhỏ hơn.
-               Bỏ ảnh số 3 → các ảnh 4,5,6 tự dồn về 3,4,5 (số = vị trí trong picked). -->
+               Bỏ ảnh số 3 → các ảnh 4,5,6 tự dồn về 3,4,5 (số = vị trí trong picked).
+               CHỈ hiện trên ảnh ĐÃ chọn — ảnh chưa chọn KHÔNG có vòng tròn (gọn UI). -->
           <span v-if="multiMode && picked.has(a.id)" class="mp-check on">{{ pickIndex(a.id) }}</span>
-          <span v-else-if="multiMode" class="mp-check mp-empty"></span>
           <span v-if="sending === a.id" class="mp-sending">Đang gửi…</span>
         </button>
       </div>
@@ -183,7 +183,6 @@ onMounted(reload);
 .mp-name { display:block; font-size:10px; padding:3px 4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--ink); }
 .mp-check { position:absolute; top:4px; right:4px; width:19px; height:19px; border-radius:9999px; border:1.5px solid #fff; background:rgba(24,29,38,.35); color:#fff; font-size:11.5px; font-weight:700; display:flex; align-items:center; justify-content:center; box-shadow:0 1px 3px rgba(0,0,0,.25); }
 .mp-check.on { background:var(--ink); }
-.mp-check.mp-empty { background:rgba(24,29,38,.25); border-color:rgba(255,255,255,.7); }
 .mp-sending { position:absolute; inset:0; background:rgba(255,255,255,.8); display:flex; align-items:center; justify-content:center; font-size:11px; color:var(--ink); }
 .mp-empty { padding:24px 12px; text-align:center; font-size:12.5px; color:var(--muted); }
 </style>

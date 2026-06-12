@@ -3618,12 +3618,14 @@ watch(() => props.editingMessage?.id, async (id) => {
 .album-tile:hover { transform: scale(1.02); }
 .album-tile-wrap.picked .album-tile { outline: 2.5px solid #181d26; outline-offset: -2.5px; }
 .album-check {
+  /* Chưa chọn: vòng rỗng nhạt (chỉ viền) — không phải chấm đặc gây rối.
+     Đã chọn (.on): chấm đậm + dấu ✓. */
   position: absolute; top: 5px; right: 5px; width: 20px; height: 20px;
-  border-radius: 9999px; border: 1.5px solid #fff; background: rgba(24,29,38,.4);
+  border-radius: 9999px; border: 1.5px solid rgba(255,255,255,.85); background: rgba(0,0,0,.12);
   color: #fff; font-size: 12px; display: flex; align-items: center; justify-content: center;
-  box-shadow: 0 1px 3px rgba(0,0,0,.3); pointer-events: none;
+  box-shadow: 0 1px 3px rgba(0,0,0,.25); pointer-events: none;
 }
-.album-check.on { background: #181d26; }
+.album-check.on { background: #181d26; border-color: #fff; }
 .album-actionbar {
   display: flex; align-items: center; gap: 7px; padding: 7px 9px; flex-wrap: wrap;
   border-top: 1px solid rgba(0,0,0,.06);
