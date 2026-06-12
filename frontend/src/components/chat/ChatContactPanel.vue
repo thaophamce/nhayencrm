@@ -473,8 +473,8 @@
     <!-- /v-if mainTab=profile -->
 
     <!-- ════════ TAB AUTOMATION — danh sách Khối Marketing để gửi (2026-06-07) ════════ -->
-    <div v-if="mainTab === 'automation'" class="main-tab-body main-tab-body--no-padding">
-      <AutomationBlocksPanel
+    <div v-if="mainTab === 'media'" class="main-tab-body main-tab-body--no-padding">
+      <MediaTabPanel
         v-if="props.conversationId"
         :conversation-id="props.conversationId"
         :contact="props.contact"
@@ -482,9 +482,9 @@
         :nick-name="props.activeZaloAccountName"
       />
       <div v-else class="main-tab-placeholder">
-        <div class="mtp-icon">⚡</div>
-        <h3>Automation</h3>
-        <p>Chưa chọn hội thoại để gửi Khối cho khách.</p>
+        <div class="mtp-icon">🗂️</div>
+        <h3>Media</h3>
+        <p>Chưa chọn hội thoại để gửi ảnh/video/tệp/khối cho khách.</p>
       </div>
     </div>
 
@@ -541,14 +541,14 @@
       </button>
       <button
         class="bottom-tab"
-        :class="{ active: mainTab === 'automation' }"
+        :class="{ active: mainTab === 'media' }"
         role="tab"
-        :aria-selected="mainTab === 'automation'"
-        title="Automation — Gửi block Marketing cho KH"
-        @click="mainTab = 'automation'"
+        :aria-selected="mainTab === 'media'"
+        title="Media — Gửi ảnh/video/tệp/khối cho KH"
+        @click="mainTab = 'media'"
       >
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/></svg>
-        <span class="bt-label">AUTOMATION</span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>
+        <span class="bt-label">MEDIA</span>
       </button>
       <button
         class="bottom-tab"
@@ -588,7 +588,7 @@ import AiSummaryCard from '@/components/ai/ai-summary-card.vue';
 import AiSentimentBadge from '@/components/ai/ai-sentiment-badge.vue';
 import AutomationCardList from './AutomationCardList.vue';
 import AddFlowModal from './AddFlowModal.vue';
-import AutomationBlocksPanel from './AutomationBlocksPanel.vue';
+import MediaTabPanel from './MediaTabPanel.vue';
 import Avatar from '@/components/ui/Avatar.vue';
 import ContactDealStageSelector from '@/components/chat/ContactDealStageSelector.vue';
 import { useAuthStore } from '@/stores/auth';
@@ -686,10 +686,15 @@ async function saveAlias() {
 }
 
 // ════════ Tab state (persist sang tab khác KH khác) ════════
-// 2026-06-01: Refactor cột 4 4-tab — bottom strip Profile/Automation/AI/Follow-up.
-// `activeTab` (sub-tab) chỉ active trong scope 'profile'. 3 tab kia hiện placeholder.
-const mainTab = ref<'profile' | 'automation' | 'ai' | 'followup'>('profile');
+// 2026-06-01: Refactor cột 4 4-tab — bottom strip Profile/Media/AI/Follow-up.
+// 2026-06-12 (anh chốt): tab 'automation' → 'media' (gộp Picker Media + Automation:
+//   Ảnh/Video/Tệp/Khối trong MediaTabPanel). `activeTab` (sub-tab) chỉ active scope 'profile'.
+const mainTab = ref<'profile' | 'media' | 'ai' | 'followup'>('profile');
 const activeTab = ref<'profile' | 'crm' | 'activity' | 'score'>('profile');
+
+// Cho phép cha (ChatView) mở tab Media từ nút "Chèn từ kho" ở composer cột 3.
+function setMainTab(t: 'profile' | 'media' | 'ai' | 'followup') { mainTab.value = t; }
+defineExpose({ setMainTab });
 
 // ════════════════════════════════════════════════════════════════════════
 // Info section state machine — 3 modes, in-memory only (KHÔNG persist):

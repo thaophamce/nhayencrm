@@ -528,7 +528,7 @@
           <button class="icon-tool" title="Gửi file" @click="onPickFile">
             <PaperclipIcon :size="18" :stroke-width="1.5" />
           </button>
-          <button class="icon-tool" title="Chèn ảnh từ Kho" @click="showMediaPicker = !showMediaPicker">
+          <button class="icon-tool" title="Chèn từ kho Media (ảnh/video/tệp/khối) — mở cột Media" @click="$emit('open-media-tab')">
             <ImagesIcon :size="18" :stroke-width="1.5" />
           </button>
           <span class="toolbar-divider"></span>
@@ -705,13 +705,8 @@
           </button>
         </div>
 
-        <!-- Picker chèn ảnh từ Kho phương tiện (GĐ2) -->
-        <MediaPickerPopover
-          v-if="showMediaPicker && conversation?.id"
-          :conversation-id="conversation.id"
-          @close="showMediaPicker = false"
-          @sent="showMediaPicker = false"
-        />
+        <!-- 2026-06-12: popover "Chèn ảnh từ Kho" đã GỠ — nút giờ mở tab Media ở cột 4
+             (emit 'open-media-tab' → ChatView switch ChatContactPanel sang tab Media). -->
 
         <!-- Hidden file inputs cho upload ảnh / file -->
         <input
@@ -870,7 +865,6 @@ import type { Conversation, Message } from '@/composables/use-chat';
 import { formatInOrgTz, weekdayInOrgTz, getOrgParts } from '@/composables/use-org-timezone';
 import { api } from '@/api/index';
 import { saveFromChat, saveFromChatBatch, suggestMedia, sendMediaToConversation, toggleFavorite, type MediaAssetItem } from '@/api/media';
-import MediaPickerPopover from '@/components/media/MediaPickerPopover.vue';
 import AISuggestBar from '@/components/chat/AISuggestBar.vue';
 // Mission Fix 2 (2026-05-30) — header picker GHI `Contact.statusId` (FK Status table)
 // để Wave 3 evaluateStatusGate đọc đúng cột. Trước đây CareStatusBadge ghi enum legacy
@@ -1038,6 +1032,8 @@ const emit = defineEmits<{
   'cancel-reply-edit': [];
   'typing': [];
   'refresh-thread': [];
+  // 2026-06-12 (anh chốt): nút "Chèn từ kho" → mở tab Media ở cột 4 (bỏ popover nổi).
+  'open-media-tab': [];
   'care-status-changed': [value: string];
   // Sprint v3 Tuần 3 Row 6.9 (2026-06-03): sale chọn nick khác → ChatView navigate.
   'switch-conversation': [convId: string];
@@ -2109,7 +2105,8 @@ async function onSendSticker(sticker: { id: number; catId: number; type: number 
 // ── File / image upload ─────────────────────────────────────────────────────
 const imageInputRef = ref<HTMLInputElement | null>(null);
 const fileInputRef = ref<HTMLInputElement | null>(null);
-const showMediaPicker = ref(false); // picker chèn ảnh từ Kho (GĐ2)
+// 2026-06-12: showMediaPicker + MediaPickerPopover đã GỠ — nút "Chèn từ kho" giờ mở
+// tab Media ở cột 4 (emit 'open-media-tab'). Logic kho dời sang MediaTabPanel.
 // Gợi ý ảnh theo ngữ cảnh (GĐ3a-4): match tag khách với tag ảnh kho.
 const mediaSuggestions = ref<MediaAssetItem[]>([]);
 const sendingSuggestId = ref<string | null>(null);
