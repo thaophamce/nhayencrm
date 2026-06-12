@@ -24,6 +24,7 @@ import { createMediaMessage, getUserFullName } from '../chat/chat-helpers.js';
 import { emitChatMessage } from '../../shared/realtime/emit-chat.js';
 import { generateThumbnail, sendNativeVideo } from '../../shared/video-processor.js';
 import { uploadBuffer } from '../../shared/storage/minio-client.js';
+import { scanOrPass } from '../../shared/security/clamav-client.js';
 import { readFile } from 'node:fs/promises';
 import { logger } from '../../shared/utils/logger.js';
 
@@ -210,6 +211,9 @@ async function saveOneMessageToMedia(args: {
   try {
     tmp = await downloadMediaToTemp({ url, filename: realName }, ct);
     const buf = await readFile(tmp.path);
+    // GĐ13b: quét virus file lưu-từ-chat (fail-open mặc định; AV tắt → skip). Nhiễm → chặn lưu.
+    const av = await scanOrPass(buf, { filename: realName, userId });
+    if (av.blocked) return { messageId, status: 'blocked', reason: av.reason };
     const mimeType = parsed.mime
       || (kind === 'image' ? 'image/jpeg' : kind === 'video' ? 'video/mp4' : 'application/octet-stream');
     const res = await registerAsset({
@@ -382,6 +386,9 @@ export async function mediaRoutes(app: FastifyInstance) {
               error: kind === 'image' ? 'Ảnh quá lớn (tối đa 15MB)' : `${kind} vượt ${max / 1024 / 1024}MB`,
             });
           }
+          // GĐ13b: quét virus (fail-open mặc định; AV tắt → skip ngay). Chặn nếu nhiễm.
+          const av = await scanOrPass(buf, { filename: part.filename, userId });
+          if (av.blocked) return reply.status(422).send({ error: av.reason, code: 'AV_BLOCKED' });
           pending.push({ buffer: buf, mimeType: part.mimetype, kind, filename: part.filename });
         }
 
