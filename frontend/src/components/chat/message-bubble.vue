@@ -163,7 +163,7 @@
                 icon
                 size="x-small"
                 variant="text"
-                @click="openFile(getFileInfo(message)!.href)"
+                @click="openFile(getFileInfo(message)!.href, getFileInfo(message)!.name)"
               >
                 <v-icon size="16">mdi-download</v-icon>
               </v-btn>
@@ -871,8 +871,27 @@ function onPickerReact(key: string) {
   emit('toggle-reaction', key);
 }
 
-function openFile(href: string) {
-  window.open(href, '_blank');
+// 2026-06-13 (anh báo tải file mất tên): kho lưu media/{hash}.ext nên mở thẳng URL → tải về
+// tên-hash. Tải QUA cổng CRM /media/download (cùng origin, gắn Content-Disposition tên thật) →
+// trình duyệt giữ đúng tên. Dùng axios api (kèm auth) → blob → <a download>. Fallback mở URL nếu lỗi.
+async function openFile(href: string, name?: string) {
+  try {
+    const { api } = await import('@/api/index');
+    const res = await api.get('/media/download', {
+      params: { url: href, name: name || '' },
+      responseType: 'blob',
+    });
+    const blobUrl = URL.createObjectURL(res.data as Blob);
+    const a = document.createElement('a');
+    a.href = blobUrl;
+    a.download = name || 'tep';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 4000);
+  } catch {
+    window.open(href, '_blank'); // fallback: ít nhất mở được file (tên có thể là hash)
+  }
 }
 </script>
 

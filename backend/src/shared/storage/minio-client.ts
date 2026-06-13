@@ -90,3 +90,27 @@ export async function ensureBucket(): Promise<void> {
     await minioClient.makeBucket(BUCKET, config.s3Region);
   }
 }
+
+/**
+ * 2026-06-13: lấy 1 object trong bucket dưới dạng stream để CRM proxy-download (gắn tên file thật
+ * qua Content-Disposition). key PHẢI nằm dưới prefix 'media/' (chống path traversal). Trả null nếu
+ * key sai prefix / không tồn tại.
+ */
+export async function getObjectStream(key: string): Promise<NodeJS.ReadableStream | null> {
+  if (!key || !key.startsWith('media/') || key.includes('..')) return null;
+  try {
+    await minioClient.statObject(BUCKET, key); // tồn tại?
+    return await minioClient.getObject(BUCKET, key);
+  } catch {
+    return null;
+  }
+}
+
+/** Trích object key (media/{hash}.ext) từ public URL kho. Trả '' nếu URL không thuộc bucket. */
+export function keyFromPublicUrl(url: string): string {
+  if (!url) return '';
+  const marker = `/${BUCKET}/`;
+  const i = url.indexOf(marker);
+  if (i < 0) return '';
+  try { return decodeURIComponent(url.slice(i + marker.length).split('?')[0]); } catch { return ''; }
+}

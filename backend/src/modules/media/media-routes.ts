@@ -23,7 +23,7 @@ import { downloadMediaToTemp } from '../chat/chat-media-helpers.js';
 import { createMediaMessage, getUserFullName } from '../chat/chat-helpers.js';
 import { emitChatMessage } from '../../shared/realtime/emit-chat.js';
 import { generateThumbnail, sendNativeVideo } from '../../shared/video-processor.js';
-import { uploadBuffer } from '../../shared/storage/minio-client.js';
+import { uploadBuffer, getObjectStream, keyFromPublicUrl } from '../../shared/storage/minio-client.js';
 import { scanOrPass } from '../../shared/security/clamav-client.js';
 import { readFile } from 'node:fs/promises';
 import { logger } from '../../shared/utils/logger.js';
@@ -746,6 +746,31 @@ export async function mediaRoutes(app: FastifyInstance) {
       await prisma.mediaAsset.update({ where: { id }, data: { archivedAt: new Date(), trashedById: userId } });
       logger.info(`[media][audit] trash asset=${id} user=${userId}`);
       return { ok: true };
+    },
+  );
+
+  // ── GET /api/v1/media/download — tải file kho kèm ĐÚNG TÊN (2026-06-13, anh báo) ──────
+  // Kho lưu object media/{hash}.ext → mở thẳng URL = tải về tên-hash. Endpoint proxy stream
+  // file + Content-Disposition filename="tên thật" → trình duyệt tải đúng tên (như Zalo real).
+  // Query: url (public URL kho) + name (tên hiển thị). Auth qua authMiddleware (hook preHandler).
+  app.get(
+    '/api/v1/media/download',
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const q = request.query as { url?: string; name?: string };
+      if (!q.url) return reply.status(400).send({ error: 'Thiếu url' });
+      const key = keyFromPublicUrl(q.url);
+      if (!key) return reply.status(400).send({ error: 'URL không thuộc kho' });
+      const stream = await getObjectStream(key);
+      if (!stream) return reply.status(404).send({ error: 'Không tìm thấy tệp' });
+      // Tên tải về: name truyền lên (đã có đuôi) → fallback basename của key. Lọc ký tự cấm header.
+      const rawName = (q.name && q.name.trim()) || decodeURIComponent(key.split('/').pop() || 'tep');
+      const safeName = rawName.replace(/["\r\n]/g, '').slice(0, 200);
+      // RFC5987 cho tên Unicode (tiếng Việt) — filename* để trình duyệt giữ dấu.
+      reply
+        .header('Content-Disposition', `attachment; filename="${safeName}"; filename*=UTF-8''${encodeURIComponent(safeName)}`)
+        .header('Content-Type', 'application/octet-stream')
+        .header('Cache-Control', 'private, max-age=0');
+      return reply.send(stream);
     },
   );
 
