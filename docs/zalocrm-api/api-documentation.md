@@ -28,6 +28,8 @@
 18. [Privacy & Security](#privacy--security)
 19. [Public API & Webhooks](#public-api--webhooks)
 20. [System](#system)
+21. [Public REST API (External — X-API-Key)](#21-public-rest-api-external--x-api-key)
+22. [Appendix A — Complete Endpoint Catalog](#22-appendix-a--complete-endpoint-catalog-internal-jwt)
 
 ---
 
@@ -1985,6 +1987,608 @@ Get API version and status.
 ```
 
 ---
+
+
+---
+
+## 21. Public REST API (External — `X-API-Key`)
+
+REST API for **external integrations**, authenticated with an **API key** (no JWT required). All endpoints are prefixed with `/api/public/`. The `orgId` is resolved automatically from the API key.
+
+### Authentication
+
+Send the API key in the header:
+
+```
+X-API-Key: <your_api_key>
+```
+
+> Generate/retrieve the API key in **Settings → API & Webhook** (or `POST /api/v1/settings/api-key/generate`). Missing or invalid key → `401`.
+
+### 21.1 List Contacts
+**GET** `/api/public/contacts`
+
+**Query params:** `search` (name/phone/email), `status`, `limit` (default 20, max 100).
+
+**Response:**
+```json
+{
+  "contacts": [
+    {
+      "id": "contact-123",
+      "fullName": "Jane Doe",
+      "phone": "0900000000",
+      "email": "jane@acme.com",
+      "source": "facebook",
+      "status": "new",
+      "notes": "Interested in Pro plan",
+      "tags": ["vip"],
+      "createdAt": "2026-06-01T03:00:00.000Z",
+      "updatedAt": "2026-06-10T07:30:00.000Z"
+    }
+  ]
+}
+```
+
+### 21.2 Get Contact
+**GET** `/api/public/contacts/:id`
+
+Returns the contact with its **5 most recent appointments** and a conversation count. `404` if not found.
+
+### 21.3 Create Contact
+**POST** `/api/public/contacts`
+
+**Body:** (requires at least `fullName` **or** `phone`)
+```json
+{
+  "fullName": "Jane Doe",
+  "phone": "0900000000",
+  "email": "jane@acme.com",
+  "source": "website",
+  "status": "new",
+  "notes": "Signed up from landing page",
+  "tags": ["lead"]
+}
+```
+**Status codes:** `201` (created), `400` (missing fullName & phone).
+
+### 21.4 Update Contact
+**PUT** `/api/public/contacts/:id`
+
+Body same as 21.3 (provided fields are updated). `404` if not found.
+
+### 21.5 List Conversations
+**GET** `/api/public/conversations`
+
+**Query params:** `limit` (default 20, max 100).
+
+**Response:**
+```json
+{
+  "conversations": [
+    {
+      "id": "conv-123",
+      "threadType": "user",
+      "externalThreadId": "zalo-uid-xxx",
+      "lastMessageAt": "2026-06-10T07:30:00.000Z",
+      "unreadCount": 2,
+      "isReplied": false,
+      "contact": { "id": "contact-123", "fullName": "Jane Doe", "phone": "0900000000", "avatarUrl": null }
+    }
+  ]
+}
+```
+
+### 21.6 Get Conversation Messages
+**GET** `/api/public/conversations/:id/messages`
+
+**Query params:** `limit` (default 50, max 200). `404` if the conversation does not belong to the organization.
+
+**Response:**
+```json
+{
+  "messages": [
+    {
+      "id": "msg-1",
+      "senderType": "contact",
+      "senderName": "Jane Doe",
+      "content": "What's the price?",
+      "contentType": "text",
+      "sentAt": "2026-06-10T07:29:00.000Z",
+      "attachments": []
+    }
+  ]
+}
+```
+
+### 21.7 List Appointments
+**GET** `/api/public/appointments`
+
+**Query params:** `from`, `to` (ISO date, filter by `appointmentDate`). Returns up to 100, including contact info.
+
+### 21.8 Create Appointment
+**POST** `/api/public/appointments`
+
+**Body:** (requires `contactId` and `appointmentDate`)
+```json
+{
+  "contactId": "contact-123",
+  "appointmentDate": "2026-06-20",
+  "appointmentTime": "14:30",
+  "type": "call",
+  "notes": "Consultation call for Pro plan"
+}
+```
+**Status codes:** `201`, `400` (missing fields), `404` (contact not found).
+
+### 21.9 Send Zalo Message
+**POST** `/api/public/messages/send`
+
+Send a message through a **connected Zalo account** of the organization.
+
+**Body:** (requires `zaloAccountId`, `threadId`, `content`)
+```json
+{
+  "zaloAccountId": "zalo-acc-123",
+  "threadId": "zalo-uid-or-group-id",
+  "content": "Hello from ZaloCRM!",
+  "threadType": "user"
+}
+```
+- `threadType`: `"user"` (default) or `"group"`.
+
+**Response:** `{ "success": true }`
+
+**Status codes:** `200`, `400` (missing fields), `404` (account not found), `422` (account not connected / not active in pool).
+
+---
+
+## 22. Appendix A — Complete Endpoint Catalog (Internal, JWT)
+
+> Complete reference of all **internal** endpoints (JWT auth: `Authorization: Bearer`). Endpoints with full request/response examples are in sections 1–20 above; the tables below list **every remaining endpoint** grouped by module.
+
+
+### AI & Assistant
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/v1/ai/assistant-config` | Get — assistant config |
+| `GET` | `/api/v1/ai/config` | Get — config |
+| `PUT` | `/api/v1/ai/config` | Update — config |
+| `POST` | `/api/v1/ai/format-rich` | Create/Run — format rich |
+| `GET` | `/api/v1/ai/providers` | Get — providers |
+| `POST` | `/api/v1/ai/sales-handoff-message` | Create/Run — sales handoff message |
+| `POST` | `/api/v1/ai/sentiment/:id` | Create/Run — by ID |
+| `POST` | `/api/v1/ai/suggest` | Create/Run — suggest |
+| `POST` | `/api/v1/ai/summarize/:id` | Create/Run — by ID |
+| `GET` | `/api/v1/ai/usage` | Get — usage |
+
+### Appointments
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `DELETE` | `/api/v1/appointments/:id` | Delete — by ID |
+| `GET` | `/api/v1/appointments/:id` | Get — by ID |
+| `PUT` | `/api/v1/appointments/:id` | Update — by ID |
+| `PATCH` | `/api/v1/appointments/:id/status` | Update — status |
+| `GET` | `/api/v1/appointments/today` | Get — today |
+| `GET` | `/api/v1/appointments/upcoming` | Get — upcoming |
+
+### Audit Logs
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/v1/audit-logs` | Get — audit logs |
+
+### Automation
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `DELETE` | `/api/v1/automation/rules/:id` | Delete — by ID |
+| `PUT` | `/api/v1/automation/rules/:id` | Update — by ID |
+| `DELETE` | `/api/v1/automation/templates/:id` | Delete — by ID |
+| `PUT` | `/api/v1/automation/templates/:id` | Update — by ID |
+| `POST` | `/api/v1/automation/templates/:id/track-use` | Create/Run — track use |
+| `GET` | `/api/v1/automation/templates/variables` | Get — variables |
+
+### Chat
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/v1/chat/send-handoff` | Create/Run — send handoff |
+
+### Contacts & CRM
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/v1/contacts/:contactId/notes` | Get — notes |
+| `GET` | `/api/v1/contacts/:id/appointments` | Get — appointments |
+| `GET` | `/api/v1/contacts/:id/cockpit` | Get — cockpit |
+| `GET` | `/api/v1/contacts/:id/engagement-timeline` | Get — engagement timeline |
+| `GET` | `/api/v1/contacts/:id/friendships` | Get — friendships |
+| `POST` | `/api/v1/contacts/:id/link-parent` | Create/Run — link parent |
+| `POST` | `/api/v1/contacts/:id/merge-into` | Create/Run — merge into |
+| `PUT` | `/api/v1/contacts/:id/tags` | Update — tags |
+| `GET` | `/api/v1/contacts/:id/teammates` | Get — teammates |
+| `POST` | `/api/v1/contacts/:id/unlink-parent` | Create/Run — unlink parent |
+| `POST` | `/api/v1/contacts/:id/virtual-conversation` | Create/Run — virtual conversation |
+| `GET` | `/api/v1/contacts/by-zalo-uid/:uid` | Get — by ID |
+| `GET` | `/api/v1/contacts/duplicates` | Get — duplicates |
+| `POST` | `/api/v1/contacts/duplicates/:groupId/dismiss` | Create/Run — dismiss |
+| `POST` | `/api/v1/contacts/duplicates/:groupId/merge` | Create/Run — merge |
+| `POST` | `/api/v1/contacts/intelligence/recompute` | Create/Run — recompute |
+| `GET` | `/api/v1/contacts/parent-candidates` | Get — parent candidates |
+| `POST` | `/api/v1/contacts/parent-candidates/:id/accept` | Create/Run — accept |
+| `POST` | `/api/v1/contacts/parent-candidates/:id/dismiss` | Create/Run — dismiss |
+| `GET` | `/api/v1/contacts/pipeline` | Get — pipeline |
+| `POST` | `/api/v1/contacts/quick-create` | Create/Run — quick create |
+| `POST` | `/api/v1/contacts/resolve-by-keys` | Create/Run — resolve by keys |
+| `GET` | `/api/v1/contacts/stats` | Get — stats |
+
+### Conversations & Messages
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `DELETE` | `/api/v1/conversations/:id` | Delete — by ID |
+| `POST` | `/api/v1/conversations/:id/card` | Create/Run — card |
+| `POST` | `/api/v1/conversations/:id/forward` | Create/Run — forward |
+| `POST` | `/api/v1/conversations/:id/link` | Create/Run — link |
+| `POST` | `/api/v1/conversations/:id/mark-read` | Create/Run — mark read |
+| `GET` | `/api/v1/conversations/:id/messages` | Get — messages |
+| `DELETE` | `/api/v1/conversations/:id/messages/:msgId` | Delete — by ID |
+| `POST` | `/api/v1/conversations/:id/messages/:msgId/edit` | Create/Run — edit |
+| `POST` | `/api/v1/conversations/:id/messages/:msgId/undo` | Create/Run — undo |
+| `POST` | `/api/v1/conversations/:id/pin` | Create/Run — pin |
+| `DELETE` | `/api/v1/conversations/:id/reactions` | Delete — reactions |
+| `POST` | `/api/v1/conversations/:id/reactions` | Create/Run — reactions |
+| `POST` | `/api/v1/conversations/:id/restore` | Create/Run — restore |
+| `POST` | `/api/v1/conversations/:id/send-block` | Create/Run — send block |
+| `POST` | `/api/v1/conversations/:id/sticker` | Create/Run — sticker |
+| `PATCH` | `/api/v1/conversations/:id/tab` | Update — tab |
+| `POST` | `/api/v1/conversations/:id/touch-profile` | Create/Run — touch profile |
+| `POST` | `/api/v1/conversations/:id/typing` | Create/Run — typing |
+| `POST` | `/api/v1/conversations/:id/unpin` | Create/Run — unpin |
+| `POST` | `/api/v1/conversations/:id/upload-image` | Create/Run — upload image |
+| `POST` | `/api/v1/conversations/ensure-by-uid` | Create/Run — ensure by uid |
+| `GET` | `/api/v1/conversations/event-counts` | Get — event counts |
+| `GET` | `/api/v1/conversations/sidebar-tags` | Get — sidebar tags |
+
+### CRM Tag Groups
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/v1/crm-tag-groups` | Get — crm tag groups |
+| `POST` | `/api/v1/crm-tag-groups` | Create/Run — crm tag groups |
+| `DELETE` | `/api/v1/crm-tag-groups/:id` | Delete — by ID |
+| `PATCH` | `/api/v1/crm-tag-groups/:id` | Update — by ID |
+
+### CRM Tags
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/v1/crm-tags` | Get — crm tags |
+| `POST` | `/api/v1/crm-tags` | Create/Run — crm tags |
+| `DELETE` | `/api/v1/crm-tags/:id` | Delete — by ID |
+| `PATCH` | `/api/v1/crm-tags/:id` | Update — by ID |
+| `POST` | `/api/v1/crm-tags/reorder` | Create/Run — reorder |
+
+### Customers (timeline/log)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/v1/customers/:id/activity-log` | Get — activity log |
+| `GET` | `/api/v1/customers/:id/timeline` | Get — timeline |
+
+### Dashboard
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/v1/dashboard/action-hub/me` | Get — me |
+| `GET` | `/api/v1/dashboard/action-hub/picker/depts` | Get — depts |
+| `GET` | `/api/v1/dashboard/action-hub/picker/users` | Get — users |
+| `GET` | `/api/v1/dashboard/action-hub/system` | Get — system |
+| `GET` | `/api/v1/dashboard/action-hub/team` | Get — team |
+| `GET` | `/api/v1/dashboard/appointments` | Get — appointments |
+| `GET` | `/api/v1/dashboard/kpi` | Get — kpi |
+| `GET` | `/api/v1/dashboard/message-volume` | Get — message volume |
+| `GET` | `/api/v1/dashboard/pipeline` | Get — pipeline |
+| `GET` | `/api/v1/dashboard/sources` | Get — sources |
+
+### Departments (RBAC)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `DELETE` | `/api/v1/departments/:id` | Delete — by ID |
+| `PATCH` | `/api/v1/departments/:id` | Update — by ID |
+| `POST` | `/api/v1/departments/:id/members` | Create/Run — members |
+| `GET` | `/api/v1/departments/:id/members-tree` | Get — members tree |
+| `DELETE` | `/api/v1/departments/:id/members/:userId` | Delete — by ID |
+
+### Filter Presets
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/v1/filter-presets` | Get — filter presets |
+| `POST` | `/api/v1/filter-presets` | Create/Run — filter presets |
+
+### Friends (DB)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/v1/friends-db/all-nicks` | Get — all nicks |
+
+### Integrations & Facebook
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/v1/integrations` | Create/Run — integrations |
+| `DELETE` | `/api/v1/integrations/:id` | Delete — by ID |
+| `PUT` | `/api/v1/integrations/:id` | Update — by ID |
+| `GET` | `/api/v1/integrations/:id/logs` | Get — logs |
+| `POST` | `/api/v1/integrations/:id/sync` | Create/Run — sync |
+| `DELETE` | `/api/v1/integrations/facebook/:id` | Delete — by ID |
+| `POST` | `/api/v1/integrations/facebook/:id/rotate-verify-token` | Create/Run — rotate verify token |
+| `GET` | `/api/v1/integrations/facebook/:id/verify-token` | Get — verify token |
+| `POST` | `/api/v1/integrations/facebook/connect` | Create/Run — connect |
+| `PATCH` | `/api/v1/integrations/facebook/pull-config` | Update — pull config |
+| `GET` | `/api/v1/integrations/facebook/pull-status` | Get — pull status |
+| `GET` | `/api/v1/integrations/facebook/status` | Get — status |
+| `POST` | `/api/v1/integrations/facebook/system-user-token` | Create/Run — system user token |
+
+### Lead Pool
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/v1/lead-pool/:id/find-zalo` | Create/Run — find zalo |
+| `POST` | `/api/v1/lead-pool/:id/note` | Create/Run — note |
+| `POST` | `/api/v1/lead-pool/:id/open-chat` | Create/Run — open chat |
+| `GET` | `/api/v1/lead-pool/:id/payload` | Get — payload |
+| `POST` | `/api/v1/lead-pool/:id/return` | Create/Run — return |
+| `GET` | `/api/v1/lead-pool/available-nicks` | Get — available nicks |
+| `GET` | `/api/v1/lead-pool/eligibility` | Get — eligibility |
+| `GET` | `/api/v1/lead-pool/my-history` | Get — my history |
+| `POST` | `/api/v1/lead-pool/request` | Create/Run — request |
+| `GET` | `/api/v1/lead-pool/stats` | Get — stats |
+
+### Lead Scoring
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `PUT` | `/api/v1/scoring/config` | Update — config |
+| `GET` | `/api/v1/scoring/nba-templates` | Get — nba templates |
+| `GET` | `/api/v1/scoring/stage-transitions` | Get — stage transitions |
+| `GET` | `/api/v1/scoring/stuck-thresholds` | Get — stuck thresholds |
+
+### Messages
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/v1/messages/:id` | Get — by ID |
+
+### My Account
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/v1/me/avatar` | Create/Run — avatar |
+| `GET` | `/api/v1/me/blocks/recent` | Get — recent |
+| `POST` | `/api/v1/me/change-password` | Create/Run — change password |
+| `GET` | `/api/v1/me/internal-contact` | Get — internal contact |
+| `GET` | `/api/v1/me/onboarding` | Get — onboarding |
+| `POST` | `/api/v1/me/onboarding/dismiss` | Create/Run — dismiss |
+| `POST` | `/api/v1/me/onboarding/reopen` | Create/Run — reopen |
+| `POST` | `/api/v1/me/onboarding/skip-step` | Create/Run — skip step |
+| `GET` | `/api/v1/me/preferences` | Get — preferences |
+| `DELETE` | `/api/v1/me/preferences/:key` | Delete — by ID |
+| `GET` | `/api/v1/me/preferences/:key` | Get — by ID |
+| `PUT` | `/api/v1/me/preferences/:key` | Update — by ID |
+| `PATCH` | `/api/v1/me/profile` | Update — profile |
+
+### Notes
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `DELETE` | `/api/v1/notes/:id` | Delete — by ID |
+| `PATCH` | `/api/v1/notes/:id` | Update — by ID |
+| `POST` | `/api/v1/notes/:id/ai-parse` | Create/Run — ai parse |
+| `POST` | `/api/v1/notes/:id/link-appointment` | Create/Run — link appointment |
+| `POST` | `/api/v1/notes/:id/reactions` | Create/Run — reactions |
+
+### Organization
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/v1/organization` | Get — organization |
+| `GET` | `/api/v1/organization/automation-settings` | Get — automation settings |
+
+### Permission Groups (RBAC)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/v1/permission-groups` | Get — permission groups |
+| `POST` | `/api/v1/permission-groups` | Create/Run — permission groups |
+| `DELETE` | `/api/v1/permission-groups/:id` | Delete — by ID |
+| `GET` | `/api/v1/permission-groups/:id` | Get — by ID |
+| `PATCH` | `/api/v1/permission-groups/:id` | Update — by ID |
+| `GET` | `/api/v1/permission-groups/meta` | Get — meta |
+
+### Privacy & PIN/OTP
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/v1/privacy/lock` | Create/Run — lock |
+| `GET` | `/api/v1/privacy/my-nicks` | Get — my nicks |
+| `POST` | `/api/v1/privacy/otp/request` | Create/Run — request |
+| `GET` | `/api/v1/privacy/otp/status` | Get — status |
+| `POST` | `/api/v1/privacy/otp/verify` | Create/Run — verify |
+| `GET` | `/api/v1/privacy/status` | Get — status |
+
+### Public Org Branding
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/v1/public/org-branding` | Get — org branding |
+
+### Public Webhooks
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/v1/webhooks/fb-leadads` | Get — fb leadads |
+| `POST` | `/api/v1/webhooks/fb-leadads` | Create/Run — fb leadads |
+
+### RBAC Users
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/v1/rbac/users` | Get — users |
+| `PATCH` | `/api/v1/rbac/users/:id/permission-group` | Update — permission group |
+
+### Reports
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/v1/reports/appointments` | Get — appointments |
+| `GET` | `/api/v1/reports/contacts` | Get — contacts |
+| `GET` | `/api/v1/reports/export` | Get — export |
+| `GET` | `/api/v1/reports/messages` | Get — messages |
+
+### Saved Reports
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/v1/saved-reports` | Get — saved reports |
+| `POST` | `/api/v1/saved-reports` | Create/Run — saved reports |
+| `DELETE` | `/api/v1/saved-reports/:id` | Delete — by ID |
+| `GET` | `/api/v1/saved-reports/:id` | Get — by ID |
+| `PUT` | `/api/v1/saved-reports/:id` | Update — by ID |
+| `POST` | `/api/v1/saved-reports/:id/run` | Create/Run — run |
+
+### Settings (API key/Statuses/Webhook)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/v1/settings/api-key` | Get — api key |
+| `POST` | `/api/v1/settings/api-key/generate` | Create/Run — generate |
+| `GET` | `/api/v1/settings/statuses` | Get — statuses |
+| `POST` | `/api/v1/settings/statuses` | Create/Run — statuses |
+| `DELETE` | `/api/v1/settings/statuses/:id` | Delete — by ID |
+| `PUT` | `/api/v1/settings/statuses/:id` | Update — by ID |
+| `POST` | `/api/v1/settings/statuses/reorder` | Create/Run — reorder |
+| `GET` | `/api/v1/settings/webhook` | Get — webhook |
+| `PUT` | `/api/v1/settings/webhook` | Update — webhook |
+| `POST` | `/api/v1/settings/webhook/test` | Create/Run — test |
+
+### Stuck Leads
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/v1/leads/stuck` | Get — stuck |
+| `POST` | `/api/v1/leads/stuck/scan` | Create/Run — scan |
+
+### Teams
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/v1/teams/:id/members` | Get — members |
+
+### Timeline
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/v1/timeline/export` | Get — export |
+
+### Users
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/v1/users/:id/handoff` | Create/Run — handoff |
+| `PATCH` | `/api/v1/users/:id/max-privacy-nicks` | Update — max privacy nicks |
+| `PUT` | `/api/v1/users/:id/password` | Update — password |
+| `POST` | `/api/v1/users/bulk-assign` | Create/Run — bulk assign |
+
+### Zalo Account Folders
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/v1/account-folders` | Get — account folders |
+| `POST` | `/api/v1/account-folders` | Create/Run — account folders |
+| `POST` | `/api/v1/account-folders/reorder` | Create/Run — reorder |
+| `POST` | `/api/v1/account-folders/sync-by-owner` | Create/Run — sync by owner |
+
+### Zalo Accounts (advanced)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/v1/zalo-accounts/:accountId/groups/:groupId/ensure-conversation` | Create/Run — ensure conversation |
+| `GET` | `/api/v1/zalo-accounts/:id/access` | Get — access |
+| `GET` | `/api/v1/zalo-accounts/:id/labels` | Get — labels |
+| `PATCH` | `/api/v1/zalo-accounts/:id/labels/:labelId` | Update — by ID |
+| `POST` | `/api/v1/zalo-accounts/:id/labels/assign-thread` | Create/Run — assign thread |
+| `POST` | `/api/v1/zalo-accounts/:id/labels/sync` | Create/Run — sync |
+| `POST` | `/api/v1/zalo-accounts/:id/labels/touch` | Create/Run — touch |
+| `PATCH` | `/api/v1/zalo-accounts/:id/privacy-mode` | Update — privacy mode |
+| `POST` | `/api/v1/zalo-accounts/:id/sync-contacts` | Create/Run — sync contacts |
+| `POST` | `/api/v1/zalo-accounts/:id/sync-history` | Create/Run — sync history |
+| `GET` | `/api/v1/zalo-accounts/enriched` | Get — enriched |
+| `GET` | `/api/v1/zalo-accounts/labels-overview` | Get — labels overview |
+| `GET` | `/api/v1/zalo-accounts/sdk-limits` | Get — sdk limits |
+| `GET` | `/api/v1/zalo-accounts/stats` | Get — stats |
+| `GET` | `/zalo-accounts` | Get — zalo accounts |
+
+### Zalo Bank Card
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/v1/zalo-bankcard` | Get — zalo bankcard |
+
+### Zalo Friends
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/v1/friends/:friendId/zalo-label` | Create/Run — zalo label |
+| `PATCH` | `/api/v1/friends/:id` | Update — by ID |
+| `POST` | `/api/v1/friends/:id/ensure-conversation` | Create/Run — ensure conversation |
+| `POST` | `/api/v1/friends/:id/promote-to-parent` | Create/Run — promote to parent |
+
+### Zalo Sticker
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/v1/zalo-sticker/:catId/:id` | Get — by ID |
+
+### Zalo Sticker
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/v1/zalo-sticker-list` | Get — zalo sticker list |
+
+### Zalo User Info
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/v1/zalo-user-info/:uid` | Get — by ID |
+| `POST` | `/api/v1/zalo-user-info/batch` | Create/Run — batch |
+
+### ⚙️ Admin / Maintenance (internal — not recommended for external integrations)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/v1/admin/engagement/backfill` | Create/Run — backfill |
+| `POST` | `/api/v1/admin/engagement/recompute` | Create/Run — recompute |
+| `POST` | `/api/v1/admin/migrate-status-table` | Create/Run — migrate status table |
+| `GET` | `/api/v1/admin/privacy/audit` | Get — audit |
+| `POST` | `/api/v1/admin/privacy/reset-lock/:userId` | Create/Run — by ID |
+| `POST` | `/api/v1/admin/rbac/create-test-users` | Create/Run — create test users |
+| `POST` | `/api/v1/admin/rbac/migrate-legacy-users` | Create/Run — migrate legacy users |
+| `POST` | `/api/v1/admin/rbac/seed-default-groups` | Create/Run — seed default groups |
+| `POST` | `/api/v1/admin/run-detector` | Create/Run — run detector |
+| `POST` | `/api/v1/contacts/backfill-friend-display-name` | Create/Run — backfill friend display name |
+| `POST` | `/api/v1/contacts/backfill-global-id` | Create/Run — backfill global id |
+| `POST` | `/api/v1/contacts/backfill-missing-friends` | Create/Run — backfill missing friends |
+| `POST` | `/api/v1/contacts/backfill-orphan-friends` | Create/Run — backfill orphan friends |
+| `POST` | `/api/v1/lead-pool/admin/reset-quota` | Create/Run — reset quota |
+| `GET` | `/api/v1/lead-pool/admin/sale-noted-leads` | Get — sale noted leads |
+| `POST` | `/api/v1/scoring/recompute-all` | Create/Run — recompute all |
+| `POST` | `/api/v1/scoring/seed-defaults` | Create/Run — seed defaults |
 
 ## WebSocket Events
 

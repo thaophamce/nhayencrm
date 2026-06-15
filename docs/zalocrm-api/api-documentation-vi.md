@@ -28,6 +28,8 @@
 18. [Bảo Mật & Quyền Riêng Tư](#bảo-mật--quyền-riêng-tư)
 19. [API Công Khai & Webhook](#api-công-khai--webhook)
 20. [Hệ Thống](#hệ-thống)
+21. [API Công Khai REST (External — X-API-Key)](#21-api-công-khai-rest-external-api--x-api-key)
+22. [Phụ Lục A — Danh Mục Đầy Đủ Endpoint](#22-phụ-lục-a--danh-mục-đầy-đủ-endpoint-jwt-nội-bộ)
 
 ---
 
@@ -1961,6 +1963,608 @@ Lấy phiên bản API và trạng thái.
 ```
 
 ---
+
+
+---
+
+## 21. API Công Khai REST (External API — `X-API-Key`)
+
+API REST dành cho **tích hợp bên ngoài**, xác thực bằng **API key** (không cần JWT). Mọi endpoint có tiền tố `/api/public/`. `orgId` được suy ra tự động từ API key.
+
+### Xác thực
+
+Gửi API key qua header:
+
+```
+X-API-Key: <api_key_cua_ban>
+```
+
+> Lấy/khởi tạo API key tại **Cài đặt → API & Webhook** (hoặc `POST /api/v1/settings/api-key/generate`). Thiếu hoặc sai key → `401`.
+
+### 21.1 Liệt Kê Liên Hệ
+**GET** `/api/public/contacts`
+
+**Tham số truy vấn:** `search` (tìm theo tên/SĐT/email), `status`, `limit` (mặc định 20, tối đa 100).
+
+**Phản hồi:**
+```json
+{
+  "contacts": [
+    {
+      "id": "contact-123",
+      "fullName": "Nguyễn Văn A",
+      "phone": "0900000000",
+      "email": "a@acme.com",
+      "source": "facebook",
+      "status": "new",
+      "notes": "Quan tâm gói Pro",
+      "tags": ["vip"],
+      "createdAt": "2026-06-01T03:00:00.000Z",
+      "updatedAt": "2026-06-10T07:30:00.000Z"
+    }
+  ]
+}
+```
+
+### 21.2 Lấy Chi Tiết Liên Hệ
+**GET** `/api/public/contacts/:id`
+
+Trả về liên hệ kèm **5 lịch hẹn gần nhất** và số lượng hội thoại. `404` nếu không tìm thấy.
+
+### 21.3 Tạo Liên Hệ
+**POST** `/api/public/contacts`
+
+**Thân yêu cầu:** (cần ít nhất `fullName` **hoặc** `phone`)
+```json
+{
+  "fullName": "Nguyễn Văn A",
+  "phone": "0900000000",
+  "email": "a@acme.com",
+  "source": "website",
+  "status": "new",
+  "notes": "Đăng ký từ landing",
+  "tags": ["lead"]
+}
+```
+**Mã trạng thái:** `201` (tạo thành công), `400` (thiếu fullName & phone).
+
+### 21.4 Cập Nhật Liên Hệ
+**PUT** `/api/public/contacts/:id`
+
+Thân yêu cầu giống 21.3 (các trường gửi lên sẽ được cập nhật). `404` nếu không tìm thấy.
+
+### 21.5 Liệt Kê Hội Thoại
+**GET** `/api/public/conversations`
+
+**Tham số truy vấn:** `limit` (mặc định 20, tối đa 100).
+
+**Phản hồi:**
+```json
+{
+  "conversations": [
+    {
+      "id": "conv-123",
+      "threadType": "user",
+      "externalThreadId": "zalo-uid-xxx",
+      "lastMessageAt": "2026-06-10T07:30:00.000Z",
+      "unreadCount": 2,
+      "isReplied": false,
+      "contact": { "id": "contact-123", "fullName": "Nguyễn Văn A", "phone": "0900000000", "avatarUrl": null }
+    }
+  ]
+}
+```
+
+### 21.6 Lấy Tin Nhắn Của Hội Thoại
+**GET** `/api/public/conversations/:id/messages`
+
+**Tham số truy vấn:** `limit` (mặc định 50, tối đa 200). `404` nếu hội thoại không thuộc tổ chức.
+
+**Phản hồi:**
+```json
+{
+  "messages": [
+    {
+      "id": "msg-1",
+      "senderType": "contact",
+      "senderName": "Nguyễn Văn A",
+      "content": "Cho mình hỏi giá",
+      "contentType": "text",
+      "sentAt": "2026-06-10T07:29:00.000Z",
+      "attachments": []
+    }
+  ]
+}
+```
+
+### 21.7 Liệt Kê Lịch Hẹn
+**GET** `/api/public/appointments`
+
+**Tham số truy vấn:** `from`, `to` (ISO date, lọc theo `appointmentDate`). Trả tối đa 100, kèm thông tin liên hệ.
+
+### 21.8 Tạo Lịch Hẹn
+**POST** `/api/public/appointments`
+
+**Thân yêu cầu:** (cần `contactId` và `appointmentDate`)
+```json
+{
+  "contactId": "contact-123",
+  "appointmentDate": "2026-06-20",
+  "appointmentTime": "14:30",
+  "type": "call",
+  "notes": "Gọi tư vấn gói Pro"
+}
+```
+**Mã trạng thái:** `201`, `400` (thiếu trường), `404` (liên hệ không tồn tại).
+
+### 21.9 Gửi Tin Nhắn Zalo
+**POST** `/api/public/messages/send`
+
+Gửi tin nhắn qua một **nick Zalo đang kết nối** của tổ chức.
+
+**Thân yêu cầu:** (cần `zaloAccountId`, `threadId`, `content`)
+```json
+{
+  "zaloAccountId": "zalo-acc-123",
+  "threadId": "zalo-uid-hoac-group-id",
+  "content": "Xin chào, ZaloCRM đây!",
+  "threadType": "user"
+}
+```
+- `threadType`: `"user"` (mặc định) hoặc `"group"`.
+
+**Phản hồi:** `{ "success": true }`
+
+**Mã trạng thái:** `200`, `400` (thiếu trường), `404` (nick không tồn tại), `422` (nick chưa kết nối / không hoạt động trong pool).
+
+---
+
+## 22. Phụ Lục A — Danh Mục Đầy Đủ Endpoint (JWT nội bộ)
+
+> Bổ sung danh mục tham chiếu đầy đủ các endpoint **nội bộ** (xác thực JWT `Authorization: Bearer`). Các endpoint chi tiết (có ví dụ request/response) nằm ở các mục 1–20 phía trên; bảng dưới liệt kê **toàn bộ endpoint còn lại** theo nhóm.
+
+
+### AI & Trợ lý
+
+| Method | Endpoint | Mô tả |
+|--------|----------|-------|
+| `GET` | `/api/v1/ai/assistant-config` | Lấy — assistant config |
+| `GET` | `/api/v1/ai/config` | Lấy — config |
+| `PUT` | `/api/v1/ai/config` | Cập nhật — config |
+| `POST` | `/api/v1/ai/format-rich` | Tạo/Thực thi — format rich |
+| `GET` | `/api/v1/ai/providers` | Lấy — providers |
+| `POST` | `/api/v1/ai/sales-handoff-message` | Tạo/Thực thi — sales handoff message |
+| `POST` | `/api/v1/ai/sentiment/:id` | Tạo/Thực thi — theo ID |
+| `POST` | `/api/v1/ai/suggest` | Tạo/Thực thi — suggest |
+| `POST` | `/api/v1/ai/summarize/:id` | Tạo/Thực thi — theo ID |
+| `GET` | `/api/v1/ai/usage` | Lấy — usage |
+
+### Báo cáo
+
+| Method | Endpoint | Mô tả |
+|--------|----------|-------|
+| `GET` | `/api/v1/reports/appointments` | Lấy — appointments |
+| `GET` | `/api/v1/reports/contacts` | Lấy — contacts |
+| `GET` | `/api/v1/reports/export` | Lấy — export |
+| `GET` | `/api/v1/reports/messages` | Lấy — messages |
+
+### Báo cáo đã lưu
+
+| Method | Endpoint | Mô tả |
+|--------|----------|-------|
+| `GET` | `/api/v1/saved-reports` | Lấy — saved reports |
+| `POST` | `/api/v1/saved-reports` | Tạo/Thực thi — saved reports |
+| `DELETE` | `/api/v1/saved-reports/:id` | Xoá — theo ID |
+| `GET` | `/api/v1/saved-reports/:id` | Lấy — theo ID |
+| `PUT` | `/api/v1/saved-reports/:id` | Cập nhật — theo ID |
+| `POST` | `/api/v1/saved-reports/:id/run` | Tạo/Thực thi — run |
+
+### Bạn bè (DB)
+
+| Method | Endpoint | Mô tả |
+|--------|----------|-------|
+| `GET` | `/api/v1/friends-db/all-nicks` | Lấy — all nicks |
+
+### Bạn bè Zalo
+
+| Method | Endpoint | Mô tả |
+|--------|----------|-------|
+| `POST` | `/api/v1/friends/:friendId/zalo-label` | Tạo/Thực thi — zalo label |
+| `PATCH` | `/api/v1/friends/:id` | Cập nhật — theo ID |
+| `POST` | `/api/v1/friends/:id/ensure-conversation` | Tạo/Thực thi — ensure conversation |
+| `POST` | `/api/v1/friends/:id/promote-to-parent` | Tạo/Thực thi — promote to parent |
+
+### Bể Lead (Lead Pool)
+
+| Method | Endpoint | Mô tả |
+|--------|----------|-------|
+| `POST` | `/api/v1/lead-pool/:id/find-zalo` | Tạo/Thực thi — find zalo |
+| `POST` | `/api/v1/lead-pool/:id/note` | Tạo/Thực thi — note |
+| `POST` | `/api/v1/lead-pool/:id/open-chat` | Tạo/Thực thi — open chat |
+| `GET` | `/api/v1/lead-pool/:id/payload` | Lấy — payload |
+| `POST` | `/api/v1/lead-pool/:id/return` | Tạo/Thực thi — return |
+| `GET` | `/api/v1/lead-pool/available-nicks` | Lấy — available nicks |
+| `GET` | `/api/v1/lead-pool/eligibility` | Lấy — eligibility |
+| `GET` | `/api/v1/lead-pool/my-history` | Lấy — my history |
+| `POST` | `/api/v1/lead-pool/request` | Tạo/Thực thi — request |
+| `GET` | `/api/v1/lead-pool/stats` | Lấy — stats |
+
+### Bộ lọc lưu sẵn
+
+| Method | Endpoint | Mô tả |
+|--------|----------|-------|
+| `GET` | `/api/v1/filter-presets` | Lấy — filter presets |
+| `POST` | `/api/v1/filter-presets` | Tạo/Thực thi — filter presets |
+
+### Chat
+
+| Method | Endpoint | Mô tả |
+|--------|----------|-------|
+| `POST` | `/api/v1/chat/send-handoff` | Tạo/Thực thi — send handoff |
+
+### Chấm điểm Lead
+
+| Method | Endpoint | Mô tả |
+|--------|----------|-------|
+| `PUT` | `/api/v1/scoring/config` | Cập nhật — config |
+| `GET` | `/api/v1/scoring/nba-templates` | Lấy — nba templates |
+| `GET` | `/api/v1/scoring/stage-transitions` | Lấy — stage transitions |
+| `GET` | `/api/v1/scoring/stuck-thresholds` | Lấy — stuck thresholds |
+
+### Cài đặt (API key/Trạng thái/Webhook)
+
+| Method | Endpoint | Mô tả |
+|--------|----------|-------|
+| `GET` | `/api/v1/settings/api-key` | Lấy — api key |
+| `POST` | `/api/v1/settings/api-key/generate` | Tạo/Thực thi — generate |
+| `GET` | `/api/v1/settings/statuses` | Lấy — statuses |
+| `POST` | `/api/v1/settings/statuses` | Tạo/Thực thi — statuses |
+| `DELETE` | `/api/v1/settings/statuses/:id` | Xoá — theo ID |
+| `PUT` | `/api/v1/settings/statuses/:id` | Cập nhật — theo ID |
+| `POST` | `/api/v1/settings/statuses/reorder` | Tạo/Thực thi — reorder |
+| `GET` | `/api/v1/settings/webhook` | Lấy — webhook |
+| `PUT` | `/api/v1/settings/webhook` | Cập nhật — webhook |
+| `POST` | `/api/v1/settings/webhook/test` | Tạo/Thực thi — test |
+
+### Dashboard
+
+| Method | Endpoint | Mô tả |
+|--------|----------|-------|
+| `GET` | `/api/v1/dashboard/action-hub/me` | Lấy — me |
+| `GET` | `/api/v1/dashboard/action-hub/picker/depts` | Lấy — depts |
+| `GET` | `/api/v1/dashboard/action-hub/picker/users` | Lấy — users |
+| `GET` | `/api/v1/dashboard/action-hub/system` | Lấy — system |
+| `GET` | `/api/v1/dashboard/action-hub/team` | Lấy — team |
+| `GET` | `/api/v1/dashboard/appointments` | Lấy — appointments |
+| `GET` | `/api/v1/dashboard/kpi` | Lấy — kpi |
+| `GET` | `/api/v1/dashboard/message-volume` | Lấy — message volume |
+| `GET` | `/api/v1/dashboard/pipeline` | Lấy — pipeline |
+| `GET` | `/api/v1/dashboard/sources` | Lấy — sources |
+
+### Dòng thời gian
+
+| Method | Endpoint | Mô tả |
+|--------|----------|-------|
+| `GET` | `/api/v1/timeline/export` | Lấy — export |
+
+### Ghi chú
+
+| Method | Endpoint | Mô tả |
+|--------|----------|-------|
+| `DELETE` | `/api/v1/notes/:id` | Xoá — theo ID |
+| `PATCH` | `/api/v1/notes/:id` | Cập nhật — theo ID |
+| `POST` | `/api/v1/notes/:id/ai-parse` | Tạo/Thực thi — ai parse |
+| `POST` | `/api/v1/notes/:id/link-appointment` | Tạo/Thực thi — link appointment |
+| `POST` | `/api/v1/notes/:id/reactions` | Tạo/Thực thi — reactions |
+
+### Hội thoại & Tin nhắn
+
+| Method | Endpoint | Mô tả |
+|--------|----------|-------|
+| `DELETE` | `/api/v1/conversations/:id` | Xoá — theo ID |
+| `POST` | `/api/v1/conversations/:id/card` | Tạo/Thực thi — card |
+| `POST` | `/api/v1/conversations/:id/forward` | Tạo/Thực thi — forward |
+| `POST` | `/api/v1/conversations/:id/link` | Tạo/Thực thi — link |
+| `POST` | `/api/v1/conversations/:id/mark-read` | Tạo/Thực thi — mark read |
+| `GET` | `/api/v1/conversations/:id/messages` | Lấy — messages |
+| `DELETE` | `/api/v1/conversations/:id/messages/:msgId` | Xoá — theo ID |
+| `POST` | `/api/v1/conversations/:id/messages/:msgId/edit` | Tạo/Thực thi — edit |
+| `POST` | `/api/v1/conversations/:id/messages/:msgId/undo` | Tạo/Thực thi — undo |
+| `POST` | `/api/v1/conversations/:id/pin` | Tạo/Thực thi — pin |
+| `DELETE` | `/api/v1/conversations/:id/reactions` | Xoá — reactions |
+| `POST` | `/api/v1/conversations/:id/reactions` | Tạo/Thực thi — reactions |
+| `POST` | `/api/v1/conversations/:id/restore` | Tạo/Thực thi — restore |
+| `POST` | `/api/v1/conversations/:id/send-block` | Tạo/Thực thi — send block |
+| `POST` | `/api/v1/conversations/:id/sticker` | Tạo/Thực thi — sticker |
+| `PATCH` | `/api/v1/conversations/:id/tab` | Cập nhật — tab |
+| `POST` | `/api/v1/conversations/:id/touch-profile` | Tạo/Thực thi — touch profile |
+| `POST` | `/api/v1/conversations/:id/typing` | Tạo/Thực thi — typing |
+| `POST` | `/api/v1/conversations/:id/unpin` | Tạo/Thực thi — unpin |
+| `POST` | `/api/v1/conversations/:id/upload-image` | Tạo/Thực thi — upload image |
+| `POST` | `/api/v1/conversations/ensure-by-uid` | Tạo/Thực thi — ensure by uid |
+| `GET` | `/api/v1/conversations/event-counts` | Lấy — event counts |
+| `GET` | `/api/v1/conversations/sidebar-tags` | Lấy — sidebar tags |
+
+### Khách hàng (timeline/log)
+
+| Method | Endpoint | Mô tả |
+|--------|----------|-------|
+| `GET` | `/api/v1/customers/:id/activity-log` | Lấy — activity log |
+| `GET` | `/api/v1/customers/:id/timeline` | Lấy — timeline |
+
+### Lead kẹt
+
+| Method | Endpoint | Mô tả |
+|--------|----------|-------|
+| `GET` | `/api/v1/leads/stuck` | Lấy — stuck |
+| `POST` | `/api/v1/leads/stuck/scan` | Tạo/Thực thi — scan |
+
+### Liên hệ & CRM
+
+| Method | Endpoint | Mô tả |
+|--------|----------|-------|
+| `GET` | `/api/v1/contacts/:contactId/notes` | Lấy — notes |
+| `GET` | `/api/v1/contacts/:id/appointments` | Lấy — appointments |
+| `GET` | `/api/v1/contacts/:id/cockpit` | Lấy — cockpit |
+| `GET` | `/api/v1/contacts/:id/engagement-timeline` | Lấy — engagement timeline |
+| `GET` | `/api/v1/contacts/:id/friendships` | Lấy — friendships |
+| `POST` | `/api/v1/contacts/:id/link-parent` | Tạo/Thực thi — link parent |
+| `POST` | `/api/v1/contacts/:id/merge-into` | Tạo/Thực thi — merge into |
+| `PUT` | `/api/v1/contacts/:id/tags` | Cập nhật — tags |
+| `GET` | `/api/v1/contacts/:id/teammates` | Lấy — teammates |
+| `POST` | `/api/v1/contacts/:id/unlink-parent` | Tạo/Thực thi — unlink parent |
+| `POST` | `/api/v1/contacts/:id/virtual-conversation` | Tạo/Thực thi — virtual conversation |
+| `GET` | `/api/v1/contacts/by-zalo-uid/:uid` | Lấy — theo ID |
+| `GET` | `/api/v1/contacts/duplicates` | Lấy — duplicates |
+| `POST` | `/api/v1/contacts/duplicates/:groupId/dismiss` | Tạo/Thực thi — dismiss |
+| `POST` | `/api/v1/contacts/duplicates/:groupId/merge` | Tạo/Thực thi — merge |
+| `POST` | `/api/v1/contacts/intelligence/recompute` | Tạo/Thực thi — recompute |
+| `GET` | `/api/v1/contacts/parent-candidates` | Lấy — parent candidates |
+| `POST` | `/api/v1/contacts/parent-candidates/:id/accept` | Tạo/Thực thi — accept |
+| `POST` | `/api/v1/contacts/parent-candidates/:id/dismiss` | Tạo/Thực thi — dismiss |
+| `GET` | `/api/v1/contacts/pipeline` | Lấy — pipeline |
+| `POST` | `/api/v1/contacts/quick-create` | Tạo/Thực thi — quick create |
+| `POST` | `/api/v1/contacts/resolve-by-keys` | Tạo/Thực thi — resolve by keys |
+| `GET` | `/api/v1/contacts/stats` | Lấy — stats |
+
+### Lịch hẹn
+
+| Method | Endpoint | Mô tả |
+|--------|----------|-------|
+| `DELETE` | `/api/v1/appointments/:id` | Xoá — theo ID |
+| `GET` | `/api/v1/appointments/:id` | Lấy — theo ID |
+| `PUT` | `/api/v1/appointments/:id` | Cập nhật — theo ID |
+| `PATCH` | `/api/v1/appointments/:id/status` | Cập nhật — status |
+| `GET` | `/api/v1/appointments/today` | Lấy — today |
+| `GET` | `/api/v1/appointments/upcoming` | Lấy — upcoming |
+
+### Người dùng
+
+| Method | Endpoint | Mô tả |
+|--------|----------|-------|
+| `POST` | `/api/v1/users/:id/handoff` | Tạo/Thực thi — handoff |
+| `PATCH` | `/api/v1/users/:id/max-privacy-nicks` | Cập nhật — max privacy nicks |
+| `PUT` | `/api/v1/users/:id/password` | Cập nhật — password |
+| `POST` | `/api/v1/users/bulk-assign` | Tạo/Thực thi — bulk assign |
+
+### Nhóm quyền (RBAC)
+
+| Method | Endpoint | Mô tả |
+|--------|----------|-------|
+| `GET` | `/api/v1/permission-groups` | Lấy — permission groups |
+| `POST` | `/api/v1/permission-groups` | Tạo/Thực thi — permission groups |
+| `DELETE` | `/api/v1/permission-groups/:id` | Xoá — theo ID |
+| `GET` | `/api/v1/permission-groups/:id` | Lấy — theo ID |
+| `PATCH` | `/api/v1/permission-groups/:id` | Cập nhật — theo ID |
+| `GET` | `/api/v1/permission-groups/meta` | Lấy — meta |
+
+### Nhóm thẻ CRM
+
+| Method | Endpoint | Mô tả |
+|--------|----------|-------|
+| `GET` | `/api/v1/crm-tag-groups` | Lấy — crm tag groups |
+| `POST` | `/api/v1/crm-tag-groups` | Tạo/Thực thi — crm tag groups |
+| `DELETE` | `/api/v1/crm-tag-groups/:id` | Xoá — theo ID |
+| `PATCH` | `/api/v1/crm-tag-groups/:id` | Cập nhật — theo ID |
+
+### Nhật ký kiểm toán
+
+| Method | Endpoint | Mô tả |
+|--------|----------|-------|
+| `GET` | `/api/v1/audit-logs` | Lấy — audit logs |
+
+### Phòng ban (RBAC)
+
+| Method | Endpoint | Mô tả |
+|--------|----------|-------|
+| `DELETE` | `/api/v1/departments/:id` | Xoá — theo ID |
+| `PATCH` | `/api/v1/departments/:id` | Cập nhật — theo ID |
+| `POST` | `/api/v1/departments/:id/members` | Tạo/Thực thi — members |
+| `GET` | `/api/v1/departments/:id/members-tree` | Lấy — members tree |
+| `DELETE` | `/api/v1/departments/:id/members/:userId` | Xoá — theo ID |
+
+### Public org branding
+
+| Method | Endpoint | Mô tả |
+|--------|----------|-------|
+| `GET` | `/api/v1/public/org-branding` | Lấy — org branding |
+
+### Quyền riêng tư & PIN/OTP
+
+| Method | Endpoint | Mô tả |
+|--------|----------|-------|
+| `POST` | `/api/v1/privacy/lock` | Tạo/Thực thi — lock |
+| `GET` | `/api/v1/privacy/my-nicks` | Lấy — my nicks |
+| `POST` | `/api/v1/privacy/otp/request` | Tạo/Thực thi — request |
+| `GET` | `/api/v1/privacy/otp/status` | Lấy — status |
+| `POST` | `/api/v1/privacy/otp/verify` | Tạo/Thực thi — verify |
+| `GET` | `/api/v1/privacy/status` | Lấy — status |
+
+### RBAC người dùng
+
+| Method | Endpoint | Mô tả |
+|--------|----------|-------|
+| `GET` | `/api/v1/rbac/users` | Lấy — users |
+| `PATCH` | `/api/v1/rbac/users/:id/permission-group` | Cập nhật — permission group |
+
+### Thông tin user Zalo
+
+| Method | Endpoint | Mô tả |
+|--------|----------|-------|
+| `GET` | `/api/v1/zalo-user-info/:uid` | Lấy — theo ID |
+| `POST` | `/api/v1/zalo-user-info/batch` | Tạo/Thực thi — batch |
+
+### Thư mục tài khoản Zalo
+
+| Method | Endpoint | Mô tả |
+|--------|----------|-------|
+| `GET` | `/api/v1/account-folders` | Lấy — account folders |
+| `POST` | `/api/v1/account-folders` | Tạo/Thực thi — account folders |
+| `POST` | `/api/v1/account-folders/reorder` | Tạo/Thực thi — reorder |
+| `POST` | `/api/v1/account-folders/sync-by-owner` | Tạo/Thực thi — sync by owner |
+
+### Thẻ CRM
+
+| Method | Endpoint | Mô tả |
+|--------|----------|-------|
+| `GET` | `/api/v1/crm-tags` | Lấy — crm tags |
+| `POST` | `/api/v1/crm-tags` | Tạo/Thực thi — crm tags |
+| `DELETE` | `/api/v1/crm-tags/:id` | Xoá — theo ID |
+| `PATCH` | `/api/v1/crm-tags/:id` | Cập nhật — theo ID |
+| `POST` | `/api/v1/crm-tags/reorder` | Tạo/Thực thi — reorder |
+
+### Tin nhắn
+
+| Method | Endpoint | Mô tả |
+|--------|----------|-------|
+| `GET` | `/api/v1/messages/:id` | Lấy — theo ID |
+
+### Tài khoản của tôi
+
+| Method | Endpoint | Mô tả |
+|--------|----------|-------|
+| `POST` | `/api/v1/me/avatar` | Tạo/Thực thi — avatar |
+| `GET` | `/api/v1/me/blocks/recent` | Lấy — recent |
+| `POST` | `/api/v1/me/change-password` | Tạo/Thực thi — change password |
+| `GET` | `/api/v1/me/internal-contact` | Lấy — internal contact |
+| `GET` | `/api/v1/me/onboarding` | Lấy — onboarding |
+| `POST` | `/api/v1/me/onboarding/dismiss` | Tạo/Thực thi — dismiss |
+| `POST` | `/api/v1/me/onboarding/reopen` | Tạo/Thực thi — reopen |
+| `POST` | `/api/v1/me/onboarding/skip-step` | Tạo/Thực thi — skip step |
+| `GET` | `/api/v1/me/preferences` | Lấy — preferences |
+| `DELETE` | `/api/v1/me/preferences/:key` | Xoá — theo ID |
+| `GET` | `/api/v1/me/preferences/:key` | Lấy — theo ID |
+| `PUT` | `/api/v1/me/preferences/:key` | Cập nhật — theo ID |
+| `PATCH` | `/api/v1/me/profile` | Cập nhật — profile |
+
+### Tài khoản Zalo (nâng cao)
+
+| Method | Endpoint | Mô tả |
+|--------|----------|-------|
+| `POST` | `/api/v1/zalo-accounts/:accountId/groups/:groupId/ensure-conversation` | Tạo/Thực thi — ensure conversation |
+| `GET` | `/api/v1/zalo-accounts/:id/access` | Lấy — access |
+| `GET` | `/api/v1/zalo-accounts/:id/labels` | Lấy — labels |
+| `PATCH` | `/api/v1/zalo-accounts/:id/labels/:labelId` | Cập nhật — theo ID |
+| `POST` | `/api/v1/zalo-accounts/:id/labels/assign-thread` | Tạo/Thực thi — assign thread |
+| `POST` | `/api/v1/zalo-accounts/:id/labels/sync` | Tạo/Thực thi — sync |
+| `POST` | `/api/v1/zalo-accounts/:id/labels/touch` | Tạo/Thực thi — touch |
+| `PATCH` | `/api/v1/zalo-accounts/:id/privacy-mode` | Cập nhật — privacy mode |
+| `POST` | `/api/v1/zalo-accounts/:id/sync-contacts` | Tạo/Thực thi — sync contacts |
+| `POST` | `/api/v1/zalo-accounts/:id/sync-history` | Tạo/Thực thi — sync history |
+| `GET` | `/api/v1/zalo-accounts/enriched` | Lấy — enriched |
+| `GET` | `/api/v1/zalo-accounts/labels-overview` | Lấy — labels overview |
+| `GET` | `/api/v1/zalo-accounts/sdk-limits` | Lấy — sdk limits |
+| `GET` | `/api/v1/zalo-accounts/stats` | Lấy — stats |
+| `GET` | `/zalo-accounts` | Lấy — zalo accounts |
+
+### Tích hợp & Facebook
+
+| Method | Endpoint | Mô tả |
+|--------|----------|-------|
+| `POST` | `/api/v1/integrations` | Tạo/Thực thi — integrations |
+| `DELETE` | `/api/v1/integrations/:id` | Xoá — theo ID |
+| `PUT` | `/api/v1/integrations/:id` | Cập nhật — theo ID |
+| `GET` | `/api/v1/integrations/:id/logs` | Lấy — logs |
+| `POST` | `/api/v1/integrations/:id/sync` | Tạo/Thực thi — sync |
+| `DELETE` | `/api/v1/integrations/facebook/:id` | Xoá — theo ID |
+| `POST` | `/api/v1/integrations/facebook/:id/rotate-verify-token` | Tạo/Thực thi — rotate verify token |
+| `GET` | `/api/v1/integrations/facebook/:id/verify-token` | Lấy — verify token |
+| `POST` | `/api/v1/integrations/facebook/connect` | Tạo/Thực thi — connect |
+| `PATCH` | `/api/v1/integrations/facebook/pull-config` | Cập nhật — pull config |
+| `GET` | `/api/v1/integrations/facebook/pull-status` | Lấy — pull status |
+| `GET` | `/api/v1/integrations/facebook/status` | Lấy — status |
+| `POST` | `/api/v1/integrations/facebook/system-user-token` | Tạo/Thực thi — system user token |
+
+### Tổ chức
+
+| Method | Endpoint | Mô tả |
+|--------|----------|-------|
+| `GET` | `/api/v1/organization` | Lấy — organization |
+| `GET` | `/api/v1/organization/automation-settings` | Lấy — automation settings |
+
+### Tự động hoá
+
+| Method | Endpoint | Mô tả |
+|--------|----------|-------|
+| `DELETE` | `/api/v1/automation/rules/:id` | Xoá — theo ID |
+| `PUT` | `/api/v1/automation/rules/:id` | Cập nhật — theo ID |
+| `DELETE` | `/api/v1/automation/templates/:id` | Xoá — theo ID |
+| `PUT` | `/api/v1/automation/templates/:id` | Cập nhật — theo ID |
+| `POST` | `/api/v1/automation/templates/:id/track-use` | Tạo/Thực thi — track use |
+| `GET` | `/api/v1/automation/templates/variables` | Lấy — variables |
+
+### Webhook công khai
+
+| Method | Endpoint | Mô tả |
+|--------|----------|-------|
+| `GET` | `/api/v1/webhooks/fb-leadads` | Lấy — fb leadads |
+| `POST` | `/api/v1/webhooks/fb-leadads` | Tạo/Thực thi — fb leadads |
+
+### Zalo Bank Card
+
+| Method | Endpoint | Mô tả |
+|--------|----------|-------|
+| `GET` | `/api/v1/zalo-bankcard` | Lấy — zalo bankcard |
+
+### Zalo Sticker
+
+| Method | Endpoint | Mô tả |
+|--------|----------|-------|
+| `GET` | `/api/v1/zalo-sticker/:catId/:id` | Lấy — theo ID |
+
+### Zalo Sticker
+
+| Method | Endpoint | Mô tả |
+|--------|----------|-------|
+| `GET` | `/api/v1/zalo-sticker-list` | Lấy — zalo sticker list |
+
+### Đội
+
+| Method | Endpoint | Mô tả |
+|--------|----------|-------|
+| `GET` | `/api/v1/teams/:id/members` | Lấy — members |
+
+### ⚙️ Quản trị / Bảo trì (nội bộ — không khuyến nghị gọi từ tích hợp ngoài)
+
+| Method | Endpoint | Mô tả |
+|--------|----------|-------|
+| `POST` | `/api/v1/admin/engagement/backfill` | Tạo/Thực thi — backfill |
+| `POST` | `/api/v1/admin/engagement/recompute` | Tạo/Thực thi — recompute |
+| `POST` | `/api/v1/admin/migrate-status-table` | Tạo/Thực thi — migrate status table |
+| `GET` | `/api/v1/admin/privacy/audit` | Lấy — audit |
+| `POST` | `/api/v1/admin/privacy/reset-lock/:userId` | Tạo/Thực thi — theo ID |
+| `POST` | `/api/v1/admin/rbac/create-test-users` | Tạo/Thực thi — create test users |
+| `POST` | `/api/v1/admin/rbac/migrate-legacy-users` | Tạo/Thực thi — migrate legacy users |
+| `POST` | `/api/v1/admin/rbac/seed-default-groups` | Tạo/Thực thi — seed default groups |
+| `POST` | `/api/v1/admin/run-detector` | Tạo/Thực thi — run detector |
+| `POST` | `/api/v1/contacts/backfill-friend-display-name` | Tạo/Thực thi — backfill friend display name |
+| `POST` | `/api/v1/contacts/backfill-global-id` | Tạo/Thực thi — backfill global id |
+| `POST` | `/api/v1/contacts/backfill-missing-friends` | Tạo/Thực thi — backfill missing friends |
+| `POST` | `/api/v1/contacts/backfill-orphan-friends` | Tạo/Thực thi — backfill orphan friends |
+| `POST` | `/api/v1/lead-pool/admin/reset-quota` | Tạo/Thực thi — reset quota |
+| `GET` | `/api/v1/lead-pool/admin/sale-noted-leads` | Lấy — sale noted leads |
+| `POST` | `/api/v1/scoring/recompute-all` | Tạo/Thực thi — recompute all |
+| `POST` | `/api/v1/scoring/seed-defaults` | Tạo/Thực thi — seed defaults |
 
 ## Sự Kiện WebSocket
 
