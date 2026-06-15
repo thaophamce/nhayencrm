@@ -703,12 +703,19 @@ async function toggleFollowFromMenu() {
   contextMenu.followBusy = true;
   try {
     if (contextMenu.isFollowing) {
-      await api.delete('/automation/care-sessions/listen', {
+      // DELETE chỉ đóng phiên GẮN TAY (BE lọc sequence_manual). KH đang theo dõi qua LUỒNG
+      // TỰ ĐỘNG → closed=0 (không có phiên tay) → giữ chuông + báo, KHÔNG tắt (luồng tự chạy).
+      const res = await api.delete<{ ok: boolean; closed: number }>('/automation/care-sessions/listen', {
         data: { contactId: contextMenu.contactId, nickId: contextMenu.nickId },
       });
-      contextMenu.isFollowing = false;
-      // Cập nhật chuông cột 2 NGAY (không đợi refetch) — anh chốt 2026-06-15.
-      emit('follow-changed', contextMenu.contactId, contextMenu.nickId, false);
+      if ((res.data?.closed ?? 0) === 0) {
+        window.alert('Khách đang trong luồng bám đuổi tự động — dừng/tạm dừng ở thẻ luồng (tab Theo dõi), không bỏ theo dõi ở đây.');
+        // giữ nguyên isFollowing + chuông (phiên auto vẫn mở)
+      } else {
+        contextMenu.isFollowing = false;
+        // Cập nhật chuông cột 2 NGAY (không đợi refetch) — anh chốt 2026-06-15.
+        emit('follow-changed', contextMenu.contactId, contextMenu.nickId, false);
+      }
     } else {
       await api.post('/automation/care-sessions/listen', {
         contactId: contextMenu.contactId, nickId: contextMenu.nickId,

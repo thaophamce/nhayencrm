@@ -205,20 +205,25 @@ const loading = ref(false);
 
 // ── Theo dõi thủ công (anh chốt 2026-06-08) ──
 const isListening = ref(false);
+// 2026-06-15: phân biệt phiên theo-dõi GẮN TAY vs AUTO (luồng tự gắn). Chuông hiện cho cả
+// 2, nhưng nút "Bỏ theo dõi" CHỈ áp phiên gắn tay — auto là luồng đang chạy, không tắt ở đây.
+const isManualWatch = ref(false);
 const watchBusy = ref(false);
 
-/** Kiểm KH này (× nick hiện tại) đã có phiên theo-dõi-tay đang mở chưa. */
+/** Kiểm KH này (× nick hiện tại) đang được theo dõi chưa (gắn tay HOẶC auto). */
 async function fetchListenStatus(): Promise<void> {
   if (!props.contactId || !props.nickId) {
     isListening.value = false;
+    isManualWatch.value = false;
     return;
   }
   try {
-    const res = await api.get<{ listening: boolean }>(
+    const res = await api.get<{ listening: boolean; isManualWatch?: boolean }>(
       '/automation/care-sessions/listen-status',
       { params: { contactId: props.contactId, nickId: props.nickId } },
     );
     isListening.value = res.data.listening === true;
+    isManualWatch.value = res.data.isManualWatch === true;
   } catch (err) {
     console.error('[care-listen] status failed', err);
   }
@@ -227,6 +232,12 @@ async function fetchListenStatus(): Promise<void> {
 /** Bật/tắt theo dõi tay — tạo/đóng phiên chỉ-lắng-nghe (không gửi tin). */
 async function toggleListen(): Promise<void> {
   if (watchBusy.value || !props.contactId || !props.nickId) return;
+  // Đang theo dõi qua LUỒNG TỰ ĐỘNG (không phải gắn tay) → không cho tắt ở đây (luồng tự
+  // kết thúc). Báo nhẹ cho sale hiểu.
+  if (isListening.value && !isManualWatch.value) {
+    toast('Khách đang trong luồng bám đuổi tự động — dừng/tạm dừng ở thẻ luồng bên dưới, không bỏ theo dõi ở đây.', 'warning');
+    return;
+  }
   watchBusy.value = true;
   try {
     if (isListening.value) {
@@ -234,16 +245,18 @@ async function toggleListen(): Promise<void> {
         data: { contactId: props.contactId, nickId: props.nickId },
       });
       isListening.value = false;
+      isManualWatch.value = false;
     } else {
       await api.post('/automation/care-sessions/listen', {
         contactId: props.contactId,
         nickId: props.nickId,
       });
       isListening.value = true;
+      isManualWatch.value = true; // vừa tạo phiên gắn tay → cho phép bỏ theo dõi
     }
   } catch (err) {
     console.error('[care-listen] toggle failed', err);
-    window.alert('Lỗi cập nhật theo dõi — thử lại sau');
+    toast('Lỗi cập nhật theo dõi — thử lại sau', 'error');
   } finally {
     watchBusy.value = false;
   }

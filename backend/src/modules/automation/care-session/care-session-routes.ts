@@ -428,22 +428,27 @@ export async function careSessionRoutes(app: FastifyInstance): Promise<void> {
         return reply.status(400).send({ error: 'missing_params', message: 'Thiếu contactId hoặc nickId' });
       }
       const externalThreadId = await resolveListenThreadId(user.orgId, contactId, nickId, request.query?.threadId);
-      const session = await prisma.careSession.findFirst({
-        where: {
-          orgId: user.orgId,
-          contactId,
-          nickId,
-          state: 'active',
-          sourceType: 'sequence_manual',
-          sourceTriggerId: null,
-          ...(externalThreadId
-            ? { OR: [{ externalThreadId }, { externalThreadId: null }] }
-            : {}),
-        },
+      // ĐỒNG BỘ 2026-06-15: "đang theo dõi" tính CẢ phiên auto (trigger), không chỉ gắn tay.
+      // Trả thêm isManualWatch để FE biết: phiên gắn tay → cho bấm "Bỏ theo dõi"; phiên auto
+      // (luồng đang chạy) → KHÔNG cho tắt (luồng tự kết thúc), chỉ hiện trạng thái.
+      const threadCond = externalThreadId
+        ? { OR: [{ externalThreadId }, { externalThreadId: null }] }
+        : {};
+      const baseWhere = { orgId: user.orgId, contactId, nickId, state: 'active' as const, ...threadCond };
+      // Ưu tiên phiên GẮN TAY (để nút "Bỏ theo dõi" đóng đúng phiên); không có thì lấy phiên auto.
+      const manualSession = await prisma.careSession.findFirst({
+        where: { ...baseWhere, sourceType: 'sequence_manual', sourceTriggerId: null },
         select: { id: true, openedAt: true, lastReplyAt: true },
       });
+      const session = manualSession ?? await prisma.careSession.findFirst({
+        where: baseWhere,
+        orderBy: { openedAt: 'desc' },
+        select: { id: true, openedAt: true, lastReplyAt: true },
+      });
+      const isManualWatch = manualSession != null;
       return reply.send({
         listening: session != null,
+        isManualWatch, // true = phiên gắn tay (cho phép Bỏ theo dõi); false = phiên auto (luồng)
         sessionId: session?.id ?? null,
         openedAt: session?.openedAt ?? null,
         lastReplyAt: session?.lastReplyAt ?? null,
@@ -452,9 +457,12 @@ export async function careSessionRoutes(app: FastifyInstance): Promise<void> {
   );
 
   // ── GET danh sách cặp (contactId, nickId) ĐANG THEO DÕI — cho cột 2 hiện chuông ──
-  // 2026-06-15 (anh chốt): khách đang trong "theo dõi" (care-session gắn TAY) → FE hiện
-  // icon chuông sau tên ở cột 2. FE fetch 1 lần → Set "contactId|nickId" → map vào row.
-  // "Theo dõi" = phiên gắn tay (sourceType='sequence_manual', sourceTriggerId=null) state active.
+  // 2026-06-15 (anh chốt): khách đang trong "theo dõi" → FE hiện icon chuông sau tên ở cột 2.
+  // FE fetch 1 lần → Set "contactId|nickId" → map vào row.
+  // ĐỒNG BỘ 2026-06-15 (anh chốt): "đang theo dõi" = CÓ phiên chăm sóc ĐANG MỞ (state active),
+  // KỂ CẢ sequence TỰ GẮN (sourceType='trigger') chứ KHÔNG chỉ gắn tay ('sequence_manual').
+  // Trước đây lọc cứng sequence_manual → KH bám đuổi tự động KHÔNG hiện chuông (lệch). Giờ mọi
+  // phiên active đều tính. (Nút TẮT chuông vẫn chỉ đóng phiên gắn tay — xem DELETE /listen.)
   // BẢO MẬT: chỉ trả nick TRONG QUYỀN của user (getZaloScope) — không lộ nick ngoài quyền.
   app.get(
     '/api/v1/automation/care-sessions/listening-pairs',
@@ -464,9 +472,7 @@ export async function careSessionRoutes(app: FastifyInstance): Promise<void> {
       const sessions = await prisma.careSession.findMany({
         where: {
           orgId: user.orgId,
-          state: 'active',
-          sourceType: 'sequence_manual',
-          sourceTriggerId: null,
+          state: 'active', // mọi phiên đang mở (gắn tay sequence_manual HOẶC auto trigger)
           // chỉ nick user có quyền (admin/owner = tất cả → accessibleIds bao trùm).
           ...(scope.isOrgAdmin ? {} : { nickId: { in: scope.accessibleIds } }),
         },
