@@ -135,6 +135,14 @@
         <div v-if="primarySuggestion" class="lrm-suggestion">
           <span class="lrm-suggestion-icon">💡</span>
           <span class="lrm-suggestion-text">{{ primarySuggestion }}</span>
+          <button
+            v-if="(props.lead?.suggestedOpenings?.length ?? 0) > 1"
+            class="lrm-suggestion-copy"
+            title="Đổi câu chào khác"
+            @click="randomSuggestion"
+          >
+            <span>🔀</span><span>Đổi câu</span>
+          </button>
           <button class="lrm-suggestion-copy" :class="{ 'is-copied': copiedFlag }" @click="copySuggestion">
             <span>{{ copiedFlag ? '✓' : '📋' }}</span>
             <span>{{ copiedFlag ? 'Đã copy' : 'Copy' }}</span>
@@ -358,35 +366,33 @@
 
     <!-- Phase Lead Pool FIFO 2026-06-15 — bỏ Return Dialog (Anh chốt bỏ nút Trả lại pool). -->
 
-    <!-- Phase Lead Pool FIFO 2026-06-15 — Màn KHÓA chọn trạng thái sau Lưu Note.
-         KHÔNG nút X, KHÔNG bấm nền thoát. Bấm 1 trạng thái = lưu luôn rồi đóng. -->
+    <!-- Phase Lead Pool FIFO 2026-06-15 — Màn chọn trạng thái sau Lưu Note (style ảnh Anh:
+         card to ngang, nền nhạt theo màu trạng thái, số # bên phải, grid 2 cột 4 hàng).
+         Bắt buộc chọn 1 — chọn xong tự chuyển sang Lead tiếp theo. -->
     <Teleport to="body">
       <div v-if="statusStepOpen" class="sss-backdrop">
         <div class="sss-card" role="dialog" aria-modal="true">
-          <div class="sss-lockbar">
-            <span>🔒</span> Bắt buộc chọn 1 trạng thái — không thoát được
+          <div class="sss-head">Chọn trạng thái cho nick này</div>
+          <div v-if="statusLoading" class="sss-loading">Đang tải trạng thái…</div>
+          <div v-else-if="statusList.length === 0" class="sss-empty">
+            Chưa cài trạng thái nào. Vào Cài đặt → CRM → Trạng thái để thêm.
           </div>
-          <div class="sss-body">
-            <div class="sss-q">Khách này hiện ở trạng thái nào?</div>
-            <div v-if="statusLoading" class="sss-loading">Đang tải trạng thái…</div>
-            <div v-else-if="statusList.length === 0" class="sss-empty">
-              Chưa cài trạng thái nào. Vào Cài đặt → CRM → Trạng thái để thêm.
-            </div>
-            <div v-else class="sss-grid">
-              <button
-                v-for="st in statusList"
-                :key="st.id"
-                class="sss-pick"
-                :disabled="savingStatus"
-                @click="onPickStatus(st.id)"
-              >
-                <span class="sss-dot" :style="{ background: st.color || '#9CA3AF' }"></span>
-                {{ st.name }}
-              </button>
-            </div>
-            <div v-if="savingStatus" class="sss-saving">Đang lưu…</div>
-            <div v-if="actionError" class="sss-error">⚠ {{ actionError }}</div>
+          <div v-else class="sss-grid">
+            <button
+              v-for="(st, i) in statusList"
+              :key="st.id"
+              class="sss-card-btn"
+              :style="cardStyle(st.color)"
+              :disabled="savingStatus"
+              @click="onPickStatus(st.id)"
+            >
+              <span class="sss-name" :style="{ color: st.color || '#475066' }">{{ st.name }}</span>
+              <span class="sss-num">#{{ i + 1 }}</span>
+            </button>
           </div>
+          <div class="sss-foot">Chọn trạng thái để chuyển qua Lead tiếp theo</div>
+          <div v-if="savingStatus" class="sss-saving">Đang lưu…</div>
+          <div v-if="actionError" class="sss-error">⚠ {{ actionError }}</div>
         </div>
       </div>
     </Teleport>
@@ -398,7 +404,6 @@ import { computed, onMounted, onBeforeUnmount, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { api } from '@/api/index';
 import { useLeadPool, type LeadPayload } from '@/composables/use-lead-pool';
-import { useAuthStore } from '@/stores/auth';
 
 const props = defineProps<{ lead: LeadPayload | null }>();
 const emit = defineEmits<{
@@ -408,7 +413,6 @@ const emit = defineEmits<{
 }>();
 
 const router = useRouter();
-const authStore = useAuthStore();
 const { submitNote, eligibility, fetchStatuses } = useLeadPool();
 
 const noteText = ref('');
@@ -564,7 +568,6 @@ function vietnameseFirstName(fullName: string | null | undefined): string {
   return last.charAt(0).toUpperCase() + last.slice(1).toLowerCase();
 }
 
-const saleFirstName = computed(() => vietnameseFirstName(authStore.user?.fullName ?? null));
 const contactFirstName = computed(() => {
   const c = props.lead?.contact;
   return vietnameseFirstName(c?.crmName ?? c?.fullName ?? null);
@@ -577,20 +580,26 @@ const contactFirstName = computed(() => {
  *   unknown → "anh/chị Thành"
  * Sale prefix: "em Thành"
  */
+// Phase Lead Pool FIFO 2026-06-15 — câu chào lấy từ list suggestedOpenings (BE đã render
+// 8 biến). Nút Random đổi câu khác trong list. Index xoay vòng.
+const suggestionIndex = ref(0);
 const primarySuggestion = computed(() => {
+  const list = props.lead?.suggestedOpenings ?? [];
+  if (list.length > 0) return list[suggestionIndex.value % list.length] ?? '';
+  // Fallback nếu BE không trả list (sale chưa có nick) — câu cơ bản.
   const contactName = contactFirstName.value;
-  const sale = saleFirstName.value;
   const gender = zaloProfile.value?.gender;
-  const saleIntro = sale ? `em ${sale}` : 'em';
-  let greeting: string;
-  if (!contactName) greeting = 'Chào anh/chị';
-  else if (gender === 0) greeting = `Chào Anh ${contactName}`;
-  else if (gender === 1) greeting = `Chào Chị ${contactName}`;
-  else greeting = `Chào anh/chị ${contactName}`;
-  if (!contactName && !sale) return props.lead?.suggestedOpenings?.[0] ?? '';
-  const pronoun = gender === 0 ? 'anh' : gender === 1 ? 'chị' : 'anh/chị';
-  return `${greeting}, ${saleIntro} là sale chăm sóc tiếp tài khoản của ${pronoun}. Em đọc lại lịch sử thấy mình đã quan tâm dự án trước đây, không biết hiện tại ${pronoun} còn nhu cầu không ạ?`;
+  const xnq = gender === 0 ? 'Anh' : gender === 1 ? 'Chị' : 'anh/chị';
+  return contactName ? `Chào ${xnq} ${contactName}, em là sale chăm sóc tài khoản của mình ạ.` : '';
 });
+function randomSuggestion() {
+  const list = props.lead?.suggestedOpenings ?? [];
+  if (list.length <= 1) return;
+  // Đổi sang câu KHÁC câu hiện tại (random trong list).
+  let next = suggestionIndex.value;
+  while (next === suggestionIndex.value) next = Math.floor(Math.random() * list.length);
+  suggestionIndex.value = next;
+}
 
 const genderLabel = computed(() => {
   const g = zaloProfile.value?.gender;
@@ -793,6 +802,12 @@ async function onSaveNoteThenStatus() {
 
 // Bước 2: bấm 1 trong các trạng thái = LƯU LUÔN (note + status) rồi đóng. Màn khóa,
 // không X, không bấm nền thoát — bắt buộc chọn 1 (Anh chốt 2026-06-15).
+// Nền nhạt từ màu trạng thái (giống ảnh Anh: card màu pastel theo status).
+function cardStyle(color: string | null) {
+  const c = color || '#9CA3AF';
+  return { background: c + '22', border: `1px solid ${c}33` };
+}
+
 async function onPickStatus(statusId: string) {
   if (!props.lead || savingStatus.value) return;
   savingStatus.value = true;
@@ -1116,35 +1131,36 @@ onBeforeUnmount(() => { document.removeEventListener('click', onDocumentClick); 
 .rrd-btn-danger:hover:not(:disabled) { background: #B91C1C; }
 .rrd-btn-danger:disabled { opacity: 0.5; cursor: not-allowed; background: #94A3B8; border-color: #94A3B8; }
 
-/* Phase Lead Pool FIFO 2026-06-15 — nút Lưu Note full hàng + màn KHÓA chọn trạng thái */
+/* Phase Lead Pool FIFO 2026-06-15 — nút Lưu Note full hàng */
 .lrm-btn-save-full { flex: 1; justify-content: center; }
+
+/* Màn chọn trạng thái — style theo ảnh Anh: card to ngang, nền pastel theo màu status,
+   số # bên phải, grid 2 cột × 4 hàng (4 trên 4 dưới). Font Plus Jakarta Sans. */
 .sss-backdrop {
   position: fixed; inset: 0; z-index: 10050;
-  background: rgba(8, 22, 30, 0.62); backdrop-filter: blur(2px);
+  background: rgba(8, 22, 30, 0.55); backdrop-filter: blur(2px);
   display: flex; align-items: center; justify-content: center; padding: 20px;
+  font-family: "Plus Jakarta Sans", -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 .sss-card {
-  width: 400px; max-width: 100%; border-radius: 14px; overflow: hidden;
-  box-shadow: 0 16px 48px rgba(20,26,36,.32); outline: 3px solid rgba(240,68,56,.22); outline-offset: 2px;
-  background: #fff;
+  width: 460px; max-width: 100%; border-radius: 16px; overflow: hidden;
+  box-shadow: 0 16px 48px rgba(20,26,36,.28); background: #fff; padding: 22px;
 }
-.sss-lockbar {
-  display: flex; align-items: center; justify-content: center; gap: 7px;
-  font-size: 11.5px; font-weight: 700; color: #fff;
-  background: linear-gradient(100deg, #b42318, #7a160f); padding: 9px 14px;
+.sss-head { font-size: 17px; font-weight: 800; color: #141a24; margin-bottom: 16px; }
+.sss-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.sss-card-btn {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 13px 16px; border-radius: 11px; cursor: pointer;
+  font-family: inherit; transition: all .12s; text-align: left;
 }
-.sss-body { padding: 24px 22px; text-align: center; }
-.sss-q { font-size: 16px; font-weight: 800; color: #141a24; }
-.sss-grid { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 18px; }
-.sss-pick {
-  display: inline-flex; align-items: center; gap: 6px;
-  font-size: 12.5px; font-weight: 600; padding: 8px 14px; border-radius: 999px;
-  border: 1.5px solid #e7eaf0; background: #fff; color: #475066; cursor: pointer;
-  font-family: inherit; transition: all .12s;
+.sss-card-btn:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(20,26,36,.10); }
+.sss-card-btn:disabled { opacity: .55; cursor: not-allowed; }
+.sss-name { font-size: 14.5px; font-weight: 700; }
+.sss-num { font-size: 12px; font-weight: 600; color: #97a0b3; }
+.sss-foot {
+  margin-top: 16px; text-align: center; font-size: 12.5px; font-weight: 600;
+  color: #6b7488; background: #f7f9fc; border: 1px solid #eef1f6; border-radius: 10px; padding: 11px;
 }
-.sss-pick:hover:not(:disabled) { border-color: #5bb8e5; background: #f2f8fc; }
-.sss-pick:disabled { opacity: .5; cursor: not-allowed; }
-.sss-dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
-.sss-loading, .sss-empty, .sss-saving { font-size: 12.5px; color: #6b7488; margin-top: 14px; }
-.sss-error { font-size: 12px; color: #c0291f; margin-top: 12px; }
+.sss-loading, .sss-empty, .sss-saving { font-size: 13px; color: #6b7488; padding: 16px; text-align: center; }
+.sss-error { font-size: 12.5px; color: #c0291f; margin-top: 12px; text-align: center; }
 </style>

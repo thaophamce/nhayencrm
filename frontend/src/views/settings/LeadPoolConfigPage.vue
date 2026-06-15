@@ -192,17 +192,31 @@
           </ul>
         </div>
         <div class="lpc-template-list">
-          <div v-for="(_, idx) in form.greetingTemplates" :key="idx" class="lpc-template-row">
-            <span class="lpc-template-num">#{{ idx + 1 }}</span>
-            <textarea
-              v-model="form.greetingTemplates[idx]"
-              rows="3"
-              maxlength="500"
-              class="lpc-template-textarea"
+          <div v-for="(_, idx) in form.greetingTemplates" :key="idx" class="lpc-template-card">
+            <div class="lpc-template-cardhd">
+              <span class="lpc-template-num">Câu #{{ idx + 1 }}</span>
+              <button type="button" class="lpc-template-del" :title="'Xoá câu ' + (idx + 1)" @click="removeTemplate(idx)">✕</button>
+            </div>
+            <!-- Phase FIFO 2026-06-15: editor HTML format (đậm/màu) giống Block/Tin nhắn mẫu. -->
+            <RichTextEditor
+              :ref="(el: any) => setEditorRef(idx, el)"
+              :model-value="form.greetingTemplates[idx]"
+              :show-toolbar="true"
+              :submit-on-enter="false"
               placeholder="Vd: Chào {gender} {crm_first}, em {sale} đây ạ. {gender} còn quan tâm dự án không?"
-              @blur="onSaveTemplates"
+              @update:model-value="(v: string) => onTemplateInput(idx, v)"
             />
-            <button type="button" class="lpc-template-del" :title="'Xoá câu ' + (idx + 1)" @click="removeTemplate(idx)">✕</button>
+            <div class="lpc-varbar">
+              <span class="lpc-varbar-label"><v-icon size="13">mdi-cursor-text</v-icon> Chèn biến:</span>
+              <button
+                v-for="vr in TEMPLATE_VARIABLES"
+                :key="vr.code"
+                type="button"
+                class="lpc-varchip"
+                :title="`Chèn ${vr.code} (${vr.label})`"
+                @click="insertVar(idx, vr.code)"
+              ><code>{{ vr.code }}</code></button>
+            </div>
           </div>
           <button
             v-if="form.greetingTemplates.length < 10"
@@ -228,6 +242,8 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
 import { api } from '@/api/index';
+import RichTextEditor from '@/components/chat/rich-text-editor.vue';
+import { TEMPLATE_VARIABLES } from '@/constants/template-variables';
 
 const STATUS_OPTIONS = [
   { value: 'hot', label: 'Nóng', icon: '🔥' },
@@ -335,6 +351,24 @@ async function onSave() {
     saveError.value = err?.response?.data?.error || 'Lưu thất bại';
     saveStatus.value = 'error';
   }
+}
+
+// Phase FIFO 2026-06-15 — RichTextEditor refs + chèn biến (tái dùng pattern Block).
+const editorRefs = ref<Record<number, any>>({});
+function setEditorRef(idx: number, el: any) {
+  if (el) editorRefs.value[idx] = el; else delete editorRefs.value[idx];
+}
+let tplSaveTimer: ReturnType<typeof setTimeout> | null = null;
+function onTemplateInput(idx: number, val: string) {
+  form.value.greetingTemplates[idx] = val;
+  // Debounce lưu (RichTextEditor không có @blur như textarea cũ).
+  if (tplSaveTimer) clearTimeout(tplSaveTimer);
+  tplSaveTimer = setTimeout(() => onSaveTemplates(), 800);
+}
+function insertVar(idx: number, code: string) {
+  const ed = editorRefs.value[idx];
+  if (ed?.insertText) { ed.insertText(code); }
+  else { form.value.greetingTemplates[idx] = (form.value.greetingTemplates[idx] || '') + code; }
 }
 
 function addTemplate() {
@@ -480,6 +514,15 @@ onMounted(fetchConfig);
 .lpc-template-num { color: #64748B; font-weight: 700; font-size: 12px; padding-top: 8px; text-align: center; }
 .lpc-template-textarea { width: 100%; padding: 8px 10px; border: 1px solid #CBD5E1; border-radius: 6px; font-family: inherit; font-size: 13px; resize: vertical; min-height: 60px; box-sizing: border-box; }
 .lpc-template-textarea:focus { outline: 2px solid #3B82F6; outline-offset: -1px; border-color: transparent; }
+/* Phase FIFO 2026-06-15 — card editor câu chào (RichTextEditor + chèn biến) */
+.lpc-template-card { border: 1px solid #e7eaf0; border-radius: 10px; padding: 12px; margin-bottom: 10px; background: #fff; }
+.lpc-template-cardhd { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.lpc-template-cardhd .lpc-template-num { color: #475066; font-weight: 700; font-size: 12.5px; padding: 0; text-align: left; }
+.lpc-varbar { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.lpc-varbar-label { font-size: 11.5px; color: #6b7488; font-weight: 600; display: inline-flex; align-items: center; gap: 4px; }
+.lpc-varchip { border: 1px solid #d8e6ef; background: #f2f8fc; border-radius: 999px; padding: 3px 9px; cursor: pointer; font-family: inherit; transition: all .12s; }
+.lpc-varchip:hover { background: #e4f1f8; border-color: #5bb8e5; }
+.lpc-varchip code { font-size: 11px; color: #0b5880; font-weight: 600; font-family: "Roboto Mono", monospace; }
 .lpc-template-del { background: #FEF2F2; color: #B91C1C; border: 1px solid #FCA5A5; border-radius: 6px; cursor: pointer; font-size: 12px; height: 32px; transition: background 0.15s; }
 .lpc-template-del:hover { background: #FECACA; }
 .lpc-template-add { margin-top: 4px; padding: 8px 14px; background: #EEF2FF; color: #4338CA; border: 1px dashed #C7D2FE; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 12px; transition: background 0.15s; }
