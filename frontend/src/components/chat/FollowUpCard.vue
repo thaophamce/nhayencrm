@@ -53,10 +53,11 @@
         <span class="mi"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9" /><polyline points="12 7 12 12 15 14" /></svg></span>
         Lần gửi tiếp: {{ formatTime(card.nextRunAt) }}
       </div>
-      <!-- paused: remaining -->
+      <!-- paused: KH reply hold — hiện RÕ giờ gửi tiếp SAU HOLD + còn bao lâu (anh chốt 2026-06-15) -->
       <div v-else-if="card.state === 'paused'" class="fc-line warn">
         <span class="mi"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="4" height="16" /><rect x="14" y="4" width="4" height="16" /></svg></span>
-        KH đã tương tác · còn {{ formatRemaining(card.pausedUntilMs) }}
+        <span v-if="card.nextRunAt">Tạm dừng vì khách trả lời · gửi tiếp {{ formatTime(card.nextRunAt) }}<template v-if="card.pausedUntilMs > 0"> (còn {{ formatRemaining(card.pausedUntilMs) }})</template></span>
+        <span v-else>Tạm dừng vì khách trả lời · còn {{ formatRemaining(card.pausedUntilMs) }}</span>
       </div>
       <!-- completed -->
       <div v-else-if="card.state === 'completed'" class="fc-line">
@@ -232,11 +233,16 @@ const stepLabel = computed(() => {
 function formatTime(iso: string | null | undefined): string {
   if (!iso) return '';
   const d = new Date(iso);
-  const now = new Date();
-  const diffH = (d.getTime() - now.getTime()) / 3600_000;
   const hhmm = d.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Ho_Chi_Minh' });
-  if (diffH >= 0 && diffH < 24) return `${hhmm} hôm nay`;
-  if (diffH >= 24 && diffH < 48) return `${hhmm} mai`;
+  // FIX 2026-06-15 (anh báo "19:02 hôm nay" SAI khi thật là mai): so theo NGÀY LỊCH VN,
+  // KHÔNG theo 24h (19:02 mai cách 23.7h vẫn bị nhầm "hôm nay" nếu so giờ). Lấy ngày VN
+  // (YYYY-MM-DD theo Asia/Ho_Chi_Minh) của mốc vs hôm nay → chênh số NGÀY.
+  const vnDay = (x: Date) => x.toLocaleDateString('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }); // YYYY-MM-DD
+  const today = vnDay(new Date());
+  const target = vnDay(d);
+  const dayDiff = Math.round((Date.parse(target) - Date.parse(today)) / 86400_000);
+  if (dayDiff === 0) return `${hhmm} hôm nay`;
+  if (dayDiff === 1) return `${hhmm} mai`;
   return d.toLocaleString('vi-VN', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Ho_Chi_Minh' });
 }
 function formatRemaining(ms: number): string {

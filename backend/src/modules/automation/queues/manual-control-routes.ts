@@ -961,8 +961,24 @@ export async function registerManualControlRoutes(app: FastifyInstance): Promise
               });
               for (const sq of seqs) seqIdByName.set(sq.name, sq.id);
             }
+            // 2026-06-15 (anh báo): card đang HOLD do KH reply phải biết để hiện rõ "Chờ KH
+            // trả lời · gửi tiếp [giờ]". Lấy phiên active đang pause (pausedAtStepIdx) của
+            // contact này + pausedUntil → map theo sequenceId. 1 query cho 1 contact (rẻ).
+            const pausedSessions = await prisma.careSession.findMany({
+              where: { orgId, contactId: cid, state: 'active', pausedAtStepIdx: { not: null } },
+              select: { sourceSequenceId: true, pausedUntil: true },
+            });
+            const pausedBySeq = new Map<string, Date | null>();
+            for (const ps of pausedSessions) {
+              if (ps.sourceSequenceId) pausedBySeq.set(ps.sourceSequenceId, ps.pausedUntil);
+            }
             manualRuns = myRuns
-              .map((r) => ({
+              .map((r) => {
+                const seqId = r.sequenceName ? (seqIdByName.get(r.sequenceName) ?? null) : null;
+                // Đang hold do KH reply? (phiên active của luồng này còn pausedAtStepIdx)
+                const isHoldByReply = seqId != null && pausedBySeq.has(seqId);
+                const holdUntil = isHoldByReply ? (pausedBySeq.get(seqId!) ?? null) : null;
+                return {
                 // Khóa duy nhất per-run cho FE :key (1 trigger đẻ nhiều run).
                 enrollmentId: r.enrollmentId,
                 enrollSeq: r.enrollSeq,
@@ -972,30 +988,34 @@ export async function registerManualControlRoutes(app: FastifyInstance): Promise
                 systemKind: 'manual_chat_followup' as string | null,
                 // sequenceId THẬT: nút "Gửi bước tiếp ngay" (advance) cần nó (BE advance bắt
                 // buộc sequenceId). FE group dùng enrollmentId nên KHÔNG gom các run lại.
-                sequenceId: r.sequenceName ? (seqIdByName.get(r.sequenceName) ?? null) : null,
+                sequenceId: seqId,
                 sequenceName: r.sequenceName,
                 // BE đã biết chính xác state per-run (active/completed/stopped) → truyền thẳng
                 // để FE KHÔNG tự derive sai (run cũ progressUnknown totalSteps=null sẽ bị
                 // deriveState nhầm thành 'active'). FE ưu tiên derivedState nếu có.
-                derivedState: r.state,
+                // Đang hold do KH reply → state 'paused' (FE hiện "Chờ KH trả lời").
+                derivedState: isHoldByReply ? 'paused' : r.state,
                 latestEvent: r.state === 'stopped' ? 'manual_stop' : 'manual_enroll',
                 latestAt: new Date(r.lastSentAt ?? r.enrolledAt),
                 currentStep: r.currentStep,
                 totalSteps: r.totalSteps,
-                nextRunAt: r.nextRunAt,
-                pausedUntilMs: 0,
-                pausedUntil: null,
+                // Khi hold do reply: nextRunAt = giờ gửi tiếp SAU HOLD (= pausedUntil).
+                nextRunAt: isHoldByReply && holdUntil ? holdUntil.toISOString() : r.nextRunAt,
+                pausedUntilMs: isHoldByReply && holdUntil ? Math.max(0, holdUntil.getTime() - Date.now()) : 0,
+                pausedUntil: isHoldByReply && holdUntil ? holdUntil.toISOString() : null,
                 // reenrolled/completed → KHÔNG phải "dừng" (tránh nhãn "Đã dừng" gây hiểu nhầm).
                 // Chỉ stopped thật (sale dừng/KH chặn) mới stopped → vào nhóm Lịch sử.
                 stopped: r.state === 'stopped',
                 etaCompleteAt: null,
-                holdReason: (r.state === 'completed' ? 'completed' : null) as string | null,
+                // holdReason: 'waiting_reply' khi KH reply hold; 'completed' khi xong; else null.
+                holdReason: (isHoldByReply ? 'waiting_reply' : (r.state === 'completed' ? 'completed' : null)) as string | null,
                 allowedHourRange: null,
                 timing: [] as unknown[],
                 isManual: true,
                 enrolledByName: r.enrolledByName,
                 enrollReason: r.enrollReason,
-              })) as unknown as typeof result;
+                };
+              }) as unknown as typeof result;
           } catch (err) {
             logger.warn(`[automation-status] nở manual runs lỗi (giữ card gộp): ${(err as Error).message}`);
             manualRuns = result.filter((c) => c.systemKind === 'manual_chat_followup');
