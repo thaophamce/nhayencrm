@@ -25,6 +25,18 @@
         <span class="dot" />
         Mất kết nối realtime — đang thử kết nối lại...
       </div>
+      <!-- work-scope 2026-06-15 — "N tin nick khác": có tin ở nick NGOÀI Phạm vi xem.
+           Không bỏ lỡ khách. Bấm nick → khóa scope sang nick đó + reload. Chỉ nick có quyền. -->
+      <div v-if="outOfScopeTotal > 0" class="out-of-scope-bar">
+        <span class="oos-label">📥 {{ outOfScopeTotal }} tin ở nick khác:</span>
+        <button
+          v-for="b in outOfScopeBadges"
+          :key="b.id"
+          class="oos-chip"
+          :title="`Xem ${b.count} tin ở nick ${b.name}`"
+          @click="onPickOutOfScopeNick(b.id)"
+        >{{ b.name }} <span class="oos-count">{{ b.count }}</span></button>
+      </div>
       <ConversationList
         :conversations="conversations"
         :selected-id="selectedConvId"
@@ -138,6 +150,8 @@ import { useAuthStore } from '@/stores/auth';
 import { usePrivacyStore } from '@/stores/privacy';
 import { useChatOperations } from '@/composables/use-chat-operations';
 import { useZaloAccounts } from '@/composables/use-zalo-accounts';
+import { useWorkScope } from '@/composables/use-work-scope';
+import { shouldAdoptNickScope } from '@/composables/work-scope-logic';
 import MobileChatView from '@/views/MobileChatView.vue';
 import { useMobile } from '@/composables/use-mobile';
 
@@ -154,6 +168,7 @@ const {
   generateAiSuggestion, generateAiSummary, generateAiSentiment,
   initSocket, destroySocket, getSocket,
   typingConvIds, socketConnected,
+  outOfScopeCounts, clearOutOfScopeBadge,
 } = useChat();
 
 const {
@@ -170,6 +185,9 @@ const authStore = useAuthStore();
 // ════════ Zalo accounts (for FilterRail nick picker) ════════
 const { accounts: zaloAccounts, fetchAccounts: fetchZaloAccounts } = useZaloAccounts();
 const selectedAccountIds = ref<string[]>([]);
+// work-scope (nguồn chân lý mới; accountFilter là facade bắc qua nó). Dùng validateAgainst
+// để lọc scope đã lưu chỉ còn nick CÓ QUYỀN — bảo mật, Anh nhấn mạnh 2026-06-15.
+const workScope = useWorkScope();
 
 // 2026-06-09 (anh chốt) — NHỚ "Phạm vi xem" qua reload/tắt-mở tab. Lưu {folderId, accountId}
 // vào localStorage. Khôi phục lúc mount SAU khi fetchZaloAccounts (để validate quyền):
@@ -187,24 +205,38 @@ function loadScopeRaw(): { folderId: string | null; accountId: string | null } {
     return { folderId: r.folderId ?? null, accountId: r.accountId ?? null };
   } catch { return { folderId: null, accountId: null }; }
 }
-// Áp scope đã lưu vào state, CÓ validate quyền nick. Folder validate ở sidebar
-// (fetchFolders chỉ trả folder của user); accountId validate theo zaloAccounts accessible.
+// Áp scope đã lưu vào state, CÓ validate quyền nick.
+// work-scope migration 2026-06-15: NICK giờ do workScope quản (seed từ chat.workscope.v2).
+// validateAgainst bỏ nick MẤT QUYỀN (bảo mật — KHÔNG vượt quyền server getZaloScope cấp).
+// restoreScope chỉ còn lo FOLDER (chat.scope.v1) — nick đã tách sang workScope.
 function restoreScope() {
-  const saved = loadScopeRaw();
-  let invalid = false;
-  // Nick: chỉ khôi phục nếu còn trong quyền truy cập hiện tại.
-  if (saved.accountId) {
-    const stillAccessible = (zaloAccounts.value || []).some(a => a.id === saved.accountId);
-    accountFilter.value = stillAccessible ? saved.accountId : null;
-    if (!stillAccessible) { saved.folderId = null; invalid = true; } // nick mất quyền → bỏ luôn folder kèm
-  } else {
-    accountFilter.value = null;
-  }
+  const accessibleIds = (zaloAccounts.value || []).map(a => a.id);
+  workScope.validateAgainst(accessibleIds); // lọc scope đã lưu chỉ còn nick có quyền
   // Folder: set vào inbox filter (sidebar tự bỏ nếu folder không tồn tại khi render).
+  const saved = loadScopeRaw();
   inboxFilters.setFolder(saved.folderId);
-  // Nick đã lưu mất quyền → ghi đè localStorage về scope hợp lệ (giữ folder nếu còn).
-  if (invalid) saveScope(saved.folderId, accountFilter.value);
 }
+// work-scope 2026-06-15 — badge "N tin nick khác": gom outOfScopeCounts → {nick, tên, số}.
+// CHỈ hiện nick CÓ QUYỀN (join với zaloAccounts đã qua getZaloScope) — bảo mật, không lộ
+// nick ngoài quyền. Bấm 1 badge → khóa scope sang nick đó + reload (đúng quy tắc nav).
+const outOfScopeBadges = computed(() => {
+  const out: Array<{ id: string; name: string; count: number }> = [];
+  for (const [id, count] of outOfScopeCounts.value) {
+    const acc = (zaloAccounts.value || []).find(a => a.id === id);
+    if (!acc) continue; // nick ngoài quyền/đã gỡ → KHÔNG hiện (bảo mật)
+    out.push({ id, name: acc.displayName || 'Nick khác', count });
+  }
+  return out;
+});
+const outOfScopeTotal = computed(() => outOfScopeBadges.value.reduce((s, b) => s + b.count, 0));
+function onPickOutOfScopeNick(id: string) {
+  clearOutOfScopeBadge(id);
+  if (workScope.setScope([id])) {
+    // scope đổi → reload để nạp cột 2 đúng nick (đồng nhất với luồng nav-bug).
+    window.location.reload();
+  }
+}
+
 const currentAccount = computed(() => {
   if (!accountFilter.value) return null;
   return zaloAccounts.value.find(a => a.id === accountFilter.value) || null;
@@ -511,13 +543,27 @@ function onSelectConv(convId: string) {
 }
 
 // Watch route → select conv khi convId thay đổi (deep-link, back/forward, mới click)
+// work-scope 2026-06-15 — FIX BUG NHẢY NICK: nếu hội thoại mở thuộc nick NGOÀI scope
+// (vd từ Friend bấm chat khách nick B trong khi đang khóa nick A) → đặt scope = nick B
+// rồi RELOAD trang (Anh chốt: state sạch). Nick TRONG scope → luồng tự thông (không reload).
+// Đặt adopt-scope Ở ĐÂY (watcher), KHÔNG trong selectConversation (selectConversation có
+// nhiều caller: onSelectConv/onLabelsSynced/onSwitchToNickConv — tránh adopt nhầm). Eng-review.
 watch(
   () => route.params.convId,
   (id) => {
     if (typeof id === 'string' && id && id !== selectedConvId.value) {
-      // 2026-06-12 — chờ select (gồm mark-read) xong rồi refresh badge Ưu tiên: tab
-      // "Ưu tiên" hết chấm đỏ/đậm ngay khi đọc hết, không cần reload/move conv.
-      void selectConversation(id).then(() => refreshPriorityUnread());
+      void selectConversation(id).then(() => {
+        // Sau resolve: selectedConv đã có (từ list HOẶC selectedConvDetail). Đọc nick của nó.
+        const convNick = (selectedConv.value as any)?.zaloAccount?.id as string | undefined;
+        if (shouldAdoptNickScope(workScope.accountIds.value, convNick) && convNick) {
+          // setScope idempotent (đã check shouldAdopt → chắc chắn đổi). Persist localStorage
+          // rồi reload → restoreScope nạp scope mới → cột 2 + cột 3 đều đúng nick B (hết split-brain).
+          workScope.setScope([convNick]);
+          window.location.reload();
+          return;
+        }
+        refreshPriorityUnread();
+      });
     }
   },
   { immediate: false },
@@ -675,6 +721,43 @@ watch(searchQuery, () => {
 .smax-conv-col {
   border-right: 1px solid var(--smax-grey-200);
   background: var(--smax-bg);
+}
+
+/* work-scope 2026-06-15 — bar "N tin nick khác" ở đầu cột 2 */
+.out-of-scope-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px 12px;
+  background: #eff6ff;
+  border-bottom: 1px solid #bfdbfe;
+}
+.out-of-scope-bar .oos-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #1e40af;
+}
+.out-of-scope-bar .oos-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  font-size: 12px;
+  border-radius: 999px;
+  border: 1px solid #93c5fd;
+  background: #fff;
+  color: #1e40af;
+  cursor: pointer;
+}
+.out-of-scope-bar .oos-chip:hover { background: #dbeafe; }
+.out-of-scope-bar .oos-count {
+  font-weight: 700;
+  background: #1e40af;
+  color: #fff;
+  border-radius: 999px;
+  padding: 0 5px;
+  font-size: 11px;
 }
 
 /* FIX socket-chết v2 — banner mất kết nối realtime ở đầu cột 2 */
