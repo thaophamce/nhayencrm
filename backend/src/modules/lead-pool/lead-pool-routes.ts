@@ -112,9 +112,11 @@ export async function leadPoolRoutes(app: FastifyInstance): Promise<void> {
     { preHandler: requireGrant('settings', 'access') },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const user = request.user!;
+      const q = request.query as { period?: string };
+      const period = (['today', '7d', '30d'] as const).includes(q.period as any) ? (q.period as 'today' | '7d' | '30d') : '7d';
       try {
         const { getAdminDashboard } = await import('./lead-pool-service.js');
-        return await getAdminDashboard({ orgId: user.orgId });
+        return await getAdminDashboard({ orgId: user.orgId, period });
       } catch (err) {
         return handle(err, reply);
       }

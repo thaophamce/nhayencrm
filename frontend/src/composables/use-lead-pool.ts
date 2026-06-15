@@ -159,9 +159,9 @@ export function useLeadPool() {
     };
   }
 
-  // Dashboard 4 màn pro (admin). Phase FIFO 2026-06-15.
-  async function fetchAdminDashboard() {
-    const { data } = await api.get('/lead-pool/admin-dashboard');
+  // Dashboard admin. Phase Dashboard v2 2026-06-15 — nhận period (today/7d/30d).
+  async function fetchAdminDashboard(period: 'today' | '7d' | '30d' = '7d') {
+    const { data } = await api.get('/lead-pool/admin-dashboard', { params: { period } });
     return data as any;
   }
 

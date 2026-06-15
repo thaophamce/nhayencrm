@@ -2933,11 +2933,16 @@ export async function getLeadPayload(args: { userId: string; orgId: string; lead
  * Dashboard buồng lái, Điều phối sale, Nguồn lead, Chất lượng lead.
  * 1 endpoint gọn thay 4 (giảm round-trip). Chỉ đọc, không mutate.
  */
-export async function getAdminDashboard(args: { orgId: string }) {
+export async function getAdminDashboard(args: { orgId: string; period?: 'today' | '7d' | '30d' }) {
   const { orgId } = args;
+  const period = args.period ?? '7d';
   const startToday = startOfTodayVN();
   const start7d = new Date(Date.now() - 7 * 86400000);
   const start14d = new Date(Date.now() - 14 * 86400000);
+  // Phase Dashboard v2 2026-06-15 — mốc kỳ cho xếp hạng sale + chất lượng (Anh chốt 7d default).
+  const periodStart = period === 'today' ? startToday
+    : period === '30d' ? new Date(Date.now() - 30 * 86400000)
+    : start7d;
 
   // ── Vòng tua: tổng pool đủ điều kiện vào pool (đơn giản: contact chưa bị loại) ──
   // Tổng pool ≈ count contact có pooled_count đã đếm. "Chưa ai bóc vòng này" = pooled_count
@@ -2978,34 +2983,87 @@ export async function getAdminDashboard(args: { orgId: string }) {
     select: { id: true, fullName: true, crmName: true, phone: true, pooledCount: true, avatarUrl: true },
   });
 
-  // ── Điều phối sale: leaderboard hôm nay (ai nhận/note/trả) ──
-  const distToday = await prisma.leadPoolDistribution.groupBy({
+  // ── Phase Dashboard v2 — XẾP HẠNG SALE theo kỳ (Anh chốt 3 tiêu chí: tỉ lệ note,
+  //    đẩy status tốt, tốc độ note). Điểm = notePct×0.35 + qualityPct×0.40 + speed×0.25.
+  //    "Status tốt" = Status.order ≥ order của status tên chứa "tiềm"/"nóng"/"chốt"/"đàm phán"
+  //    (org tự định nghĩa). Fallback: status khác "mới"/"mất" coi là tiến triển.
+  const statuses = await prisma.status.findMany({
+    where: { orgId }, select: { id: true, name: true, order: true, color: true, isTerminal: true },
+    orderBy: { order: 'asc' },
+  });
+  // Ngưỡng "status tốt": order nhỏ nhất trong các status tên gợi ý đã tiến triển.
+  const GOOD_RE = /(tiềm|nóng|chốt|đàm phán|quan tâm|hot|won|deal)/i;
+  const goodStatusIds = new Set(statuses.filter((s) => GOOD_RE.test(s.name)).map((s) => s.id));
+
+  const distInPeriod = await prisma.leadPoolDistribution.groupBy({
     by: ['assignedToUserId'],
-    where: { orgId, distributedAt: { gte: startToday } },
+    where: { orgId, distributedAt: { gte: periodStart } },
     _count: { _all: true },
   });
-  const saleIds = distToday.map((d) => d.assignedToUserId);
-  const [saleUsers, notedBySale, returnedBySale] = await Promise.all([
-    saleIds.length ? prisma.user.findMany({ where: { id: { in: saleIds } }, select: { id: true, fullName: true, email: true, avatarUrl: true } }) : [],
-    saleIds.length ? prisma.leadRequest.groupBy({ by: ['requestedByUserId'], where: { requestedByUserId: { in: saleIds }, noteSubmittedAt: { gte: startToday } }, _count: { _all: true } }) : [],
-    saleIds.length ? prisma.leadRequest.groupBy({ by: ['requestedByUserId'], where: { requestedByUserId: { in: saleIds }, releaseReason: { in: ['manual_return', 'auto_return'] }, OR: [{ autoReturnedAt: { gte: startToday } }, { noteSubmittedAt: { gte: startToday } }] }, _count: { _all: true } }) : [],
-  ]);
+  const saleIds = distInPeriod.map((d) => d.assignedToUserId);
+  // Lấy chi tiết request trong kỳ để tính tốc độ + status đẩy lên (mỗi sale).
+  const reqInPeriod = saleIds.length ? await prisma.leadRequest.findMany({
+    where: { requestedByUserId: { in: saleIds }, requestedAt: { gte: periodStart } },
+    select: {
+      requestedByUserId: true, requestedAt: true, noteSubmittedAt: true, releaseReason: true,
+      contactId: true, contact: { select: { statusId: true } },
+    },
+  }) : [];
+  const saleUsers = saleIds.length ? await prisma.user.findMany({
+    where: { id: { in: saleIds } }, select: { id: true, fullName: true, email: true, avatarUrl: true },
+  }) : [];
   const userMap = new Map(saleUsers.map((u) => [u.id, u]));
-  const notedMap = new Map(notedBySale.map((n) => [n.requestedByUserId, n._count._all]));
-  const returnedMap = new Map(returnedBySale.map((r) => [r.requestedByUserId, r._count._all]));
-  const salePerformance = distToday.map((d) => {
-    const received = d._count._all;
-    const noted = notedMap.get(d.assignedToUserId) ?? 0;
+
+  // Gom theo sale.
+  type Acc = { received: number; noted: number; returned: number; good: number; noteMs: number[]; };
+  const accBySale = new Map<string, Acc>();
+  for (const d of distInPeriod) accBySale.set(d.assignedToUserId, { received: d._count._all, noted: 0, returned: 0, good: 0, noteMs: [] });
+  for (const r of reqInPeriod) {
+    const a = accBySale.get(r.requestedByUserId); if (!a) continue;
+    if (r.releaseReason === 'manual_return' || r.releaseReason === 'auto_return') a.returned++;
+    if (r.noteSubmittedAt) {
+      a.noted++;
+      a.noteMs.push(r.noteSubmittedAt.getTime() - r.requestedAt.getTime());
+      if (r.contact?.statusId && goodStatusIds.has(r.contact.statusId)) a.good++;
+    }
+  }
+  const salePerformance = [...accBySale.entries()].map(([uid, a]) => {
+    const notePct = a.received > 0 ? Math.round((a.noted / a.received) * 100) : 0;
+    const qualityPct = a.noted > 0 ? Math.round((a.good / a.noted) * 100) : 0;
+    const avgNoteMinutes = a.noteMs.length ? Math.round((a.noteMs.reduce((x, y) => x + y, 0) / a.noteMs.length) / 60000) : null;
+    // speedScore: <30' = 100, tuyến tính giảm tới >8h(480') = 0.
+    const speedScore = avgNoteMinutes === null ? 0
+      : avgNoteMinutes <= 30 ? 100
+      : avgNoteMinutes >= 480 ? 0
+      : Math.round(100 - ((avgNoteMinutes - 30) / 450) * 100);
+    const score = Math.round(notePct * 0.35 + qualityPct * 0.40 + speedScore * 0.25);
+    const grade = score >= 80 ? 'A' : score >= 60 ? 'B' : score >= 40 ? 'C' : 'D';
     return {
-      userId: d.assignedToUserId,
-      fullName: userMap.get(d.assignedToUserId)?.fullName ?? null,
-      avatarUrl: userMap.get(d.assignedToUserId)?.avatarUrl ?? null,
-      received, noted,
-      pending: Math.max(0, received - noted),
-      returned: returnedMap.get(d.assignedToUserId) ?? 0,
-      notePct: received > 0 ? Math.round((noted / received) * 100) : 0,
+      userId: uid,
+      fullName: userMap.get(uid)?.fullName ?? null,
+      avatarUrl: userMap.get(uid)?.avatarUrl ?? null,
+      received: a.received, noted: a.noted, pending: Math.max(0, a.received - a.noted),
+      returned: a.returned, good: a.good,
+      notePct, qualityPct, avgNoteMinutes, speedScore, score, grade,
+      lowSample: a.received < 5, // ít mẫu → điểm dễ lệch.
     };
-  }).sort((a, b) => b.received - a.received);
+  }).sort((x, y) => y.score - x.score);
+
+  // ── statusBreakdown: KH được giao trong kỳ đang ở status nào (theo Status org) ──
+  const statusCounts = saleIds.length ? await prisma.$queryRawUnsafe<Array<{ status_id: string | null; cnt: number }>>(
+    `SELECT c.status_id, COUNT(DISTINCT c.id)::int AS cnt
+     FROM lead_pool_distributions lpd JOIN contacts c ON c.id = lpd.contact_id
+     WHERE lpd.org_id = $1 AND lpd.distributed_at >= $2
+     GROUP BY c.status_id`,
+    orgId, periodStart,
+  ) : [];
+  const statusCntMap = new Map(statusCounts.map((s) => [s.status_id, s.cnt]));
+  const totalStatusCount = statusCounts.reduce((x, s) => x + s.cnt, 0);
+  const statusBreakdown = statuses.map((s) => ({
+    id: s.id, name: s.name, color: s.color, order: s.order,
+    count: statusCntMap.get(s.id) ?? 0,
+    pct: totalStatusCount > 0 ? Math.round(((statusCntMap.get(s.id) ?? 0) / totalStatusCount) * 100) : 0,
+  })).filter((s) => s.count > 0).sort((a, b) => b.count - a.count);
 
   // ── Nguồn lead: phân bổ theo source (7 ngày) + tệp customer_list shareable ──
   const sourceBreakdown = await prisma.leadPoolDistribution.groupBy({
@@ -3032,7 +3090,33 @@ export async function getAdminDashboard(args: { orgId: string }) {
   const distributed14d = await prisma.leadPoolDistribution.count({ where: { orgId, distributedAt: { gte: start14d } } });
   const returnedCount = returns14d.length;
 
+  // ── Chất lượng theo TỪNG nguồn (returnRate) để tìm "nguồn rác nhất" ──
+  const [distBySource, returnBySource] = await Promise.all([
+    prisma.leadPoolDistribution.groupBy({ by: ['source'], where: { orgId, distributedAt: { gte: start14d } }, _count: { _all: true } }),
+    Promise.resolve(returns14d),
+  ]);
+  const retCntBySource = new Map<string, number>();
+  for (const r of returnBySource) retCntBySource.set(r.source, (retCntBySource.get(r.source) ?? 0) + 1);
+  const sourceQuality = distBySource.map((s) => {
+    const dist = s._count._all;
+    const ret = retCntBySource.get(s.source) ?? 0;
+    return { source: s.source, label: formatSourceLabel(s.source), distributed: dist, returned: ret,
+      returnRate: dist > 0 ? Math.round((ret / dist) * 100) : 0 };
+  }).sort((a, b) => b.returnRate - a.returnRate);
+
+  // ── 3 THẺ INSIGHT (Anh chốt bố cục A+C) — tính sẵn ở BE ──
+  const ranked = salePerformance.filter((s) => !s.lowSample);
+  const insight = {
+    topSale: ranked[0] ?? salePerformance[0] ?? null,                    // sale giỏi nhất
+    worstSale: ranked.length > 1 ? ranked[ranked.length - 1] : null,     // sale cần nhắc (đủ mẫu)
+    worstSource: sourceQuality.find((s) => s.distributed >= 5) ?? sourceQuality[0] ?? null, // nguồn rác nhất
+  };
+
   return {
+    period,
+    statusBreakdown,
+    sourceQuality,
+    insight,
     round: {
       poolTotal,
       currentRound,
