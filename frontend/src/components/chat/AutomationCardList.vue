@@ -362,17 +362,27 @@ async function onAction(
 ): Promise<void> {
   if (card.busy) return;
 
-  // "Gửi bước tiếp ngay" (YC3 Đợt 2): gọi endpoint advance thật (BullMQ promote).
+  // "Gửi bước tiếp ngay": promote job + CHỜ BE xác nhận gửi thật (actuallySent) rồi mới
+  // báo. Fix bug anh báo 2026-06-15: trước đây luôn báo "Đã gửi" dù tin chưa qua.
   if (kind === 'advance') {
     if (card.advanceEnabled === false) return;
     card.busy = true;
     try {
-      await api.post(
+      const res = await api.post<{ ok: boolean; promoted: number; actuallySent?: boolean; deferred?: boolean }>(
         `/automation/triggers/${card.triggerId}/contacts/${props.contactId}/advance`,
         { sequenceId: card.sequenceId ?? undefined },
       );
       await fetchStatus();
-      toast('Đã gửi bước tiếp ngay');
+      const d = res.data;
+      if (d.actuallySent) {
+        toast('Đã gửi bước tiếp cho khách');
+      } else if (d.deferred) {
+        // Job đã đẩy nhưng worker hoãn (giãn cách chống spam nick / ngoài giờ gửi / nick chưa
+        // kết nối). Hệ thống tự gửi khi đủ điều kiện — KHÔNG báo "đã gửi" (tránh hiểu nhầm).
+        toast('Đã yêu cầu gửi — hệ thống đang chờ đủ điều kiện (giãn cách chống spam / giờ gửi / nick) rồi tự gửi', 'error');
+      } else {
+        toast('Đang gửi bước tiếp — hệ thống đang xử lý, tin sẽ hiện trong giây lát');
+      }
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error;
       toast(msg ?? 'Không gửi được bước tiếp ngay.', 'error');

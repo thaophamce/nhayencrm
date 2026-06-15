@@ -23,7 +23,7 @@ import {
   getContactPauseRemaining,
 } from './event-hooks.js';
 import { enqueueSequenceStart } from './sequence-step-worker.js';
-import { getSequenceStepQueue, sequenceStepJobPrefix } from './queue-registry.js';
+import { getSequenceStepQueue, sequenceStepContactPrefix } from './queue-registry.js';
 
 /**
  * Get-or-create system trigger "Bám đuổi khách hàng thủ công" cho 1 org.
@@ -463,31 +463,41 @@ export async function registerManualControlRoutes(app: FastifyInstance): Promise
       }
 
       // FIX review #2 (MED): chặn advance khi đang chờ-khách-reply (luật 4) — không gửi đè.
-      const pausedSession = await prisma.careSession.findFirst({
-        where: { orgId, contactId: cid, sourceSequenceId: sequenceId, state: 'active', pausedAtStepIdx: { not: null } },
-        select: { id: true },
+      // Đồng thời LẤY enrollEpoch của phiên active để promote ĐÚNG lần gắn (bỏ job mồ côi).
+      const activeSession = await prisma.careSession.findFirst({
+        where: { orgId, contactId: cid, sourceSequenceId: sequenceId, state: 'active' },
+        orderBy: { openedAt: 'desc' },
+        select: { id: true, pausedAtStepIdx: true, enrollEpoch: true },
       });
-      if (pausedSession) {
+      if (activeSession?.pausedAtStepIdx != null) {
         reply.code(409);
         return { error: 'Khách vừa trả lời — luồng đang tạm dừng chờ hết phiên. Không gửi bước tiếp lúc này.' };
       }
+      if (!activeSession) {
+        reply.code(409);
+        return { error: 'Luồng này không còn chạy cho khách (đã xong hoặc đã dừng).' };
+      }
+      const activeEpoch = activeSession.enrollEpoch ?? 1;
 
-      // Tìm job sequence-step đang delayed CỦA ĐÚNG (trigger, sequence, contact) → chạy ngay.
+      // FIX bug anh báo 2026-06-15: promote CHỈ job ĐÚNG EPOCH của phiên active.
+      // Trước đây prefix = `{tid}-{seq}-` KHÔNG có epoch → promote CẢ job mồ côi epoch cũ
+      // (e2/e3/e4...) → worker chạy chúng nhưng guard stale_epoch chặn (không gửi) → UI vẫn
+      // báo "đã gửi" SAI. Giờ prefix gồm epoch → chỉ đúng 1 job đang chờ của lần gắn này.
       const queue = getSequenceStepQueue();
       const PAGE = 5000;
       const jobs = await queue.getJobs(['delayed'], 0, PAGE);
       if (jobs.length >= PAGE) {
         logger.warn(`[advance] delayed queue ≥${PAGE} jobs — job mục tiêu có thể ngoài trang (xem TODO scale).`);
       }
-      const prefix = sequenceStepJobPrefix(tid, sequenceId); // `${tid}-${sequenceId}-`
+      const epochPrefix = `${sequenceStepContactPrefix(tid, sequenceId, cid)}e${activeEpoch}-`; // `{tid}-{seq}-{cid}-e{epoch}-`
+      const promotedJobRefs: Array<Awaited<ReturnType<typeof queue.getJob>>> = [];
       let promoted = 0;
       for (const job of jobs) {
-        if (!job.id || !job.id.startsWith(prefix)) continue;
-        const d = job.data as { contactId?: string };
-        if (d?.contactId !== cid) continue;
+        if (!job.id || !job.id.startsWith(epochPrefix)) continue;
         try {
           await job.promote(); // BullMQ v5: delayed → waiting (chạy ngay)
           promoted++;
+          promotedJobRefs.push(job);
         } catch (err) {
           logger.warn(`[advance] promote job ${job.id} failed: ${(err as Error).message}`);
         }
@@ -497,9 +507,33 @@ export async function registerManualControlRoutes(app: FastifyInstance): Promise
         reply.code(409);
         return { error: 'Không có bước nào đang chờ để gửi ngay (luồng đã xong hoặc đã dừng).' };
       }
-      // Lưu ý: worker vẫn áp guard giờ/nick lúc chạy — nếu ngoài giờ / nick offline, job
-      // được promote nhưng sẽ tự hoãn lại (không gửi đè). FE đã ẩn nút khi waiting_reply.
-      return { ok: true, promoted };
+
+      // FIX bug anh báo: CHỜ job thực sự CHẠY XONG (tối đa 8s) để báo ĐÚNG "đã gửi" vs "đang
+      // xử lý". Trước đây trả ngay sau promote → UI báo "đã gửi" nhưng tin chưa qua (worker
+      // chạy bất đồng bộ + còn guard giờ/nick). Giờ poll trạng thái job: completed=gửi thật,
+      // delayed lại=bị hoãn (ngoài giờ/nick offline), còn waiting/active=đang xử lý.
+      let actuallySent = false;
+      let deferred = false;
+      const deadline = Date.now() + 8000;
+      const jobRef = promotedJobRefs[0];
+      if (jobRef?.id) {
+        while (Date.now() < deadline) {
+          const fresh = await queue.getJob(jobRef.id).catch(() => null);
+          if (!fresh) { actuallySent = true; break; } // job xong + removeOnComplete đã dọn
+          const st = await fresh.getState().catch(() => 'unknown');
+          if (st === 'completed') { actuallySent = true; break; }
+          if (st === 'failed') { break; }
+          if (st === 'delayed') { deferred = true; break; } // worker hoãn lại (ngoài giờ/nick)
+          await new Promise((r) => setTimeout(r, 400));
+        }
+      }
+
+      return {
+        ok: true,
+        promoted,
+        actuallySent, // true = tin đã thực sự gửi; false = mới đẩy vào hàng đợi
+        deferred,     // true = job bị hoãn lại (ngoài giờ hoạt động / nick offline)
+      };
     },
   );
 
