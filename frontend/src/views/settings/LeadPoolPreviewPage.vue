@@ -4,7 +4,7 @@
   HD-first 1366×648 / FHD 1920 / 2K 2560 responsive.
 -->
 <template>
-  <div class="qlp-page">
+  <div class="lp-scope qlp-page">
 
     <!-- Header -->
     <header class="qlp-top">
@@ -26,33 +26,33 @@
       </div>
       <div class="qlp-flow-row">
         <div class="step">
-          <span class="ic">🆕</span>
+          <span class="ic"><v-icon size="16" icon="mdi-inbox-outline" /></span>
           <span class="lab">1. Trong Pool</span>
           <span class="dt">Chờ sale rảnh nhận</span>
         </div>
         <div class="step">
-          <span class="ic">⏳</span>
+          <span class="ic"><v-icon size="16" icon="mdi-clock-outline" /></span>
           <span class="lab">2. Đã chia</span>
           <span class="dt">Sale nhận, đang chăm</span>
         </div>
         <div class="step">
-          <span class="ic">✅</span>
+          <span class="ic"><v-icon size="16" icon="mdi-check-circle-outline" /></span>
           <span class="lab">3. Đã note</span>
           <span class="dt">Sale đã ghi note</span>
         </div>
         <div class="step cooldown">
-          <span class="ic">🔒</span>
+          <span class="ic"><v-icon size="16" icon="mdi-lock-outline" /></span>
           <span class="lab">4. Khoá pool {{ stats?.config?.cooldownAfterNoteDays ?? 30 }} ngày</span>
           <span class="dt">Tránh spam, sale gốc vẫn chăm</span>
         </div>
-        <div class="arrow">↻</div>
+        <div class="arrow"><v-icon size="18" icon="mdi-rotate-right" /></div>
         <div class="step">
-          <span class="ic">🆕</span>
+          <span class="ic"><v-icon size="16" icon="mdi-inbox-arrow-down-outline" /></span>
           <span class="lab">Vào lại pool</span>
           <span class="dt">Sau {{ stats?.config?.cooldownAfterNoteDays ?? 30 }} ngày → sale khác có cơ hội</span>
         </div>
         <div class="step returned">
-          <span class="ic">⏱</span>
+          <span class="ic"><v-icon size="16" icon="mdi-timer-sand" /></span>
           <span class="lab">Tự trả về pool</span>
           <span class="dt">Sale không ghi note quá hạn → lead tự về pool, xuống cuối vòng tua</span>
         </div>
@@ -72,7 +72,7 @@
 
       <div class="kpi kpi-active">
         <div class="kpi-head">
-          <span class="kpi-label">⏳ Đang chia hôm nay</span>
+          <span class="kpi-label">Đang chia hôm nay</span>
           <span class="kpi-help" title="Lead đã chia cho sale hôm nay nhưng chưa note xong. Auto trả về pool sau 24h nếu sale không note.">?</span>
         </div>
         <div class="kpi-value">{{ stats?.assigned?.today ?? '—' }}</div>
@@ -81,7 +81,7 @@
 
       <div class="kpi kpi-returned">
         <div class="kpi-head">
-          <span class="kpi-label">↩ Trả về pool hôm nay</span>
+          <span class="kpi-label">Trả về pool hôm nay</span>
           <span class="kpi-help" title="Lead bị trả lại pool hôm nay (manual + auto). Manual = sale bấm trả. Auto = sale lười quá hạn.">?</span>
         </div>
         <div class="kpi-value">{{ stats?.returnedToday?.total ?? '—' }}</div>
@@ -93,7 +93,7 @@
 
       <div class="kpi kpi-noted">
         <div class="kpi-head">
-          <span class="kpi-label">✓ Nhận / Ghi chú hôm nay</span>
+          <span class="kpi-label">Nhận / Ghi chú hôm nay</span>
           <span class="kpi-help" title="Số lead đã nhận hôm nay / đã hoàn thành note. Tỷ lệ thấp = sale lười, kéo theo lead bị treo pending.">?</span>
         </div>
         <div class="kpi-ratio">
@@ -111,22 +111,22 @@
         <!-- Tabs -->
         <div class="qlp-tabs">
           <button v-for="t in TABS" :key="t.key" class="tab" :class="{ active: filter === t.key }" @click="onFilterChange(t.key)">
-            {{ t.icon }} {{ t.label }}
+            {{ t.label }}
             <span class="count">{{ tabCount(t.key) }}</span>
           </button>
         </div>
 
         <div class="qlp-table-wrap">
           <div class="qlp-table-toolbar">
-            <input type="text" v-model="search" placeholder="🔍 Tìm theo tên KH, SĐT, tên tệp..." />
-            <span class="hint">📋 Sort: <b>Vòng tua FIFO</b> · lead chưa chia/chia lâu nhất lên đầu · <b>Top 10</b> nền vàng = chia tiếp theo</span>
+            <input type="text" v-model="search" placeholder="Tìm theo tên KH, SĐT, tên tệp..." />
+            <span class="hint">Sắp xếp: <b>Vòng tua FIFO</b> · lead chưa chia/chia lâu nhất lên đầu · <b>Top 10</b> nền vàng = chia tiếp theo</span>
             <div class="spacer"></div>
             <span class="hint">Hiển thị <b>{{ filteredItems.length }}</b> / <b>{{ items.length }}</b> dòng</span>
           </div>
 
           <div v-if="loading" class="qlp-loading">Đang tải...</div>
           <div v-else-if="filteredItems.length === 0" class="qlp-empty">
-            <div class="empty-icon">🎁</div>
+            <div class="empty-icon"><v-icon size="40" icon="mdi-inbox-outline" /></div>
             <h3>{{ emptyTitle }}</h3>
             <p>{{ emptyMessage }}</p>
           </div>
@@ -172,12 +172,12 @@
                       </div>
                       <div class="customer-info">
                         <div class="customer-name">{{ item.name }}</div>
-                        <div class="customer-sub" v-if="item.addressLine">📍 {{ item.addressLine }}</div>
+                        <div class="customer-sub" v-if="item.addressLine">{{ item.addressLine }}</div>
                       </div>
                     </div>
                   </td>
                   <td class="c-phone">{{ formatPhone(item.phone) }}</td>
-                  <td class="c-source"><span class="source-chip" :class="'src-' + item.source">{{ sourceIcon(item.source) }} {{ sourceLabel(item.source) }}</span></td>
+                  <td class="c-source"><span class="source-chip" :class="'src-' + item.source">{{ sourceLabel(item.source) }}</span></td>
                   <td class="c-file">
                     <div v-if="item.customerListName" class="file-name" :title="item.customerListName">{{ item.customerListName }}</div>
                     <div v-else class="file-name empty">— Không có —</div>
@@ -233,13 +233,13 @@
       <!-- Sidebar FHD+ -->
       <aside class="qlp-sidebar">
         <div class="side-card info">
-          <h3>❓ Tại sao Pool có {{ stats?.poolSize ?? '—' }} lead?</h3>
+          <h3>Tại sao Pool có {{ stats?.poolSize ?? '—' }} lead?</h3>
           <p>Mặc định trước đây chỉ hiện <b>50</b> lead, anh tưởng pool nhỏ. Đã tăng default lên <b>200</b>.</p>
           <p>Pool thật có thể <b>500-2000 lead</b>. 200 dòng đầu cover &gt;95% nhu cầu audit của admin.</p>
         </div>
 
         <div class="side-card warn">
-          <h3>🔒 Rule cooldown sau note</h3>
+          <h3>Rule cooldown sau note</h3>
           <p>Sale A note xong → KH này KHÔNG vào pool ai khác trong <b>{{ stats?.config?.cooldownAfterNoteDays ?? 30 }} ngày</b>.</p>
           <ul>
             <li>Sale gốc <b>vẫn chăm KH bình thường</b></li>
@@ -250,21 +250,20 @@
         </div>
 
         <div class="side-card">
-          <h3>🎨 Chú thích trạng thái</h3>
+          <h3>Chú thích trạng thái</h3>
           <div class="legend">
-            <div class="leg-item"><span class="st-row st-new">🆕 Mới</span><span>Chưa ai nhận, sẵn sàng chia</span></div>
-            <div class="leg-item"><span class="st-row st-assigned">⏳ Đang chia</span><span>Sale đã nhận, chờ note</span></div>
-            <div class="leg-item"><span class="st-row st-cooldown">🔒 Cooldown</span><span>Sale đã note, khoá pool</span></div>
-            <div class="leg-item"><span class="st-row st-returned">↩ Đã trả</span><span>Sale chủ động trả pool</span></div>
-            <div class="leg-item"><span class="st-row st-returned">⏱ Auto-return</span><span>Quá hạn note → tự release</span></div>
+            <div class="leg-item"><span class="st-row st-new">Mới</span><span>Chưa ai nhận, sẵn sàng chia</span></div>
+            <div class="leg-item"><span class="st-row st-assigned">Đang chia</span><span>Sale đã nhận, chờ note</span></div>
+            <div class="leg-item"><span class="st-row st-cooldown">Cooldown</span><span>Sale đã note, khoá pool</span></div>
+            <div class="leg-item"><span class="st-row st-returned">Tự trả về</span><span>Quá hạn note → tự về pool</span></div>
           </div>
         </div>
 
         <div class="side-card config">
-          <h3>⚙ Config hiện tại</h3>
+          <h3>Config hiện tại</h3>
           <div class="cfg-row"><span class="lab">"Lãng quên" sau</span><span class="val">{{ stats?.config?.forgottenThresholdDays ?? '—' }} ngày</span></div>
           <div class="cfg-row"><span class="lab">Cooldown sau note</span><span class="val">{{ stats?.config?.cooldownAfterNoteDays ?? '—' }} ngày</span></div>
-          <RouterLink to="/settings/crm/lead-pool" class="cfg-link">⚙ Mở cài đặt đầy đủ →</RouterLink>
+          <RouterLink to="/settings/crm/lead-pool" class="cfg-link">Mở cài đặt đầy đủ →</RouterLink>
         </div>
       </aside>
 
@@ -276,6 +275,7 @@
 import { ref, computed, onMounted } from 'vue';
 import { RouterLink } from 'vue-router';
 import { api } from '@/api/index';
+import '@/assets/lead-pool-theme.css';
 
 interface TodayStats {
   poolSize: number;
@@ -307,11 +307,11 @@ interface LeadItem {
 
 type FilterKey = 'available' | 'assigned' | 'cooldown' | 'returned_today';
 
-const TABS: { key: FilterKey; icon: string; label: string }[] = [
-  { key: 'available', icon: '🎁', label: 'Pool chờ chia' },
-  { key: 'assigned', icon: '⏳', label: 'Đang chia' },
-  { key: 'cooldown', icon: '🔒', label: 'Khoá cooldown' },
-  { key: 'returned_today', icon: '↩', label: 'Trả về hôm nay' },
+const TABS: { key: FilterKey; label: string }[] = [
+  { key: 'available', label: 'Pool chờ chia' },
+  { key: 'assigned', label: 'Đang chia' },
+  { key: 'cooldown', label: 'Khoá cooldown' },
+  { key: 'returned_today', label: 'Trả về hôm nay' },
 ];
 
 const filter = ref<FilterKey>('available');
@@ -430,15 +430,14 @@ function roundChipClass(n: number | undefined) {
   if (c >= 2) return 'score-mid';
   return 'score-low';
 }
-function sourceIcon(s: string) { return ({ forgotten: '💤', customer_list: '📂', external_sync: '🔄' } as Record<string, string>)[s] ?? '📥'; }
 function sourceLabel(s: string) { return ({ forgotten: 'Lãng quên', customer_list: 'Tệp KH', external_sync: 'Sync' } as Record<string, string>)[s] ?? s; }
 
 function statusBadge(s: string) {
-  if (s === 'new') return { cls: 'new', text: '🆕 Mới' };
-  if (s === 'assigned') return { cls: 'assigned', text: '⏳ Đang chia' };
-  if (s === 'cooldown') return { cls: 'cooldown', text: '🔒 Khoá cooldown' };
-  if (s === 'returned_manual') return { cls: 'returned', text: '↩ Đã trả lại' };
-  if (s === 'returned_auto') return { cls: 'returned', text: '⏱ Auto-return' };
+  if (s === 'new') return { cls: 'new', text: 'Mới' };
+  if (s === 'assigned') return { cls: 'assigned', text: 'Đang chia' };
+  if (s === 'cooldown') return { cls: 'cooldown', text: 'Khoá cooldown' };
+  if (s === 'returned_manual') return { cls: 'returned', text: 'Đã trả lại' };
+  if (s === 'returned_auto') return { cls: 'returned', text: 'Tự trả về' };
   return { cls: 'new', text: s };
 }
 
@@ -458,7 +457,7 @@ function formatStatusTime(item: LeadItem): string {
   if (item.status === 'assigned') {
     const diff = ts - now;
     if (diff < 0) return 'Đã hết hạn';
-    return '⏱ Còn ' + formatDuration(diff);
+    return 'Còn ' + formatDuration(diff);
   }
   if (item.status === 'cooldown') {
     const cooldownMs = (stats.value?.config.cooldownAfterNoteDays ?? 30) * 24 * 3600 * 1000;
@@ -498,10 +497,10 @@ function formatRelativeTime(iso: string | null): string {
 
 function noteTypeLabel(t: string): string {
   return ({
-    note: '📝 Note sale',
-    return: '↩ Lý do trả',
-    auto: '⏱ Auto-return',
-    contact: '📞 Liên hệ',
+    note: 'Note sale',
+    return: 'Lý do trả',
+    auto: 'Tự trả về',
+    contact: 'Liên hệ',
   } as Record<string, string>)[t] ?? '— Chưa có note —';
 }
 
@@ -554,7 +553,7 @@ function idleClass(d: number | null): string {
 /* ─────────── WORKFLOW STRIP ─────────── */
 .qlp-flow { display: grid; grid-template-columns: 1fr; gap: 8px; background: linear-gradient(135deg, #F0F9FF 0%, #EEF2FF 100%); border: 1px solid var(--primary-border); border-radius: 10px; padding: 12px 14px; margin-bottom: 10px; }
 .qlp-flow-title { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; }
-.qlp-flow-title .badge { background: var(--primary); color: white; padding: 1px 7px; border-radius: 10px; font-size: 10px; font-weight: 700; letter-spacing: 0.03em; }
+.qlp-flow-title .badge { background: #1786be; color: white; padding: 1px 7px; border-radius: 10px; font-size: 10px; font-weight: 700; letter-spacing: 0.03em; }
 .qlp-flow-title .muted { color: var(--text-3); font-weight: 500; }
 .qlp-flow-row { display: grid; grid-template-columns: repeat(4, 1fr) 32px repeat(2, 1fr); gap: 0; align-items: center; }
 .qlp-flow-row .step { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 6px 8px; background: white; border: 1px solid var(--border); border-radius: 8px; }
@@ -577,8 +576,8 @@ function idleClass(d: number | null): string {
 .kpi-sub { font-size: 11px; color: var(--text-3); margin-top: 2px; }
 .kpi-progress { height: 4px; background: rgba(34, 197, 94, 0.18); border-radius: 2px; overflow: hidden; margin-top: 4px; }
 .kpi-progress > div { height: 100%; background: var(--success); }
-.kpi-pool { background: linear-gradient(135deg, #EEF2FF 0%, #F0F9FF 100%); border-color: var(--primary-border); }
-.kpi-pool .kpi-value { color: #4338CA; }
+.kpi-pool { background: linear-gradient(135deg, #e4f1f8 0%, #f2f8fc 100%); border-color: #bcdcee; }
+.kpi-pool .kpi-value { color: #0b5880; }
 .kpi-active { background: linear-gradient(135deg, #FEF3C7 0%, #FFF7ED 100%); border-color: #FCD34D; }
 .kpi-active .kpi-value { color: var(--warning); }
 .kpi-returned { background: linear-gradient(135deg, #FEE2E2 0%, #FFF1F2 100%); border-color: #FCA5A5; }
@@ -601,9 +600,10 @@ function idleClass(d: number | null): string {
 /* ─────────── TABS ─────────── */
 .qlp-tabs { display: flex; gap: 4px; background: white; border: 1px solid var(--border); border-radius: 8px; padding: 4px; width: fit-content; margin-bottom: 10px; }
 .tab { padding: 6px 12px; border-radius: 5px; font-size: 12px; font-weight: 600; color: var(--text-3); cursor: pointer; border: none; background: transparent; display: flex; align-items: center; gap: 6px; }
-.tab.active { background: var(--primary-bg); color: #4338CA; }
+/* Phase FIFO — màu brand HS teal-navy thay tím Indigo cũ (đồng bộ 2 màn mới). */
+.tab.active { background: #e4f1f8; color: #0b5880; }
 .tab .count { background: var(--border); color: var(--text-2); padding: 1px 7px; border-radius: 10px; font-size: 11px; font-weight: 700; min-width: 22px; text-align: center; }
-.tab.active .count { background: var(--primary-border); color: #3730A3; }
+.tab.active .count { background: #cfe6f3; color: #0b5880; }
 
 /* ─────────── TABLE ─────────── */
 .qlp-table-wrap { background: white; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
@@ -663,7 +663,7 @@ th.c-prev-sale, td.c-prev-sale { min-width: 110px; max-width: 140px; }
 
 .source-chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; white-space: nowrap; }
 .source-chip.src-forgotten { background: #FEF3C7; color: var(--warning); }
-.source-chip.src-customer_list { background: var(--primary-bg); color: #4338CA; }
+.source-chip.src-customer_list { background: #e9f2fd; color: #2e88e5; }
 .source-chip.src-external_sync { background: #CFFAFE; color: #155E75; }
 
 .file-name { display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; text-overflow: ellipsis; line-height: 1.3; font-size: 11.5px; color: var(--text-2); max-height: 30px; }
@@ -726,6 +726,6 @@ th.c-prev-sale, td.c-prev-sale { min-width: 110px; max-width: 140px; }
 .cfg-row { display: flex; justify-content: space-between; align-items: center; padding: 4px 0; font-size: 12px; }
 .cfg-row .lab { color: var(--text-3); }
 .cfg-row .val { font-weight: 700; color: var(--text-1); background: var(--bg-page); padding: 2px 8px; border-radius: 4px; }
-.cfg-link { display: block; margin-top: 8px; font-size: 12px; color: var(--primary); text-decoration: none; font-weight: 600; }
+.cfg-link { display: block; margin-top: 8px; font-size: 12px; color: #1786be; text-decoration: none; font-weight: 600; }
 .cfg-link:hover { text-decoration: underline; }
 </style>
