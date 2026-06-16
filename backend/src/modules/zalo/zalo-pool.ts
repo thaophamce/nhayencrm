@@ -336,13 +336,22 @@ class ZaloAccountPool {
     const eligibility = await runSystemQuery(() =>
       prisma.zaloAccount.findUnique({
         where: { id: accountId },
-        select: { zaloUid: true, archivedAt: true },
+        select: { zaloUid: true, archivedAt: true, disconnectReason: true },
       }),
     );
     if (!eligibility || eligibility.zaloUid === null || eligibility.archivedAt !== null) {
       logger.info(
         `[zalo:${accountId}] reconnect() skip — thẻ ma/đã ẩn (zaloUid=${eligibility?.zaloUid ?? 'missing'}, archived=${eligibility?.archivedAt ? 'yes' : 'no'})`,
       );
+      return;
+    }
+    // 2026-06-16 (Anh chốt: "Ngắt là ngắt thật"): GUARD MANUAL gom CHUNG 1 chỗ ở đây — chặn
+    // MỌI đường reconnect tự động/ngầm (boot app.ts, health-check cron×2, autoReconnect timer,
+    // route /reconnect, bulk-action, zalo-operations attemptReconnect) làm SỐNG LẠI nick sale
+    // đã NGẮT THỦ CÔNG. Muốn dùng lại → sale bấm "Kết nối lại" → quét QR (loginQR, KHÔNG qua
+    // hàm này). Bịt 1 chỗ thay vì vá từng đường (tránh sót như boot).
+    if (eligibility.disconnectReason === 'manual') {
+      logger.info(`[zalo:${accountId}] reconnect() skip — sale đã NGẮT THỦ CÔNG (manual), chỉ QR mới nối lại`);
       return;
     }
 
@@ -485,6 +494,13 @@ class ZaloAccountPool {
         const inst = cur;
         if (inst) inst.status = 'disconnected';
         this.updateAccountDB(id, 'disconnected', null, 'disconnect');
+        // MẤT KẾT NỐI THỤ ĐỘNG (2026-06-16): nick rớt do Zalo/mạng (KHÔNG phải sale bấm Ngắt).
+        // Ghi reason='passive' + mốc rớt để FE đếm "đã mất kết nối X phút Y giây" tăng dần.
+        // KHÔNG ghi đè nếu đã 'manual' (sale ngắt thủ công rồi nick mới rớt — giữ nguyên manual).
+        void runSystemQuery(() => prisma.zaloAccount.updateMany({
+          where: { id, NOT: { disconnectReason: 'manual' } },
+          data: { disconnectReason: 'passive', disconnectedAt: new Date() },
+        })).catch((err) => logger.warn(`[zalo:${id}] set passive disconnect lỗi:`, err));
         stopMessageSync(id);
         // Emit webhook for disconnect (fire-and-forget)
         prisma.zaloAccount.findUnique({ where: { id }, select: { orgId: true, displayName: true } })
@@ -571,7 +587,9 @@ class ZaloAccountPool {
           data: {
             status,
             ...(zaloUid !== null ? { zaloUid } : {}),
-            ...(status === 'connected' ? { lastConnectedAt: new Date() } : {}),
+            // 2026-06-16: nick connected lại → CLEAR trạng thái mất kết nối (manual/passive)
+            // để FE thôi hiện "đã ngắt/đã mất kết nối".
+            ...(status === 'connected' ? { lastConnectedAt: new Date(), disconnectReason: null, disconnectedAt: null } : {}),
           },
           select: { orgId: true, ownerUserId: true },
         });
@@ -717,8 +735,13 @@ class ZaloAccountPool {
     try {
       const account = await prisma.zaloAccount.findUnique({
         where: { id: accountId },
-        select: { sessionData: true, proxyUrl: true },
+        select: { sessionData: true, proxyUrl: true, disconnectReason: true },
       });
+      // 2026-06-16: NGẮT THỦ CÔNG (manual) → KHÔNG auto-reconnect (ngắt là ngắt thật).
+      if (account?.disconnectReason === 'manual') {
+        logger.info(`[zalo:${accountId}] autoReconnect skipped — sale đã NGẮT THỦ CÔNG (manual)`);
+        return;
+      }
       const session = account?.sessionData as ZaloCredentials | null;
       if (session?.imei) {
         logger.info(`[zalo:${accountId}] Auto-reconnecting...`);

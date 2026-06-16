@@ -25,6 +25,9 @@ export interface EnrichedAccount {
   liveStatus: string;
   hasProxy: boolean;
   lastConnectedAt: string | null;
+  // 2026-06-16: phân biệt ngắt thủ công vs mất kết nối thụ động.
+  disconnectedAt: string | null;                       // mốc mất kết nối (ISO)
+  disconnectReason: 'manual' | 'passive' | null;        // manual=sale ngắt; passive=nick rớt
   createdAt: string;
   owner: { id: string; fullName: string | null; email: string } | null;
   ownerUserId: string | null;

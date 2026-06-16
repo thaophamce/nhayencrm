@@ -37,20 +37,8 @@
         :class="stateClass(a)"
         @click="$emit('open-detail', a.id)"
       >
-        <!-- Trạng thái nổi bật góc trên -->
-        <div class="ngc-top">
-          <span class="ngc-status" :class="stateClass(a)">
-            <span class="ngc-dot"></span>{{ stateLabel(a) }}
-          </span>
-          <button
-            v-if="a.canManage"
-            class="ngc-x"
-            title="Xóa nick khỏi danh sách"
-            @click.stop="$emit('delete', a)"
-          ><v-icon size="15">mdi-trash-can-outline</v-icon></button>
-        </div>
-
-        <!-- Avatar + tên + SĐT -->
+        <!-- ── MẪU A (2026-06-16): gọn dọc, viền trái màu trạng thái, 1 nút trạng thái ở đáy ── -->
+        <!-- Hàng 1: avatar + tên + SĐT -->
         <div class="ngc-head">
           <img v-if="a.avatarUrl" :src="a.avatarUrl" class="ngc-avatar" alt="" />
           <div v-else class="ngc-avatar ngc-avatar-ph">{{ initials(a.displayName) }}</div>
@@ -58,45 +46,52 @@
             <div class="ngc-name">{{ a.displayName || 'Chưa đặt tên' }}</div>
             <div class="ngc-phone">{{ a.phone || '— chưa có SĐT' }}</div>
           </div>
+          <!-- Xóa nick: CHỈ owner/admin + nick ĐÃ NGẮT (không cho xóa nick đang online — chống tai nạn) -->
+          <button
+            v-if="a.canManage && !isOnline(a)"
+            class="ngc-x"
+            title="Xóa nick này khỏi CRM"
+            @click.stop="$emit('delete', a)"
+          ><v-icon size="15">mdi-trash-can-outline</v-icon></button>
         </div>
 
-        <!-- Owner + Sale hỗ trợ -->
-        <div class="ngc-meta">
-          <div class="ngc-row">
-            <span class="ngc-lbl">Phụ trách:</span>
-            <span class="ngc-val">{{ a.owner?.fullName || '—' }}</span>
-          </div>
-          <div class="ngc-row" v-if="crewOf(a).length">
-            <span class="ngc-lbl">Hỗ trợ:</span>
-            <span class="ngc-crew">
-              <span v-for="c in crewOf(a).slice(0, 3)" :key="c.id" class="ngc-crew-chip" :title="c.fullName || ''">
-                {{ initials(c.fullName) }}
-              </span>
-              <span v-if="crewOf(a).length > 3" class="ngc-crew-more">+{{ crewOf(a).length - 3 }}</span>
-            </span>
-          </div>
+        <!-- Hàng 2: phụ trách (online) HOẶC trạng thái mất kết nối (offline) -->
+        <div
+          v-if="!isOnline(a) && a.disconnectReason"
+          class="ngc-disc"
+          :class="a.disconnectReason === 'manual' ? 'manual' : 'passive'"
+        >
+          <v-icon size="13">{{ a.disconnectReason === 'manual' ? 'mdi-link-off' : 'mdi-alert-circle-outline' }}</v-icon>
+          <span v-if="a.disconnectReason === 'manual'">Đã ngắt lúc {{ fmtDiscTime(a.disconnectedAt) }}</span>
+          <span v-else>Mất kết nối {{ discElapsed(a.disconnectedAt) }}</span>
         </div>
+        <div v-else class="ngc-sub">Phụ trách: <b>{{ a.owner?.fullName || '—' }}</b></div>
 
-        <!-- Hàng nút: Kết nối lại + Ngắt kết nối — luôn hiện (xám khi không dùng được) -->
-        <div v-if="a.canManage" class="ngc-actions">
-          <!-- Kết nối lại: xám khi nick đang online hoặc đang kết nối -->
-          <button
-            class="ngc-reconnect"
-            :disabled="isOnline(a) || isReconnecting(a.id)"
-            @click.stop="$emit('reconnect', a)"
-          >
-            <v-icon size="16" :class="{ 'ngc-spin': isReconnecting(a.id) }">{{ isReconnecting(a.id) ? 'mdi-loading' : reconnectIcon(a) }}</v-icon>
-            {{ isReconnecting(a.id) ? 'Đang kết nối…' : reconnectLabel(a) }}
-          </button>
-          <!-- Ngắt kết nối: xám khi nick KHÔNG online -->
-          <button
-            class="ngc-disconnect"
-            :disabled="!isOnline(a)"
-            @click.stop="$emit('disconnect', a)"
-          >
-            <v-icon size="16">mdi-link-off</v-icon>
-            Ngắt kết nối
-          </button>
+        <!-- Hàng 3: 1 NÚT TRẠNG THÁI (Anh chốt) -->
+        <!--   online  → xanh "Đang kết nối", HOVER → đỏ "Ngắt kết nối"
+               offline → xanh-nhạt "Kết nối lại" (qr_pending/manual → quét QR; passive → reconnect ngầm) -->
+        <button
+          v-if="a.canManage && isOnline(a)"
+          class="ngc-statebtn on"
+          title="Đang kết nối — bấm để Ngắt kết nối"
+          @click.stop="$emit('disconnect', a)"
+        >
+          <span class="ngc-dot"></span>
+          <span class="lbl-on">Đang kết nối</span>
+          <span class="lbl-hover"><v-icon size="15">mdi-link-off</v-icon> Ngắt kết nối</span>
+        </button>
+        <button
+          v-else-if="a.canManage"
+          class="ngc-statebtn off"
+          :disabled="isReconnecting(a.id)"
+          @click.stop="$emit('reconnect', a)"
+        >
+          <v-icon size="15" :class="{ 'ngc-spin': isReconnecting(a.id) }">{{ isReconnecting(a.id) ? 'mdi-loading' : reconnectIcon(a) }}</v-icon>
+          {{ isReconnecting(a.id) ? 'Đang kết nối…' : reconnectLabel(a) }}
+        </button>
+        <!-- Sale không quản lý nick → chỉ xem trạng thái, không nút -->
+        <div v-else class="ngc-statebtn readonly" :class="isOnline(a) ? 'on' : 'off'">
+          <span class="ngc-dot"></span>{{ stateLabel(a) }}
         </div>
       </div>
         </div>
@@ -106,8 +101,33 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
-interface Crew { id: string; fullName: string | null }
+import { computed, ref, onMounted, onUnmounted } from 'vue';
+
+// 2026-06-16: đồng hồ tick 1s để đếm "mất kết nối X phút Y giây" tăng real-time (passive).
+// FE tự đếm từ mốc disconnectedAt BE lưu — không gọi API liên tục.
+const nowMs = ref(Date.now());
+let discTimer: ReturnType<typeof setInterval> | null = null;
+onMounted(() => { discTimer = setInterval(() => { nowMs.value = Date.now(); }, 1000); });
+onUnmounted(() => { if (discTimer) clearInterval(discTimer); });
+
+// Ngắt thủ công: hiện mốc cố định "dd/MM HH:mm" (giờ VN).
+function fmtDiscTime(iso: string | null): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleString('vi-VN', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Ho_Chi_Minh' });
+}
+// Mất kết nối thụ động: đếm thời gian đã trôi từ disconnectedAt → "X phút Y giây" / "Xh Ym" / "Nd".
+function discElapsed(iso: string | null): string {
+  if (!iso) return '';
+  const start = new Date(iso).getTime();
+  if (Number.isNaN(start)) return '';
+  let sec = Math.max(0, Math.floor((nowMs.value - start) / 1000));
+  if (sec < 60) return `${sec} giây`;
+  if (sec < 3600) { const m = Math.floor(sec / 60); return `${m} phút ${sec % 60} giây`; }
+  if (sec < 86400) { const h = Math.floor(sec / 3600); return `${h} giờ ${Math.floor((sec % 3600) / 60)} phút`; }
+  const d = Math.floor(sec / 86400); return `${d} ngày ${Math.floor((sec % 86400) / 3600)} giờ`;
+}
 
 // accounts: EnrichedAccount[] từ parent — component chỉ đọc field hiển thị (type lỏng).
 // groupBy: 'status' (mặc định, nhóm theo trạng thái) | 'owner' (mục 1 2026-06-11, nhóm theo người dùng).
@@ -151,9 +171,7 @@ function reconnectLabel(a: any): string {
 function reconnectIcon(a: any): string {
   return liveOf(a) === 'qr_pending' ? 'mdi-qrcode-scan' : 'mdi-refresh';
 }
-function crewOf(a: any): Crew[] {
-  return (a.crew || []).filter((c: Crew) => !!c);
-}
+// (Mẫu A 2026-06-16 bỏ dòng "Hỗ trợ" cho gọn → helper crewOf không còn dùng.)
 
 // 2026-06-10 (anh chốt): nhóm card theo TRẠNG THÁI nick. Thứ tự ưu tiên:
 // online (quan trọng nhất, lên đầu) → pending (đang xử lý) → offline (cần re-login).
@@ -242,62 +260,63 @@ function initials(name?: string | null): string {
   background: #f1f5f9; padding: 2px 8px; border-radius: 6px;
 }
 
-.ngc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
-@media (min-width: 1366px) { .ngc-grid { grid-template-columns: repeat(3, 1fr); } }
+/* Mẫu A (2026-06-16): card gọn → 4 nick/hàng từ HD 1366. minmax 210 để màn nhỏ tự co. */
+.ngc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 12px; }
+@media (min-width: 1280px) { .ngc-grid { grid-template-columns: repeat(4, 1fr); } }
+@media (min-width: 1920px) { .ngc-grid { grid-template-columns: repeat(5, 1fr); } }
 
 .ngc-card {
   background: var(--surface, #fff);
-  border: 2px solid var(--line, #e7eaf0);
-  border-radius: 14px;
-  padding: 13px 14px;
+  border: 1px solid var(--line, #e7eaf0);
+  border-left: 3px solid var(--line, #e7eaf0); /* viền trái = màu trạng thái (Mẫu A) */
+  border-radius: 12px;
+  padding: 13px;
   cursor: pointer;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 9px;
   transition: box-shadow .12s, transform .12s;
 }
 .ngc-card:hover { box-shadow: 0 4px 14px rgba(20,26,36,.1); transform: translateY(-1px); }
-/* Viền theo trạng thái — TO + rõ */
-.ngc-card.is-online  { border-color: #12b76a; }
-.ngc-card.is-offline { border-color: #f04438; }
-.ngc-card.is-pending { border-color: #f5a524; }
+/* Mẫu A — chỉ VIỀN TRÁI đổi màu theo trạng thái (gọn, không viền dày cả thẻ) */
+.ngc-card.is-online  { border-left-color: #12b76a; }
+.ngc-card.is-offline { border-left-color: #dc2626; }
+.ngc-card.is-pending { border-left-color: #f5a524; }
 
-.ngc-top { display: flex; align-items: center; justify-content: space-between; }
-.ngc-status { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 700; padding: 3px 10px; border-radius: 999px; }
-.ngc-status.is-online  { background: #e6f7ef; color: #047857; }
-.ngc-status.is-offline { background: #fde8e6; color: #b42318; }
-.ngc-status.is-pending { background: #fef4e6; color: #b45309; }
-.ngc-dot { width: 9px; height: 9px; border-radius: 50%; background: currentColor; box-shadow: 0 0 0 3px rgba(0,0,0,.04); }
-.ngc-x { border: none; background: none; color: #9ca3af; cursor: pointer; padding: 2px; border-radius: 6px; }
+/* Hàng 1: avatar + tên + SĐT + nút xóa */
+.ngc-head { display: flex; align-items: center; gap: 10px; }
+.ngc-avatar { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; flex-shrink: 0; }
+.ngc-avatar-ph { display: flex; align-items: center; justify-content: center; background: var(--brand-soft, #e6f3fb); color: var(--brand-700, #0f6ea3); font-weight: 700; font-size: 15px; }
+.ngc-id { min-width: 0; flex: 1; }
+.ngc-name { font-size: 14px; font-weight: 600; color: var(--ink, #141a24); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ngc-phone { font-size: 12px; color: var(--ink-3, #6b7280); font-variant-numeric: tabular-nums; }
+.ngc-x { border: none; background: none; color: #c0c6d0; cursor: pointer; padding: 3px; border-radius: 6px; flex-shrink: 0; }
 .ngc-x:hover { background: #fde8e6; color: #b42318; }
 
-.ngc-head { display: flex; align-items: center; gap: 10px; }
-.ngc-avatar { width: 44px; height: 44px; border-radius: 50%; object-fit: cover; flex-shrink: 0; }
-.ngc-avatar-ph { display: flex; align-items: center; justify-content: center; background: var(--brand-soft, #e6f3fb); color: var(--brand-700, #0f6ea3); font-weight: 700; font-size: 16px; }
-.ngc-id { min-width: 0; }
-.ngc-name { font-size: 15px; font-weight: 600; color: var(--ink, #141a24); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ngc-phone { font-size: 13px; color: var(--ink-3, #6b7280); font-variant-numeric: tabular-nums; }
+/* Hàng 2: phụ trách / trạng thái mất kết nối */
+.ngc-sub { font-size: 11.5px; color: var(--ink-4, #9ca3af); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ngc-sub b { color: var(--ink-2, #475066); font-weight: 500; }
+.ngc-disc { display: flex; align-items: center; gap: 5px; font-size: 11.5px; padding: 3px 8px; border-radius: 6px; }
+.ngc-disc.manual { background: #f3f4f6; color: #6b7280; }
+.ngc-disc.passive { background: #fef2f2; color: #dc2626; font-variant-numeric: tabular-nums; }
 
-.ngc-meta { display: flex; flex-direction: column; gap: 4px; }
-.ngc-row { display: flex; align-items: center; gap: 6px; font-size: 12.5px; }
-.ngc-lbl { color: var(--ink-4, #9ca3af); min-width: 58px; }
-.ngc-val { color: var(--ink-2, #374151); font-weight: 500; }
-.ngc-crew { display: inline-flex; gap: 3px; }
-.ngc-crew-chip { width: 22px; height: 22px; border-radius: 50%; background: #eef2f7; color: #4b5563; font-size: 10.5px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; }
-.ngc-crew-more { font-size: 11px; color: #9ca3af; align-self: center; }
-
-.ngc-actions { display: flex; gap: 8px; margin-top: 2px; }
-.ngc-reconnect, .ngc-disconnect {
-  flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
-  padding: 9px; border: none; border-radius: 9px; font-weight: 600; font-size: 13.5px; cursor: pointer;
+/* Hàng 3: 1 nút trạng thái — online xanh (hover→đỏ Ngắt) / offline xanh-nhạt Kết nối lại */
+.ngc-statebtn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px; width: 100%;
+  border: none; border-radius: 8px; padding: 8px; font-size: 13px; font-weight: 600; cursor: pointer;
+  min-height: 36px; transition: background .15s, color .15s;
 }
-.ngc-reconnect { background: #f04438; color: #fff; }
-.ngc-reconnect:hover:not(:disabled) { background: #d92d20; }
-/* Ngắt kết nối: style giống .dz-btn (Danger zone drawer) — nền trắng, viền đỏ, chữ đỏ */
-.ngc-disconnect { background: #fff; border: 1px solid #FECACA; color: #B91C1C; }
-.ngc-disconnect:hover:not(:disabled) { background: #FEF2F2; }
-/* Greyed/disabled — khớp main: opacity thấp + not-allowed */
-.ngc-reconnect:disabled, .ngc-disconnect:disabled { opacity: .4; cursor: not-allowed; }
+.ngc-statebtn.on { background: #e7f7ef; color: #067647; }
+.ngc-statebtn.on .lbl-hover { display: none; }
+.ngc-statebtn.on:hover { background: #dc2626; color: #fff; }
+.ngc-statebtn.on:hover .lbl-on { display: none; }
+.ngc-statebtn.on:hover .lbl-hover { display: inline-flex; align-items: center; gap: 5px; }
+.ngc-statebtn.off { background: var(--brand-soft, #e4f1f8); color: var(--brand-700, #1786be); }
+.ngc-statebtn.off:hover:not(:disabled) { background: var(--brand-700, #1786be); color: #fff; }
+.ngc-statebtn:disabled { opacity: .55; cursor: not-allowed; }
+.ngc-statebtn.readonly { cursor: default; }
+.ngc-statebtn.readonly.off { background: #f3f4f6; color: #6b7280; }
+.ngc-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
 .ngc-spin { animation: ngc-spin .8s linear infinite; }
 @keyframes ngc-spin { to { transform: rotate(360deg); } }
 </style>

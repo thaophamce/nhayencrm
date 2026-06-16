@@ -617,7 +617,9 @@ function openQrForReconnect(account: any) {
 async function onCardReconnect(account: any) {
   const live = (account.liveStatus || account.status || '').toLowerCase();
   // qr_pending (session hết hạn / circuit breaker) → cần quét QR lại.
-  if (live === 'qr_pending') {
+  // 2026-06-16: nick NGẮT THỦ CÔNG (disconnectReason='manual') → cũng quét QR lại (Anh chốt:
+  // "Kết nối lại = quét QR", không reconnect ngầm). loginQR sẽ clear reason khi connected.
+  if (live === 'qr_pending' || account.disconnectReason === 'manual') {
     openQrForReconnect(account);
     return;
   }
@@ -640,8 +642,10 @@ async function onCardReconnect(account: any) {
 }
 function onConfirmDelete(account: any) {
   // Mở modal xác nhận (giống tab nâng cao) — có checkbox "Xoá khỏi CRM" (purge).
+  // 2026-06-16 (Anh chốt): xóa nick từ grid card = XÓA HẲN (purge) → mặc định tick sẵn.
+  // Sale vẫn thấy dialog + bỏ tick được nếu chỉ muốn ẩn. Card chỉ cho xóa khi nick ĐÃ NGẮT.
   deleteTargetId.value = account.id;
-  deletePurge.value = false;
+  deletePurge.value = true;
   showDeleteDialog.value = true;
 }
 
@@ -662,6 +666,9 @@ function onTableAction(payload: { account: any; action: 'reconnect' | 'sync' }) 
     if (payload.account.liveStatus === 'connected') {
       // Already connected → trigger sync-history instead as "refresh"
       api.post(`/zalo-accounts/${payload.account.id}/sync-history`).catch(() => {});
+    } else if (payload.account.disconnectReason === 'manual' || (payload.account.liveStatus || '').toLowerCase() === 'qr_pending') {
+      // 2026-06-16: ngắt thủ công / qr_pending → quét QR lại (không reconnect ngầm).
+      openQrForReconnect(payload.account);
     } else {
       reconnectAccount(payload.account.id);
     }

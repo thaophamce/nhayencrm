@@ -172,6 +172,8 @@ export async function zaloDashboardRoutes(app: FastifyInstance): Promise<void> {
         privacyMode: true,
         proxyUrl: true,
         lastConnectedAt: true,
+        disconnectedAt: true,      // 2026-06-16: mốc mất kết nối (FE đếm/hiển thị)
+        disconnectReason: true,    // 'manual' | 'passive' | null
         createdAt: true,
         // 2026-06-06 — cap tin gửi người lạ (Msg today so với cap này, KHÔNG phải 500 cũ).
         dailyStrangerMessageCap: true,
@@ -259,6 +261,8 @@ export async function zaloDashboardRoutes(app: FastifyInstance): Promise<void> {
         liveStatus: live,
         hasProxy: !!a.proxyUrl,
         lastConnectedAt: a.lastConnectedAt,
+        disconnectedAt: a.disconnectedAt,        // mốc mất kết nối (FE đếm passive / hiện manual)
+        disconnectReason: a.disconnectReason,    // 'manual' | 'passive' | null
         createdAt: a.createdAt,
         owner: a.owner ? { id: a.owner.id, fullName: a.owner.fullName, email: a.owner.email } : null,
         ownerUserId: a.ownerUserId,
@@ -499,10 +503,13 @@ export async function zaloDashboardRoutes(app: FastifyInstance): Promise<void> {
             // route from FE in parallel. Here we no-op success so FE can fan out.
             results.push({ id: a.id, ok: true });
           } else if (action === 'disable') {
+            // NGẮT THỦ CÔNG (2026-06-16): set reason='manual' + mốc ngắt → cron/autoReconnect
+            // BỎ QUA nick này (ngắt là ngắt thật, KHÔNG tự nối lại). GIỮ session để "Kết nối lại"
+            // (sale sẽ quét QR lại — Anh chốt). disconnectedAt = mốc cố định FE hiện "Đã ngắt lúc…".
             zaloPool.disconnect(a.id);
             await prisma.zaloAccount.update({
               where: { id: a.id },
-              data: { status: 'disconnected' },
+              data: { status: 'disconnected', disconnectReason: 'manual', disconnectedAt: new Date() },
             });
             results.push({ id: a.id, ok: true });
           }

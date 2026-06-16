@@ -18,9 +18,14 @@ export function startZaloHealthCheck(): void {
       // FIX 2 nick-ghost (2026-06-13): lọc SỚM thẻ ma (zaloUid=null) khỏi sweep — guard
       // chính nằm trong zaloPool.reconnect, đây là lớp 2 giảm tải (khỏi gọi reconnect rồi
       // mới bị từ chối). Chỉ reconnect nick THẬT (đã có zaloUid) chưa ẩn.
+      // 2026-06-16: BỎ QUA nick NGẮT THỦ CÔNG (disconnectReason='manual') — ngắt là ngắt thật,
+      // không tự reconnect. Nick mất kết nối THỤ ĐỘNG (passive/null) vẫn auto-reconnect như cũ.
       const accounts = await runSystemQuery(() =>
         prisma.zaloAccount.findMany({
-          where: { sessionData: { not: Prisma.JsonNull }, archivedAt: null, zaloUid: { not: null } },
+          where: {
+            sessionData: { not: Prisma.JsonNull }, archivedAt: null, zaloUid: { not: null },
+            NOT: { disconnectReason: 'manual' },
+          },
           select: { id: true, displayName: true, sessionData: true },
         }),
       );
@@ -48,9 +53,14 @@ export function startZaloHealthCheck(): void {
     try {
       // Cross-org admin sweep (account theo sessionData, không gắn 1 org) → runSystemQuery.
       // FIX 2 nick-ghost (2026-06-13): chỉ refresh nick THẬT (zaloUid != null) chưa ẩn.
+      // 2026-06-16: BỎ QUA nick ngắt thủ công (manual) — daily refresh KHÔNG làm sống lại nick
+      // sale đã chủ động ngắt.
       const accounts = await runSystemQuery(() =>
         prisma.zaloAccount.findMany({
-          where: { sessionData: { not: Prisma.JsonNull }, archivedAt: null, zaloUid: { not: null } },
+          where: {
+            sessionData: { not: Prisma.JsonNull }, archivedAt: null, zaloUid: { not: null },
+            NOT: { disconnectReason: 'manual' },
+          },
           select: { id: true, sessionData: true },
         }),
       );

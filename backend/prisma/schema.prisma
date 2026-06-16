@@ -345,6 +345,13 @@ model ZaloAccount {
   proxyUrl        String?   @map("proxy_url") // per-account proxy (PR#11)
   sessionData     Json?     @map("session_data")
   lastConnectedAt DateTime? @map("last_connected_at")
+  // 2026-06-16 (Anh chốt): phân biệt NGẮT THỦ CÔNG vs MẤT KẾT NỐI THỤ ĐỘNG.
+  //   disconnectedAt    = thời điểm nick rời trạng thái connected (mốc để FE đếm/hiển thị).
+  //   disconnectReason  = 'manual' (sale bấm Ngắt → KHÔNG tự reconnect, hiện "Đã ngắt lúc {giờ}")
+  //                     | 'passive' (nick rớt do Zalo/mạng → FE đếm phút:giây tăng) | null (đang connected).
+  // Cron health-check + autoReconnect BỎ QUA nick disconnectReason='manual' (ngắt là ngắt thật).
+  disconnectedAt    DateTime? @map("disconnected_at")
+  disconnectReason  String?   @map("disconnect_reason")
   // Phase Riêng Tư 2026-05-22: sale gắn nick là 'main' → blur content cho user khác,
   // chỉ owner unlock PIN xem được. Default 'sub' (org public). Xem design doc:
   // ~/.gstack/projects/zalocrm/thanh-private-mode-design-20260521.md
