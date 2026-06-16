@@ -14,7 +14,7 @@
 import { prisma } from '../../../shared/database/prisma-client.js';
 import { logger } from '../../../shared/utils/logger.js';
 import { getSequenceStepQueue, sequenceStepJobPrefix } from '../queues/queue-registry.js';
-import { etaCompleteAt } from './schedule-calculator.js';
+import { etaCompleteAt, resolveWindowMinutes, vnMinutesOfDay } from './schedule-calculator.js';
 import type { SequenceRuntimeRules, SequenceStep } from '../sequences/types.js';
 
 export type HoldReason =
@@ -152,7 +152,7 @@ export async function getSequenceTimingForContact(args: {
       currentStepIdx = p.stepIdx;
       nextRunAt = p.nextRunAt;
       // Hold do ngoài giờ? nếu nextRunAt > now + delay thường → dời vì giờ.
-      holdReason = isOutOfHours(range) ? 'out_of_hours' : 'running';
+      holdReason = isOutOfHours(rules) ? 'out_of_hours' : 'running';
     } else {
       // Không pending job + phiên active → vừa gửi xong hoặc đang xử lý.
       holdReason = 'running';
@@ -180,11 +180,14 @@ export async function getSequenceTimingForContact(args: {
   return result;
 }
 
-/** Giờ hiện tại (VN UTC+7) có ngoài khung allowedHourRange không. */
-function isOutOfHours(range: [number, number] | null): boolean {
-  if (!range) return false;
-  const [start, end] = range;
-  if (start >= end) return false;
-  const vnHour = (new Date().getUTCHours() + 7) % 24;
-  return !(vnHour >= start && vnHour < end);
+/**
+ * Giờ hiện tại (VN UTC+7) có ngoài khung hoạt động không — CHUẨN TỚI PHÚT, nửa-mở
+ * [start, end). Dùng chung resolveWindowMinutes (allowedTimeRange ưu tiên, fallback
+ * allowedHourRange) để KHỚP đúng đường gửi thật (nextAllowedTime).
+ */
+function isOutOfHours(rules: SequenceRuntimeRules | null | undefined): boolean {
+  const w = resolveWindowMinutes(rules ?? undefined);
+  if (!w) return false;
+  const cur = vnMinutesOfDay(new Date());
+  return !(cur >= w.startMin && cur < w.endMin);
 }

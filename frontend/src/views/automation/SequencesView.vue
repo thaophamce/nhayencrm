@@ -469,8 +469,14 @@ function inProgressCount(seq: AutomationSequence): number {
 function ruleLabels(rules: SequenceRuntimeRules | null | undefined): string[] {
   const r = rules ?? {};
   const out: string[] = [];
-  const hr = r.allowedHourRange;
-  if (hr && (hr[0] !== 0 || hr[1] !== 23)) out.push(`Giờ chạy ${hr[0]}h–${hr[1]}h`);
+  // Ưu tiên khung tới phút (allowedTimeRange) — khớp engine; fallback giờ tròn cũ.
+  const tr = r.allowedTimeRange;
+  if (tr && tr.length === 2 && !(tr[0] === '00:00' && (tr[1] === '24:00' || tr[1] === '23:59'))) {
+    out.push(`Giờ chạy ${tr[0]}–${tr[1]}`);
+  } else if (!tr) {
+    const hr = r.allowedHourRange;
+    if (hr && (hr[0] !== 0 || hr[1] !== 23)) out.push(`Giờ chạy ${hr[0]}h–${hr[1]}h`);
+  }
   const d = r.randomDelayPerSend;
   if (d) out.push(d.min === d.max ? `Giãn ${d.min}p` : `Giãn ${d.min}–${d.max}p`);
   if ((r.perNickThrottle ?? true)) out.push('Giãn đều giữa nick');

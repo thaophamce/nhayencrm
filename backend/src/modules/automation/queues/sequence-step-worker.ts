@@ -164,7 +164,7 @@ async function enqueueNextStep(
   // khung allowedHourRange (nếu rơi ngoài giờ → đầu khung kế). Trước đây cả 2 là dead config.
   const rules = (data.runtimeRules ?? undefined) as import('../sequences/types.js').SequenceRuntimeRules | undefined;
   const baseDelayMs = stepDelayMs(rules, delayMinutes);
-  const runAt = nextAllowedTime(new Date(Date.now() + baseDelayMs), rules?.allowedHourRange);
+  const runAt = nextAllowedTime(new Date(Date.now() + baseDelayMs), rules);
   const delayMs = Math.max(0, runAt.getTime() - Date.now());
 
   // Idempotent enqueue — jobId dedup (Issue #5 5A POC verified).
@@ -768,7 +768,7 @@ export async function enqueueSequenceStart(input: {
   // dời nếu hiện tại ngoài khung giờ hoạt động.
   const startRules = (seq.runtimeRules ?? undefined) as import('../sequences/types.js').SequenceRuntimeRules | undefined;
   const startBaseMs = Math.max(0, (input.startDelayMinutes ?? 60) * 60_000);
-  const startRunAt = nextAllowedTime(new Date(Date.now() + startBaseMs), startRules?.allowedHourRange);
+  const startRunAt = nextAllowedTime(new Date(Date.now() + startBaseMs), startRules);
   const delayMs = Math.max(0, startRunAt.getTime() - Date.now());
 
   try {

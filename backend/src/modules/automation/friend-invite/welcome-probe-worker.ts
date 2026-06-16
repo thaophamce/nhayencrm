@@ -28,6 +28,7 @@ import { logger } from '../../../shared/utils/logger.js';
 import { zaloOps } from '../../../shared/zalo-operations.js';
 import { logEvent } from './event-log-service.js';
 import { withTenant, runSystemQuery } from '../../../shared/tenant/tenant-context.js';
+import { resolveWindowMinutes, vnMinutesOfDay } from '../engine/schedule-calculator.js';
 
 let probeInterval: NodeJS.Timeout | null = null;
 let busy = false;
@@ -52,7 +53,10 @@ interface ProbeRow {
  * chỉnh giờ qua UI Sequence không có hiệu lực với welcome-probe-worker.
  */
 async function isWithinWorkingHours(): Promise<boolean> {
-  const vnHour = (new Date().getUTCHours() + 7) % 24;
+  // 2026-06-16 — đồng bộ với đường gửi STEP: CHUẨN TỚI PHÚT, nửa-mở [start, end) giờ
+  // VN, dùng chung resolveWindowMinutes (allowedTimeRange ưu tiên, fallback giờ tròn).
+  // Bỏ inclusive `<= e` cũ (end=23:00 nay = dừng đúng 23:00; muốn tới hết ngày set 24:00).
+  const cur = vnMinutesOfDay(new Date());
   try {
     // Fix 2026-05-30 22:55 — lookup từ Sequence nào liên kết với outbox WELCOME_PROBE
     // đang pending (kể cả trigger completed). Trước đây query trigger.state='active'
@@ -66,21 +70,18 @@ async function isWithinWorkingHours(): Promise<boolean> {
         select: { runtimeRules: true },
       }),
     );
-    let s = 24, e = 0;
+    // UNION khung giờ các sequence (theo PHÚT): start = min, end = max.
+    let s = 24 * 60, e = 0;
     for (const seq of seqs) {
-      const rules = seq.runtimeRules as { allowedHourRange?: [number, number] } | null;
-      const range = rules?.allowedHourRange;
-      if (Array.isArray(range) && range.length === 2) {
-        if (range[0] < s) s = range[0];
-        if (range[1] > e) e = range[1];
+      const w = resolveWindowMinutes(seq.runtimeRules as never);
+      if (w) {
+        if (w.startMin < s) s = w.startMin;
+        if (w.endMin > e) e = w.endMin;
       }
     }
-    // Fix 2026-05-30 23:08 — đổi `vnHour < e` thành `vnHour <= e` để 23h trong UI
-    // có nghĩa "tới hết 23h59" thay vì "tới 22h59". Anh chỉnh 23h kỳ vọng gửi
-    // được 23:00-23:59, không phải block ngay khi đồng hồ sang 23:00.
-    if (seqs.length > 0 && s < e) return vnHour >= s && vnHour <= e;
+    if (e > s) return cur >= s && cur < e; // nửa-mở, tới phút
   } catch { /* fallthrough default */ }
-  return vnHour >= 6 && vnHour <= 22;
+  return cur >= 6 * 60 && cur < 22 * 60; // default 06:00–22:00 nửa-mở
 }
 
 function classifyError(msg: string): 'BLOCKED_STRANGER' | 'TRANSIENT' | 'AWAITING_NICK' | 'HARD_FAIL' {

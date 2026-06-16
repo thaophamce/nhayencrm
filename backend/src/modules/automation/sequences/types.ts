@@ -36,6 +36,10 @@ export interface SequenceRuntimeRules {
   // Luật 1 — giờ hoạt động. Worker gate giờ qua đây (BỎ trigger.sendHourStart/End ở
   // đường sequence-manual; trước đây allowedHourRange là dead config).
   allowedHourRange?: [number, number];
+  // Luật 1 (bản TỚI PHÚT, 2026-06-16) — khung "HH:mm" nửa-mở [start, end) giờ VN.
+  // Engine ƯU TIÊN đọc field này; allowedHourRange chỉ còn fallback cho data cũ.
+  // end="23:00" = dừng đúng 23:00 (tin cuối ≤ 22:59); muốn tới hết ngày set "24:00".
+  allowedTimeRange?: [string, string];
   // Luật 2 — giãn cách giữa các lần gửi (giây→ngày). Worker tính delay bước kế từ đây
   // (thay step.delayMinutes nếu set). Trước đây randomDelayPerSend là dead config.
   sendGap?: SendGap;
@@ -55,6 +59,7 @@ export interface SequenceRuntimeRules {
 //   - project_zalocrm_cross_nick_friendship_recency: configurable per campaign
 export const DEFAULT_RUNTIME_RULES: SequenceRuntimeRules = {
   allowedHourRange: [6, 22],
+  allowedTimeRange: ['06:00', '22:00'],
   randomDelayPerSend: { min: 15, max: 45 },
   perNickThrottle: true,
   crossNickRecencyDays: 30,
@@ -113,6 +118,28 @@ export function validateRuntimeRules(
     if (typeof start !== 'number' || typeof end !== 'number'
         || start < 0 || start > 23 || end < 0 || end > 23 || start > end) {
       return { ok: false, error: 'allowedHourRange giá trị 0-23, start ≤ end' };
+    }
+  }
+
+  // Luật 1 bản tới phút — allowedTimeRange ["HH:mm","HH:mm"], nửa-mở [start, end).
+  // end cho phép "24:00" (= hết ngày). Bắt buộc start < end (theo phút).
+  if (r.allowedTimeRange !== undefined) {
+    if (!Array.isArray(r.allowedTimeRange) || r.allowedTimeRange.length !== 2) {
+      return { ok: false, error: 'allowedTimeRange phải là ["HH:mm","HH:mm"]' };
+    }
+    const toMin = (v: unknown): number | null => {
+      if (typeof v !== 'string') return null;
+      const m = /^(\d{1,2}):(\d{2})$/.exec(v.trim());
+      if (!m) return null;
+      const h = Number(m[1]);
+      const min = Number(m[2]);
+      if (h < 0 || h > 24 || min < 0 || min > 59 || (h === 24 && min !== 0)) return null;
+      return h * 60 + min;
+    };
+    const s = toMin(r.allowedTimeRange[0]);
+    const e = toMin(r.allowedTimeRange[1]);
+    if (s === null || e === null || s >= e) {
+      return { ok: false, error: 'allowedTimeRange "HH:mm" hợp lệ, start < end (end tối đa 24:00)' };
     }
   }
 

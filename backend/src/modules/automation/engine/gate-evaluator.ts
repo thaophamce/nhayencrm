@@ -13,6 +13,7 @@
 
 import type { SequenceRuntimeRules, GateResult } from './types.js';
 import type { BlockActionType } from '../blocks/types.js';
+import { resolveWindowMinutes, vnMinutesOfDay, nextAllowedTime } from './schedule-calculator.js';
 
 // ── Pure gate functions ───────────────────────────────────────────────────
 
@@ -22,28 +23,20 @@ export function checkHourRange(
   now: Date,
   rules: SequenceRuntimeRules,
 ): GateResult {
-  const range = rules.allowedHourRange;
-  if (!range) return { passed: true };
-  const [start, end] = range;
-  // Convert "now" to VN local clock by shifting +7h, then read as if UTC.
-  const vnNow = new Date(now.getTime() + 7 * 60 * 60 * 1000);
-  const vnHour = vnNow.getUTCHours();
-  if (vnHour >= start && vnHour <= end) {
+  // 2026-06-16 — đồng bộ semantics với đường gửi thật: CHUẨN TỚI PHÚT, nửa-mở
+  // [start, end) (BỎ inclusive `<= end` cũ). Dùng chung resolveWindowMinutes +
+  // nextAllowedTime để không bao giờ lệch với nextAllowedTime/isOutOfHours.
+  const w = resolveWindowMinutes(rules);
+  if (!w) return { passed: true };
+  const cur = vnMinutesOfDay(now);
+  if (cur >= w.startMin && cur < w.endMin) {
     return { passed: true };
   }
-  // Compute next valid VN window, then convert back to UTC for retryAfter.
-  const vnRetry = new Date(vnNow);
-  if (vnHour < start) {
-    vnRetry.setUTCHours(start, 0, 0, 0);
-  } else {
-    vnRetry.setUTCDate(vnRetry.getUTCDate() + 1);
-    vnRetry.setUTCHours(start, 0, 0, 0);
-  }
-  const retryAfter = new Date(vnRetry.getTime() - 7 * 60 * 60 * 1000);
+  const retryAfter = nextAllowedTime(now, rules);
   return {
     passed: false,
     failedGate: 'hour_range',
-    detail: `Outside hours VN [${start}:00 - ${end}:00], retry at ${retryAfter.toISOString()}`,
+    detail: `Outside hours VN [${w.startMin}m - ${w.endMin}m), retry at ${retryAfter.toISOString()}`,
     retryAfter,
   };
 }

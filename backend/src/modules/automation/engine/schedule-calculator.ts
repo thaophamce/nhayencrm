@@ -60,37 +60,75 @@ export function stepDelayMs(
   return Math.max(0, (fallbackDelayMinutes ?? 0) * MS.minute);
 }
 
+// "HH:mm" → phút-trong-ngày 0..1440. Cho phép "24:00"=1440 (chỉ hợp lệ cho end). Sai → null.
+function parseHHmm(s: unknown): number | null {
+  if (typeof s !== 'string') return null;
+  const m = /^(\d{1,2}):(\d{2})$/.exec(s.trim());
+  if (!m) return null;
+  const h = Number(m[1]);
+  const min = Number(m[2]);
+  if (h < 0 || h > 24 || min < 0 || min > 59 || (h === 24 && min !== 0)) return null;
+  return h * 60 + min;
+}
+
 /**
- * Dời `at` vào trong khung giờ hoạt động (luật 1). Nếu `at` rơi ngoài [start, end)
- * theo GIỜ ĐỊA PHƯƠNG VN (UTC+7) → trả mốc đầu khung kế tiếp; nếu trong khung → giữ.
- *
- * @param at        mốc cần kiểm (Date)
- * @param range     [startHour, endHour] giờ VN (0-23). undefined = không giới hạn.
- * @param nowMs     "hiện tại" để test xác định (mặc định Date.now ở caller, KHÔNG gọi
- *                  Date.now() trong file pure để test ổn định — caller truyền vào).
- * @returns Date đã dời vào khung (hoặc nguyên `at` nếu không có range / đã trong khung)
+ * Khung giờ hoạt động (luật 1) → phút-trong-ngày, nửa-mở [startMin, endMin) giờ VN.
+ * ƯU TIÊN `allowedTimeRange` ("HH:mm", tới phút); fallback `allowedHourRange` (giờ
+ * tròn ×60) cho config cũ. null = không giới hạn. NGUỒN SỰ THẬT DUY NHẤT cho mọi
+ * check giờ (nextAllowedTime / isOutOfHours / welcome-probe / gate-evaluator).
  */
-export function nextAllowedTime(at: Date, range: [number, number] | undefined): Date {
-  if (!range) return at;
-  const [start, end] = range;
-  if (start >= end) return at; // range vô nghĩa → bỏ qua gate
-
-  // Giờ VN (UTC+7). getUTCHours + 7, wrap 24.
-  const vnHour = (at.getUTCHours() + 7) % 24;
-
-  if (vnHour >= start && vnHour < end) return at; // trong khung → giữ
-
-  // Ngoài khung → dời tới `start` giờ của khung kế tiếp (cùng ngày nếu chưa tới, mai nếu đã qua).
-  const result = new Date(at.getTime());
-  // Đưa về đầu giờ `start` VN. Quy ra UTC: startUtcHour = (start - 7 + 24) % 24.
-  const startUtcHour = (start - 7 + 24) % 24;
-  result.setUTCMinutes(0, 0, 0);
-  result.setUTCHours(startUtcHour);
-  // Nếu kết quả ≤ at (đã qua khung hôm nay) → sang ngày mai.
-  if (result.getTime() <= at.getTime()) {
-    result.setUTCDate(result.getUTCDate() + 1);
+export function resolveWindowMinutes(
+  rules: SequenceRuntimeRules | null | undefined,
+): { startMin: number; endMin: number } | null {
+  if (!rules) return null;
+  const tr = rules.allowedTimeRange;
+  if (Array.isArray(tr) && tr.length === 2) {
+    const s = parseHHmm(tr[0]);
+    const e = parseHHmm(tr[1]);
+    if (s !== null && e !== null && s < e) return { startMin: s, endMin: e };
   }
-  return result;
+  const hr = rules.allowedHourRange;
+  if (Array.isArray(hr) && hr.length === 2) {
+    const [s, e] = hr;
+    if (typeof s === 'number' && typeof e === 'number' && s < e) {
+      return { startMin: s * 60, endMin: e * 60 };
+    }
+  }
+  return null;
+}
+
+// Phút-trong-ngày theo giờ VN (UTC+7) của `at`. 0..1440 (có phần lẻ giây/ms).
+export function vnMinutesOfDay(at: Date): number {
+  const shifted = at.getTime() + 7 * MS.hour;
+  return (shifted - Math.floor(shifted / MS.day) * MS.day) / MS.minute;
+}
+
+/**
+ * Dời `at` vào trong khung giờ hoạt động (luật 1) — CHUẨN TỚI PHÚT, nửa-mở
+ * [start, end) theo giờ VN (UTC+7). Trong khung → giữ nguyên; ngoài khung → mốc
+ * `start` của khung kế (hôm nay nếu chưa tới, mai nếu đã qua), canh đúng phút (giây=0).
+ *
+ * @param at    mốc cần kiểm (Date)
+ * @param rules runtimeRules (đọc allowedTimeRange/allowedHourRange). null = không giới hạn.
+ * @returns Date đã dời vào khung (hoặc nguyên `at` nếu không có khung / đã trong khung)
+ */
+export function nextAllowedTime(
+  at: Date,
+  rules: SequenceRuntimeRules | null | undefined,
+): Date {
+  const w = resolveWindowMinutes(rules);
+  if (!w) return at;
+  const { startMin, endMin } = w;
+  if (startMin >= endMin) return at; // vô nghĩa → bỏ qua gate
+
+  const shifted = at.getTime() + 7 * MS.hour;
+  const dayStart = Math.floor(shifted / MS.day) * MS.day; // 00:00 VN (theo epoch đã shift)
+  const cur = (shifted - dayStart) / MS.minute; // phút-trong-ngày VN
+  if (cur >= startMin && cur < endMin) return at; // trong khung → giữ
+
+  let target = dayStart + startMin * MS.minute;
+  if (target <= shifted) target += MS.day; // đã qua khung hôm nay → đầu khung mai
+  return new Date(target - 7 * MS.hour);
 }
 
 /**
@@ -111,14 +149,13 @@ export function etaCompleteAt(
 ): Date | null {
   if (fromStepIdx >= steps.length - 1) return null; // đã ở/qua bước cuối
   let t = fromTime;
-  const range = rules?.allowedHourRange;
   // ETA dùng ĐIỂM GIỮA của khoảng random (rand=0.5) → ổn định, không nhảy mỗi lần mở
   // panel. Thực tế mỗi step pick random riêng nên ETA là ước lượng (hiển thị "dự kiến").
   const midRand = () => 0.5;
   for (let i = fromStepIdx + 1; i < steps.length; i++) {
     const gapMs = stepDelayMs(rules, steps[i].delayMinutes, midRand);
     t = new Date(t.getTime() + gapMs);
-    t = nextAllowedTime(t, range);
+    t = nextAllowedTime(t, rules);
   }
   return t;
 }

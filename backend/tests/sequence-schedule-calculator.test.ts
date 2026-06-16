@@ -7,6 +7,7 @@ import {
   stepDelayMs,
   nextAllowedTime,
   etaCompleteAt,
+  resolveWindowMinutes,
 } from '../src/modules/automation/engine/schedule-calculator.js';
 import type { SequenceStep } from '../src/modules/automation/sequences/types.js';
 
@@ -54,24 +55,66 @@ describe('stepDelayMs — ưu tiên sendGap, fallback delayMinutes', () => {
   });
 });
 
-describe('nextAllowedTime — luật 1 né ngoài giờ (giờ VN UTC+7)', () => {
-  it('không có range → giữ nguyên', () => {
+describe('resolveWindowMinutes — nguồn sự thật khung giờ (phút, nửa-mở)', () => {
+  it('không rules → null', () => expect(resolveWindowMinutes(undefined)).toBeNull());
+  it('allowedHourRange [6,22] → [360,1320)', () =>
+    expect(resolveWindowMinutes({ allowedHourRange: [6, 22] })).toEqual({ startMin: 360, endMin: 1320 }));
+  it('allowedTimeRange "HH:mm" tới phút', () =>
+    expect(resolveWindowMinutes({ allowedTimeRange: ['06:30', '22:30'] })).toEqual({ startMin: 390, endMin: 1350 }));
+  it('allowedTimeRange ƯU TIÊN hơn allowedHourRange', () =>
+    expect(resolveWindowMinutes({ allowedHourRange: [6, 22], allowedTimeRange: ['08:00', '20:15'] }))
+      .toEqual({ startMin: 480, endMin: 1215 }));
+  it('end "24:00" = hết ngày (1440)', () =>
+    expect(resolveWindowMinutes({ allowedTimeRange: ['06:00', '24:00'] })).toEqual({ startMin: 360, endMin: 1440 }));
+  it('timeRange sai/đảo → fallback allowedHourRange', () =>
+    expect(resolveWindowMinutes({ allowedHourRange: [6, 22], allowedTimeRange: ['22:00', '06:00'] }))
+      .toEqual({ startMin: 360, endMin: 1320 }));
+});
+
+describe('nextAllowedTime — luật 1 né ngoài giờ (VN UTC+7), nửa-mở [start,end) tới phút', () => {
+  it('không rules → giữ nguyên', () => {
     const at = new Date('2026-06-13T10:00:00Z');
     expect(nextAllowedTime(at, undefined).getTime()).toBe(at.getTime());
+    expect(nextAllowedTime(at, {}).getTime()).toBe(at.getTime());
   });
   it('trong khung [6,22] VN → giữ nguyên', () => {
-    // 03:00 UTC = 10:00 VN → trong khung 6-22 → giữ.
-    const at = new Date('2026-06-13T03:00:00Z');
-    expect(nextAllowedTime(at, [6, 22]).getTime()).toBe(at.getTime());
+    const at = new Date('2026-06-13T03:00:00Z'); // 10:00 VN
+    expect(nextAllowedTime(at, { allowedHourRange: [6, 22] }).getTime()).toBe(at.getTime());
   });
-  it('ngoài khung (đêm) → dời tới đầu khung kế', () => {
-    // 18:00 UTC = 01:00 VN ngày 14 → ngoài khung 6-22 → dời tới 06:00 VN = 23:00 UTC ngày 13.
-    const at = new Date('2026-06-13T18:00:00Z');
-    const r = nextAllowedTime(at, [6, 22]);
-    // 06:00 VN = 23:00 UTC hôm trước (cùng "ngày VN" của at). Phải > at và rơi vào giờ VN 6.
+  it('ngoài khung (đêm 01:00 VN) → dời tới 06:00 VN, canh đúng phút', () => {
+    const at = new Date('2026-06-13T18:00:00Z'); // 01:00 VN ngày 14
+    const r = nextAllowedTime(at, { allowedHourRange: [6, 22] });
     expect(r.getTime()).toBeGreaterThan(at.getTime());
-    const vnHour = (r.getUTCHours() + 7) % 24;
-    expect(vnHour).toBe(6);
+    expect((r.getUTCHours() + 7) % 24).toBe(6);
+    expect(r.getUTCMinutes()).toBe(0);
+  });
+
+  // ── BIÊN END (anh hỏi 2026-06-16): end EXCLUSIVE — 22:00 = DỪNG, KHÔNG phải 22:59 ──
+  it('21:59 VN trong [6,22] → giữ (vẫn gửi)', () => {
+    const at = new Date('2026-06-13T14:59:00Z'); // 21:59 VN
+    expect(nextAllowedTime(at, { allowedHourRange: [6, 22] }).getTime()).toBe(at.getTime());
+  });
+  it('22:00:00 VN với [6,22] → NGOÀI khung (dời 06:00 mai) — không chạy tới 22:59', () => {
+    const at = new Date('2026-06-13T15:00:00Z'); // 22:00:00 VN
+    const r = nextAllowedTime(at, { allowedHourRange: [6, 22] });
+    expect(r.getTime()).toBeGreaterThan(at.getTime());
+    expect((r.getUTCHours() + 7) % 24).toBe(6);
+  });
+
+  // ── allowedTimeRange tới PHÚT ──
+  it('timeRange ["06:00","22:30"]: 22:15 VN → giữ', () => {
+    const at = new Date('2026-06-13T15:15:00Z'); // 22:15 VN
+    expect(nextAllowedTime(at, { allowedTimeRange: ['06:00', '22:30'] }).getTime()).toBe(at.getTime());
+  });
+  it('timeRange ["06:00","22:30"]: 22:30 VN → NGOÀI (nửa-mở)', () => {
+    const at = new Date('2026-06-13T15:30:00Z'); // 22:30:00 VN
+    const r = nextAllowedTime(at, { allowedTimeRange: ['06:00', '22:30'] });
+    expect(r.getTime()).toBeGreaterThan(at.getTime());
+    expect((r.getUTCHours() + 7) % 24).toBe(6);
+  });
+  it('end "24:00" → chạy hết ngày (23:30 VN vẫn giữ)', () => {
+    const at = new Date('2026-06-13T16:30:00Z'); // 23:30 VN
+    expect(nextAllowedTime(at, { allowedTimeRange: ['06:00', '24:00'] }).getTime()).toBe(at.getTime());
   });
 });
 
