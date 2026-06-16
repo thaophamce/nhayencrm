@@ -215,16 +215,34 @@ export async function appointmentRoutes(app: FastifyInstance): Promise<void> {
         return reply.status(400).send({ error: 'contactId and appointmentDate are required' });
       }
 
-      // Deduplication: prevent same contact + same date within org
-      const existing = await prisma.appointment.findFirst({
+      // Chống trùng (anh chốt 2026-06-16): CHỈ chặn khi cùng KH + cùng NGÀY + cùng GIỜ và lịch
+      // CÒN HIỆU LỰC (bỏ qua Hoàn thành/Huỷ/Vắng). Khác giờ trong ngày → cho phép. Khi trùng:
+      // báo RÕ lịch đang vướng (tên/giờ/ngày/phụ trách) để sale biết xử lý.
+      const conflict = await prisma.appointment.findFirst({
         where: {
           contactId: body.contactId,
           appointmentDate: new Date(body.appointmentDate),
+          appointmentTime: body.appointmentTime ?? null,
           orgId: user.orgId,
+          status: { in: ['scheduled', 'overdue'] },
+        },
+        select: {
+          id: true, title: true, appointmentTime: true, appointmentDate: true,
+          contact: { select: { fullName: true } },
+          assignedUser: { select: { fullName: true } },
         },
       });
-      if (existing) {
-        return reply.status(409).send({ error: 'Lịch hẹn đã tồn tại cho ngày này' });
+      if (conflict) {
+        const kh = conflict.contact?.fullName?.trim() || 'Khách này';
+        const dateLabel = new Intl.DateTimeFormat('vi-VN', {
+          timeZone: 'Asia/Ho_Chi_Minh', day: '2-digit', month: '2-digit', year: 'numeric',
+        }).format(conflict.appointmentDate);
+        const sale = conflict.assignedUser?.fullName ? ` · phụ trách ${conflict.assignedUser.fullName}` : '';
+        return reply.status(409).send({
+          error: 'appointment_conflict',
+          message: `${kh} đã có lịch "${conflict.title || 'Lịch hẹn'}" lúc ${conflict.appointmentTime || '—'} ngày ${dateLabel}${sale}. Chọn GIỜ khác hoặc xử lý lịch cũ trước.`,
+          conflictId: conflict.id,
+        });
       }
 
       const appointment = await prisma.appointment.create({
@@ -276,6 +294,12 @@ export async function appointmentRoutes(app: FastifyInstance): Promise<void> {
           /* silent */
         }
       })();
+
+      // 2026-06-16 — đẩy Nhắc hẹn Zalo (nick hệ thống) cho sale: tin báo + createReminder.
+      // Fire-and-forget, lỗi Zalo KHÔNG ảnh hưởng tạo lịch (service tự nuốt lỗi).
+      void import('./appointment-zalo-service.js')
+        .then((m) => m.pushAppointmentOnCreate(appointment.id))
+        .catch(() => {});
 
       return reply.status(201).send(appointment);
     } catch (err) {
@@ -394,6 +418,13 @@ export async function appointmentRoutes(app: FastifyInstance): Promise<void> {
         }
       }
 
+      // 2026-06-16 — sync Nhắc hẹn Zalo: đóng lịch → xoá nhắc; đổi giờ → sửa nhắc.
+      if (statusChanging && ['completed', 'cancelled', 'no_show'].includes(body.status)) {
+        void import('./appointment-zalo-service.js').then((m) => m.removeAppointmentReminder(id)).catch(() => {});
+      } else if (dateChanging) {
+        void import('./appointment-zalo-service.js').then((m) => m.syncReminderOnReschedule(id)).catch(() => {});
+      }
+
       return updated;
     } catch (err) {
       logger.error('[appointments] Update error:', err);
@@ -443,10 +474,60 @@ export async function appointmentRoutes(app: FastifyInstance): Promise<void> {
         details: { appointmentId: id, oldStatus: existing.status, newStatus: status },
       });
 
+      // 2026-06-16 — đóng lịch (hoàn thành/huỷ/vắng) → xoá Nhắc hẹn Zalo (khỏi báo thừa).
+      if (status === 'completed' || status === 'cancelled' || status === 'no_show') {
+        void import('./appointment-zalo-service.js').then((m) => m.removeAppointmentReminder(id)).catch(() => {});
+      }
+
       return updated;
     } catch (err) {
       logger.error('[appointments] Status update error:', err);
       return reply.status(500).send({ error: 'Failed to update status' });
+    }
+  });
+
+  // ── Cài đặt Lịch hẹn → Nhắc hẹn Zalo (2026-06-16) ─────────────────────────
+  // GET trả cấu hình org; PUT (admin/owner) lưu bật/tắt + delay (phút) gửi link đánh dấu.
+  app.get('/api/v1/appointments/settings', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const user = request.user!;
+      const org = await prisma.organization.findUnique({
+        where: { id: user.orgId },
+        select: { appointmentZaloReminderEnabled: true, appointmentActionDelayMinutes: true, systemNotifyZaloAccountId: true },
+      });
+      return {
+        enabled: org?.appointmentZaloReminderEnabled ?? false,
+        actionDelayMinutes: org?.appointmentActionDelayMinutes ?? 15,
+        hasSystemNotifyNick: !!org?.systemNotifyZaloAccountId,
+      };
+    } catch (err) {
+      logger.error('[appointments] settings get error:', err);
+      return reply.status(500).send({ error: 'Failed to load settings' });
+    }
+  });
+  app.put('/api/v1/appointments/settings', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const user = request.user!;
+      if (!['owner', 'admin'].includes(user.role)) return reply.status(403).send({ error: 'forbidden' });
+      const body = (request.body ?? {}) as { enabled?: boolean; actionDelayMinutes?: number };
+      const data: Record<string, unknown> = {};
+      if (typeof body.enabled === 'boolean') data.appointmentZaloReminderEnabled = body.enabled;
+      if (body.actionDelayMinutes !== undefined) {
+        const v = Number(body.actionDelayMinutes);
+        if (!Number.isFinite(v) || v < 0 || v > 1440) {
+          return reply.status(400).send({ error: 'actionDelayMinutes_invalid', hint: 'Phải từ 0 đến 1440 phút' });
+        }
+        data.appointmentActionDelayMinutes = Math.round(v);
+      }
+      const org = await prisma.organization.update({
+        where: { id: user.orgId },
+        data,
+        select: { appointmentZaloReminderEnabled: true, appointmentActionDelayMinutes: true },
+      });
+      return { enabled: org.appointmentZaloReminderEnabled, actionDelayMinutes: org.appointmentActionDelayMinutes };
+    } catch (err) {
+      logger.error('[appointments] settings put error:', err);
+      return reply.status(500).send({ error: 'Failed to save settings' });
     }
   });
 

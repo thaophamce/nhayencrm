@@ -83,4 +83,48 @@ export function startAppointmentReminder(io: Server): void {
   void flipOverdue();
 
   logger.info('[appointment] Overdue auto-flip cron started (every 5 min + on-boot)');
+
+  // 2026-06-16 — sau giờ hẹn `appointmentActionDelayMinutes` phút (org cấu hình) → gửi
+  // tin Zalo kèm LINK để sale bấm đánh dấu Hoàn thành/Huỷ. Mỗi lịch gửi 1 lần (cờ actionPromptSent).
+  async function sendActionPrompts() {
+    try {
+      const now = new Date();
+      // Prefilter rộng (buffer 12h): appointmentDate là 00:00 UTC của NGÀY; giờ thật ở
+      // appointmentTime có thể trước/sau mốc đó → lấy dư rồi lọc chính xác bằng dueMs bên dưới.
+      const prefilterMax = new Date(now.getTime() + 12 * 60 * 60_000);
+      const candidates = await prisma.appointment.findMany({
+        where: { status: { in: ['scheduled', 'overdue'] }, actionPromptSent: false, appointmentDate: { lte: prefilterMax } },
+        select: { id: true, orgId: true, appointmentDate: true, appointmentTime: true },
+        take: 200,
+      });
+      if (!candidates.length) return;
+      const orgIds = [...new Set(candidates.map((c) => c.orgId))];
+      const orgs = await prisma.organization.findMany({
+        where: { id: { in: orgIds } },
+        select: { id: true, appointmentZaloReminderEnabled: true, appointmentActionDelayMinutes: true, timezone: true },
+      });
+      const orgMap = new Map(orgs.map((o) => [o.id, o]));
+      const { sendAppointmentActionPrompt, appointmentStartMs } = await import('./appointment-zalo-service.js');
+      let sent = 0;
+      for (const c of candidates) {
+        const o = orgMap.get(c.orgId);
+        if (!o?.appointmentZaloReminderEnabled) continue;
+        // Mốc gửi link = GIỜ HẸN THẬT (ghép ngày+appointmentTime theo tz org) + delay phút.
+        const startMs = appointmentStartMs(c.appointmentDate, c.appointmentTime, o.timezone || '+07:00');
+        const dueMs = startMs + (o.appointmentActionDelayMinutes ?? 15) * 60_000;
+        if (now.getTime() < dueMs) continue; // chưa tới mốc (giờ hẹn + delay)
+        // Set cờ TRƯỚC khi gửi (tránh gửi trùng nếu cron chồng / send chậm).
+        await withTenant(c.orgId, () =>
+          prisma.appointment.update({ where: { id: c.id }, data: { actionPromptSent: true } }),
+        );
+        await sendAppointmentActionPrompt(c.id);
+        sent++;
+      }
+      if (sent > 0) logger.info(`[appointment] Sent ${sent} action-prompt link(s)`);
+    } catch (err) {
+      logger.error('[appointment] action-prompt cron error:', err);
+    }
+  }
+  cron.schedule('*/5 * * * *', sendActionPrompts);
+  logger.info('[appointment] Action-prompt link cron started (every 5 min)');
 }

@@ -300,6 +300,30 @@ async function sendLink(accountId: string, threadId: string, threadType: 0 | 1, 
     (api) => api.sendLink(link, threadId, threadType));
 }
 
+// ─── Reminders / Nhắc hẹn (2026-06-16) ──────────────────────────────────────
+// zca-js createReminder/editReminder/removeReminder. type 0=user, 1=group (như threadType).
+// startTime = epoch ms; repeat 0=None,1=Daily,2=Weekly,3=Monthly. Trả ReminderUser có reminderId.
+async function createReminder(
+  accountId: string, threadId: string, threadType: 0 | 1,
+  options: { title: string; startTime?: number; repeat?: number; emoji?: string },
+): Promise<any> {
+  return exec({ accountId, category: 'message', operation: 'createReminder' },
+    (api) => api.createReminder(options, threadId, threadType));
+}
+async function editReminder(
+  accountId: string, threadId: string, threadType: 0 | 1,
+  options: { title: string; topicId: string; startTime?: number; repeat?: number; emoji?: string },
+): Promise<any> {
+  return exec({ accountId, category: 'message', operation: 'editReminder' },
+    (api) => api.editReminder(options, threadId, threadType));
+}
+async function removeReminder(
+  accountId: string, reminderId: string, threadId: string, threadType: 0 | 1,
+): Promise<any> {
+  return exec({ accountId, category: 'message', operation: 'removeReminder' },
+    (api) => api.removeReminder(reminderId, threadId, threadType));
+}
+
 async function sendCard(accountId: string, threadId: string, threadType: 0 | 1, cardData: any) {
   return exec({ accountId, category: 'message', operation: 'sendCard' },
     (api) => api.sendCard(cardData, threadId, threadType));
@@ -717,6 +741,11 @@ export const zaloOps = {
   sendLink,
   sendCard,
   sendVoice,
+
+  // Reminders / Nhắc hẹn (2026-06-16)
+  createReminder,
+  editReminder,
+  removeReminder,
   sendVideo,
   sendFile,
   uploadAttachment,

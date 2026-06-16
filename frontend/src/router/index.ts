@@ -22,6 +22,16 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/ForcePasswordChangeView.vue'),
     meta: { layout: 'auth', requiresAuth: true, allowUnchangedPassword: true },
   },
+  // Trang CÔNG KHAI (không cần đăng nhập) — sale bấm link trong tin Zalo để
+  // đánh dấu Lịch hẹn Hoàn thành / Huỷ. Xác thực bằng token ?t= (2026-06-16).
+  {
+    path: '/appointments/action',
+    name: 'AppointmentAction',
+    component: () => import('@/views/AppointmentActionView.vue'),
+    // public: trang mở từ link Zalo khi sale CHƯA đăng nhập → không ép login,
+    // và chặn axios/socket 401-interceptor redirect về /login (xem clearAuthAndRedirect).
+    meta: { layout: 'auth', public: true },
+  },
   {
     path: '/',
     name: 'Dashboard',
@@ -118,6 +128,8 @@ const routes: RouteRecordRaw[] = [
       { path: 'crm/tags-v2',     name: 'Settings.TagsV2',      component: () => import('@/views/settings/TagTaxonomyV2Page.vue'), meta: { resource: 'settings' } },
       { path: 'crm/zalo-labels', name: 'Settings.ZaloLabels',  component: () => import('@/components/settings/ZaloLabelsManagement.vue'), meta: { resource: 'settings' } },
       { path: 'crm/scoring',     name: 'Settings.Scoring',     component: () => import('@/views/ScoringSettingsView.vue'), meta: { resource: 'settings' } },
+      // Lịch hẹn → nhắc hẹn Zalo (2026-06-16) — bật/tắt + delay phút gửi link đánh dấu.
+      { path: 'crm/appointments', name: 'Settings.Appointments', component: () => import('@/views/settings/AppointmentSettingsPage.vue'), meta: { resource: 'settings' } },
       { path: 'crm/stuck',       name: 'Settings.Stuck',       component: () => import('@/views/settings/SettingsComingSoon.vue'), props: { feature: 'stuck' }, meta: { resource: 'settings' } },
       { path: 'crm/folders',     name: 'Settings.Folders',     component: () => import('@/views/settings/SettingsComingSoon.vue'), props: { feature: 'folders' }, meta: { resource: 'settings' } },
       { path: 'crm/templates',   name: 'Settings.Templates',   component: () => import('@/views/settings/SettingsComingSoon.vue'), props: { feature: 'templates' }, meta: { resource: 'settings' } },
@@ -379,6 +391,7 @@ const ROUTE_TITLES: Record<string, string> = {
   'Settings.TagsV2': 'Thẻ (taxonomy)',
   'Settings.ZaloLabels': 'Nhãn Zalo',
   'Settings.Scoring': 'Chấm điểm tương tác',
+  'Settings.Appointments': 'Lịch hẹn & Nhắc hẹn',
   'Settings.Stuck': 'KH bị kẹt',
   'Settings.Folders': 'Thư mục',
   'Settings.Templates': 'Mẫu tin',

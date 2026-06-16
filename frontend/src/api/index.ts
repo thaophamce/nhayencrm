@@ -48,8 +48,15 @@ let refreshPromise: Promise<string> | null = null;
 export function clearAuthAndRedirect() {
   localStorage.removeItem('token');
   localStorage.removeItem('refreshToken');
-  const currentPath = router.currentRoute.value.path;
-  if (currentPath !== '/login' && currentPath !== '/setup') {
+  const current = router.currentRoute.value;
+  // Trang public (vd /appointments/action mở từ link Zalo khi chưa login) KHÔNG ép về /login.
+  // Dùng window.location.pathname làm nguồn xác thực: lúc boot, layout 'default' (có
+  // NotificationBell) render NHÁY trước khi router resolve meta.public → /notifications 401
+  // → redirect oan. pathname có ngay từ đầu nên chặn được race này.
+  const PUBLIC_PREFIXES = ['/appointments/action'];
+  const livePath = (typeof window !== 'undefined' && window.location?.pathname) || current.path;
+  if (current.meta?.public || PUBLIC_PREFIXES.some((p) => livePath.startsWith(p))) return;
+  if (current.path !== '/login' && current.path !== '/setup') {
     router.replace('/login');
   }
 }

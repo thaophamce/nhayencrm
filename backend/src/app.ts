@@ -39,6 +39,7 @@ import { statusRoutes } from './modules/contacts/status-routes.js';
 import { contactSubResourceRoutes } from './modules/contacts/contact-sub-resource-routes.js';
 import { cockpitRoutes } from './modules/contacts/cockpit-routes.js';
 import { appointmentRoutes } from './modules/contacts/appointment-routes.js';
+import { appointmentPublicRoutes } from './modules/contacts/appointment-public-routes.js';
 import { notesRoutes } from './modules/contacts/notes-routes.js';
 import { startInteractionCron } from './modules/contacts/interaction-cron.js';
 import { crmTagRoutes } from './modules/contacts/crm-tag-routes.js';
@@ -237,6 +238,7 @@ async function bootstrap() {
   await app.register(contactSubResourceRoutes);
   await app.register(cockpitRoutes);
   await app.register(appointmentRoutes);
+  await app.register(appointmentPublicRoutes); // 2026-06-16 — public action link (no auth)
   await app.register(notesRoutes);
   await app.register(crmTagRoutes);
   await app.register(crmTagGroupRoutes);

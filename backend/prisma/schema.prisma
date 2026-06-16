@@ -119,6 +119,11 @@ model Organization {
   welcomeImageUrl        String? @map("welcome_image_url")
   adminFallbackPhone     String? @map("admin_fallback_phone")
 
+  // Lịch hẹn → Nhắc hẹn Zalo (2026-06-16): bật đẩy Nhắc hẹn Zalo cho sale qua nick hệ thống
+  // + delay (phút) gửi tin "link đánh dấu hoàn thành/huỷ" SAU giờ hẹn (admin chỉnh trong Cài đặt lịch hẹn).
+  appointmentZaloReminderEnabled Boolean @default(false) @map("appointment_zalo_reminder_enabled")
+  appointmentActionDelayMinutes  Int     @default(15)    @map("appointment_action_delay_minutes")
+
   // Wave 2 Welcome Probe 2026-05-29 — config send welcome msg sau friend accept
   welcomeDelayAfterFriendReqSec Int     @default(60) @map("welcome_delay_after_friend_req_sec")
   welcomeStrangerInboxEnabled   Boolean @default(true) @map("welcome_stranger_inbox_enabled")
@@ -956,6 +961,8 @@ model Appointment {
   status          String   @default("scheduled") // scheduled, completed, cancelled, no_show
   notes           String?
   reminderSent    Boolean  @default(false) @map("reminder_sent")
+  // 2026-06-16: đã gửi tin "link đánh dấu hoàn thành/huỷ" (sau giờ hẹn) chưa — cron set true 1 lần.
+  actionPromptSent Boolean @default(false) @map("action_prompt_sent")
   createdAt       DateTime @default(now()) @map("created_at")
 
   // Nguồn + link Zalo
