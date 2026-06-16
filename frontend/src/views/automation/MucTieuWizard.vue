@@ -255,6 +255,20 @@
             </div>
             <div class="msg-bundle-body">
 
+              <!-- Preview context: render biến theo KH mẫu + sale thật (2026-06-16) -->
+              <div class="prev-ctx">
+                <v-icon size="14">mdi-eye-outline</v-icon>
+                <span class="pc-lead">Xem trước theo:</span>
+                <span class="pc-chip"><span class="pc-av">{{ initials(previewSampleName) }}</span> {{ previewGenderLabel }} {{ previewNameShort }}</span>
+                <span class="pc-chip"><span class="pc-av sl">{{ initials(saleName) }}</span> Sale {{ saleNameShort }}</span>
+                <span class="grow"></span>
+                <select v-model="previewGender" class="pc-sel">
+                  <option value="male">KH mẫu: Nam → Anh</option>
+                  <option value="female">KH mẫu: Nữ → Chị</option>
+                  <option value="unknown">KH mẫu: chưa rõ → Anh Chị</option>
+                </select>
+              </div>
+
               <!-- Timeline luồng tin (giúp sale hiểu thứ tự) -->
               <div class="flow-strip">
                 <b>Lời mời KB</b> <span class="fa"><v-icon size="13">mdi-arrow-right</v-icon></span>
@@ -272,13 +286,19 @@
                   <div class="msg-item-title">Lời mời kết bạn</div>
                   <span class="msg-item-badge badge-req"><v-icon size="12">mdi-lock-outline</v-icon> Bắt buộc</span>
                 </div>
-                <p class="msg-item-help">Lời nhắn gửi <strong>cùng lúc</strong> với lời mời kết bạn Zalo. Không thể tắt (KB Zalo phải kèm lời chào). Tối đa 200 ký tự.</p>
-                <textarea v-model="form.messages.friendRequest" class="ta" rows="2" maxlength="200" :class="{ 'ta-invalid': !friendRequestHasName }" @focus="onMsgFocus($event, 'friendRequest')"></textarea>
-                <div class="ta-counter">{{ form.messages.friendRequest.length }}/200</div>
-                <p v-if="!friendRequestHasName" class="ta-warn">
-                  <v-icon size="13">mdi-alert-circle-outline</v-icon>
-                  Lời mời <strong>bắt buộc</strong> có biến <code>{name}</code> (tên khách). Bấm chip <code>{name}</code> bên dưới để chèn.
-                </p>
+                <p class="msg-item-help">Lời nhắn gửi <strong>cùng lúc</strong> với lời mời kết bạn Zalo. Không thể tắt. Tối đa 200 ký tự.</p>
+                <div class="msg-2pane">
+                  <div class="msg-edit">
+                    <div class="msg-pane-lbl"><v-icon size="11">mdi-pencil-outline</v-icon> Soạn nội dung</div>
+                    <textarea v-model="form.messages.friendRequest" class="ta" rows="3" maxlength="200" :class="{ 'ta-invalid': !friendRequestHasName }" @focus="onMsgFocus($event, 'friendRequest')"></textarea>
+                    <div class="ta-counter">{{ form.messages.friendRequest.length }}/200</div>
+                    <p v-if="!friendRequestHasName" class="ta-warn"><v-icon size="13">mdi-alert-circle-outline</v-icon> Lời mời <strong>bắt buộc</strong> có biến <code>{name}</code>. Bấm chip <code>{name}</code> bên dưới.</p>
+                  </div>
+                  <div class="msg-prev">
+                    <div class="msg-pane-lbl"><v-icon size="11">mdi-eye-outline</v-icon> Xem trước (gửi đi)</div>
+                    <div class="zalo"><div class="zbubble me" v-html="renderPreview(form.messages.friendRequest)"></div></div>
+                  </div>
+                </div>
               </div>
 
               <!-- TIN 1 · CHÀO MỪNG -->
@@ -292,10 +312,16 @@
                 <p class="msg-item-help">Gửi qua hộp thư người lạ <strong>ngay sau khi gửi lời mời</strong> (không chờ đồng ý).
                   <span v-if="!form.enableWelcome" class="msg-off-note">— Đang TẮT: bỏ qua tin chào.</span></p>
                 <template v-if="form.enableWelcome">
-                  <div class="msg-item-row">
-                    <textarea v-model="form.messages.welcome" class="ta" rows="2" @focus="onMsgFocus($event, 'welcome')"></textarea>
-                    <div class="msg-delay-input"><label>Chờ sau khi mời</label>
-                      <TimeAmountInput v-model="form.welcomeDelayMinutes" base-unit="minute" :units="['second','minute','hour']" /></div>
+                  <div class="msg-2pane">
+                    <div class="msg-edit">
+                      <div class="msg-pane-lbl"><v-icon size="11">mdi-pencil-outline</v-icon> Soạn nội dung</div>
+                      <textarea v-model="form.messages.welcome" class="ta" rows="3" @focus="onMsgFocus($event, 'welcome')"></textarea>
+                      <div class="msg-delay-input"><label>Chờ sau khi mời</label><TimeAmountInput v-model="form.welcomeDelayMinutes" base-unit="minute" :units="['second','minute','hour']" /></div>
+                    </div>
+                    <div class="msg-prev">
+                      <div class="msg-pane-lbl"><v-icon size="11">mdi-eye-outline</v-icon> Xem trước (gửi đi)</div>
+                      <div class="zalo"><div class="zbubble me" v-html="renderPreview(form.messages.welcome)"></div></div>
+                    </div>
                   </div>
                   <NotifyOwnerBox v-model="form.notifyOwner.welcome" />
                 </template>
@@ -312,10 +338,16 @@
                 <p class="msg-item-help">Gửi khi khách <strong>thực sự bấm Đồng ý</strong> kết bạn.
                   <span v-if="!form.enableThankYou" class="msg-off-note">— Đang TẮT.</span></p>
                 <template v-if="form.enableThankYou">
-                  <div class="msg-item-row">
-                    <textarea v-model="form.messages.thankYou" class="ta" rows="2" @focus="onMsgFocus($event, 'thankYou')"></textarea>
-                    <div class="msg-delay-input"><label>Chờ sau khi đồng ý</label>
-                      <TimeAmountInput v-model="form.thankYouDelayMinutes" base-unit="minute" :units="['second','minute','hour']" /></div>
+                  <div class="msg-2pane">
+                    <div class="msg-edit">
+                      <div class="msg-pane-lbl"><v-icon size="11">mdi-pencil-outline</v-icon> Soạn nội dung</div>
+                      <textarea v-model="form.messages.thankYou" class="ta" rows="3" @focus="onMsgFocus($event, 'thankYou')"></textarea>
+                      <div class="msg-delay-input"><label>Chờ sau khi đồng ý</label><TimeAmountInput v-model="form.thankYouDelayMinutes" base-unit="minute" :units="['second','minute','hour']" /></div>
+                    </div>
+                    <div class="msg-prev">
+                      <div class="msg-pane-lbl"><v-icon size="11">mdi-eye-outline</v-icon> Xem trước (gửi đi)</div>
+                      <div class="zalo"><div class="zbubble me" v-html="renderPreview(form.messages.thankYou)"></div></div>
+                    </div>
                   </div>
                   <NotifyOwnerBox v-model="form.notifyOwner.thankYou" />
                 </template>
@@ -332,12 +364,18 @@
                 <p class="msg-item-help">Gửi qua hộp người lạ nếu khách lâu chưa đồng ý.
                   <span v-if="!form.enableRemind" class="msg-off-note">— Đang TẮT.</span></p>
                 <template v-if="form.enableRemind">
-                  <div class="msg-item-row">
-                    <textarea v-model="form.messages.remind" class="ta" rows="2" @focus="onMsgFocus($event, 'remind')"></textarea>
-                    <div class="msg-delay-input"><label>Nhắc sau</label>
-                      <TimeAmountInput v-model="form.remindDelayDays" base-unit="day" :units="['hour','day']" /></div>
+                  <div class="msg-2pane">
+                    <div class="msg-edit">
+                      <div class="msg-pane-lbl"><v-icon size="11">mdi-pencil-outline</v-icon> Soạn nội dung</div>
+                      <textarea v-model="form.messages.remind" class="ta" rows="3" @focus="onMsgFocus($event, 'remind')"></textarea>
+                      <div class="msg-delay-input"><label>Nhắc sau</label><TimeAmountInput v-model="form.remindDelayDays" base-unit="day" :units="['hour','day']" /></div>
+                      <span class="cond-chip"><v-icon size="13">mdi-check-circle-outline</v-icon> Tự bỏ qua nếu khách đã đồng ý (Tin 2 đã chạy)</span>
+                    </div>
+                    <div class="msg-prev">
+                      <div class="msg-pane-lbl"><v-icon size="11">mdi-eye-outline</v-icon> Xem trước (gửi đi)</div>
+                      <div class="zalo"><div class="zbubble me" v-html="renderPreview(form.messages.remind)"></div></div>
+                    </div>
                   </div>
-                  <span class="cond-chip"><v-icon size="13">mdi-check-circle-outline</v-icon> Tự bỏ qua nếu khách đã đồng ý (Tin 2 đã chạy)</span>
                   <NotifyOwnerBox v-model="form.notifyOwner.remind" />
                 </template>
               </div>
@@ -353,7 +391,16 @@
                 <p class="msg-item-help">Gửi qua hộp người lạ khi khách bấm Từ chối. KH reject vẫn được bám đuổi qua hộp người lạ.
                   <span v-if="!form.enableRejectedFollowUp" class="msg-off-note">— Đang TẮT.</span></p>
                 <template v-if="form.enableRejectedFollowUp">
-                  <textarea v-model="form.messages.rejectedFollowUp" class="ta" rows="2" @focus="onMsgFocus($event, 'rejectedFollowUp')"></textarea>
+                  <div class="msg-2pane">
+                    <div class="msg-edit">
+                      <div class="msg-pane-lbl"><v-icon size="11">mdi-pencil-outline</v-icon> Soạn nội dung</div>
+                      <textarea v-model="form.messages.rejectedFollowUp" class="ta" rows="3" @focus="onMsgFocus($event, 'rejectedFollowUp')"></textarea>
+                    </div>
+                    <div class="msg-prev">
+                      <div class="msg-pane-lbl"><v-icon size="11">mdi-eye-outline</v-icon> Xem trước (gửi đi)</div>
+                      <div class="zalo"><div class="zbubble me" v-html="renderPreview(form.messages.rejectedFollowUp)"></div></div>
+                    </div>
+                  </div>
                   <NotifyOwnerBox v-model="form.notifyOwner.rejected" />
                 </template>
               </div>
@@ -1034,8 +1081,10 @@ import NotifyOwnerBox from '@/components/automation/NotifyOwnerBox.vue';
 import ConfirmActionModal from '@/components/chat/ConfirmActionModal.vue';
 import { TEMPLATE_VARIABLES } from '@/constants/template-variables';
 import { useToast } from '@/composables/use-toast';
+import { useAuthStore } from '@/stores/auth';
 
 const toast = useToast();
+const auth = useAuthStore();
 
 // 2026-06-16 — Việt hoá lỗi tạo/sửa Mục tiêu từ mã lỗi backend (sale dễ hiểu).
 // Backend trả { error: '<code>', hint?: '<tiếng Việt>' }. Ưu tiên map dưới → hint → mã.
@@ -1286,6 +1335,56 @@ void canSaveDraft;
 // 2026-06-16 — Lời mời kết bạn BẮT BUỘC có {name} (backend chặn). Guard sớm tại Step 2
 // để sale thấy lỗi ngay tại ô, không đợi tới lúc bấm Tạo mới báo.
 const friendRequestHasName = computed(() => form.value.messages.friendRequest.includes('{name}'));
+
+// ===== Step 2 — Live preview biến (item 2026-06-16) =====
+// renderPreview KHỚP 100% logic backend render-template.ts (resolveVars):
+//   {gender} female→Chị / male→Anh / else→Anh Chị · {name}=last word fullName
+//   {name_full}=full · {crm_*}=fallback tên thật KH (alias per-nick chỉ biết lúc gửi)
+//   {sale}=last word tên sale THẬT (user đăng nhập) · {sale_full}=full.
+const previewGender = ref<'male' | 'female' | 'unknown'>('male');
+const PREVIEW_SAMPLE: Record<'male' | 'female' | 'unknown', string> = {
+  male: 'Trần Văn Lộc',
+  female: 'Nguyễn Thị Hương',
+  unknown: 'Trần Văn Lộc',
+};
+const saleName = computed(() => (auth.user?.fullName || 'em').trim());
+const saleNameShort = computed(() => saleName.value.split(/\s+/).pop() || saleName.value);
+const previewSampleName = computed(() => PREVIEW_SAMPLE[previewGender.value]);
+const previewNameShort = computed(() => previewSampleName.value.split(/\s+/).pop() || previewSampleName.value);
+const previewGenderLabel = computed(() =>
+  previewGender.value === 'female' ? 'Chị' : previewGender.value === 'male' ? 'Anh' : 'Anh Chị');
+
+function previewVars(): Record<string, string> {
+  const full = previewSampleName.value;
+  const fp = full.trim().split(/\s+/);
+  const sf = saleName.value;
+  const sp = sf.split(/\s+/);
+  const crmFull = full; // alias per-nick không có lúc tạo → fallback tên thật KH (giống BE)
+  const cp = crmFull.trim().split(/\s+/);
+  return {
+    gender: previewGenderLabel.value,
+    name: fp[fp.length - 1] || 'Anh Chị',
+    name_full: full || 'Anh Chị',
+    crm_full: crmFull || 'Anh Chị',
+    crm_first: cp[0] || 'Anh Chị',
+    crm_last: cp[cp.length - 1] || 'Anh Chị',
+    sale: sp[sp.length - 1] || 'em',
+    sale_full: sf || 'em',
+  };
+}
+function escPv(s: string): string {
+  return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+function renderPreview(tpl: string): string {
+  const v = previewVars();
+  // escape text trước, rồi thay 8 token (name_full trước name, crm_full trước crm_first/last,
+  // sale_full trước sale — regex alternation match trái→phải đúng thứ tự).
+  const out = escPv(tpl).replace(
+    /\{(gender|name_full|name|crm_full|crm_first|crm_last|sale_full|sale)\}/g,
+    (_m, k: string) => `<span class="pv-var">${escPv(v[k] ?? '')}</span>`,
+  );
+  return out.trim() ? out : '<span class="pv-empty">(chưa có nội dung)</span>';
+}
 
 const canNextStep2 = computed(() => {
   return form.value.messages.friendRequest.trim().length > 0
@@ -2514,6 +2613,40 @@ textarea.ta.ta-invalid:focus { box-shadow: 0 0 0 3px var(--danger-bg); }
 .flow-strip b { color:var(--text-1); }
 .flow-strip .fa { color:var(--border-strong); }
 .cond-chip { display:inline-block; font-size:11.5px; color:#157f3c; background:var(--success-bg); padding:2px 8px; border-radius:6px; margin-top:7px; }
+
+/* ===== Step 2 redesign 2026-06-16 — editor + live preview ===== */
+.prev-ctx {
+  display:flex; align-items:center; gap:8px; flex-wrap:wrap;
+  padding:8px 12px; margin-bottom:12px;
+  background:var(--primary-bg); border:1px solid var(--brand-soft); border-radius:6px;
+  font-size:12px; color:var(--brand-700);
+}
+.prev-ctx .pc-lead { font-weight:700; }
+.prev-ctx .grow { flex:1; }
+.pc-chip { display:inline-flex; align-items:center; gap:5px; background:#fff; border:1px solid var(--brand-soft); border-radius:999px; padding:2px 9px; font-weight:600; color:var(--text-2); }
+.pc-av { width:17px; height:17px; border-radius:50%; background:linear-gradient(135deg, var(--primary), var(--brand-700,#0b5880)); color:#fff; font-size:8.5px; font-weight:800; display:inline-flex; align-items:center; justify-content:center; }
+.pc-av.sl { background:linear-gradient(135deg, var(--success), var(--brand-700,#0b5880)); }
+.pc-sel { font:inherit; font-size:12px; font-weight:600; color:var(--text-2); border:1px solid var(--brand-soft); border-radius:6px; background:#fff; padding:4px 8px; }
+
+.msg-2pane { display:grid; grid-template-columns:1fr 1fr; gap:0; border:1px solid var(--border); border-radius:8px; overflow:hidden; margin-top:8px; }
+.msg-edit { padding:11px; border-right:1px dashed var(--border); }
+.msg-prev { padding:11px; background:linear-gradient(180deg,#eef4f8,#f5f9fb); }
+.msg-pane-lbl { font-size:10px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; color:var(--text-mute); margin-bottom:6px; display:flex; align-items:center; gap:4px; }
+.msg-2pane textarea.ta { margin:0; }
+.msg-edit .msg-delay-input { margin-top:9px; }
+.msg-edit .cond-chip { margin-top:9px; }
+
+/* bong bóng Zalo (tin mình gửi) */
+.zalo { display:flex; }
+.zbubble { max-width:90%; font-size:13px; line-height:1.55; padding:9px 12px; border-radius:14px 4px 14px 14px;
+  background:var(--primary); color:#fff; white-space:pre-wrap; word-break:break-word; margin-left:auto; box-shadow:var(--shadow-1); }
+.zbubble :deep(.pv-var) { background:rgba(255,255,255,.24); border-radius:4px; padding:0 3px; font-weight:700; }
+.zbubble :deep(.pv-empty) { opacity:.65; font-style:italic; }
+
+@media (max-width: 720px) {
+  .msg-2pane { grid-template-columns:1fr; }
+  .msg-edit { border-right:0; border-bottom:1px dashed var(--border); }
+}
 .ev-notify-item { padding:8px 0; border-top:1px dashed var(--border); }
 .ev-notify-item:first-child { border-top:none; }
 .ev-notify-head { font-size:13px; color:var(--text-1); display:flex; align-items:center; gap:7px; }
