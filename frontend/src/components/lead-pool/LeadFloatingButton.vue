@@ -266,7 +266,10 @@ const state = computed(() => {
 type BtnMode = 'available' | 'cooldown' | 'pending';
 const btnMode = computed<BtnMode>(() => {
   if (state.value.reason === 'unsubmitted_note') return 'pending';
-  if (state.value.reason === 'cooldown') return 'cooldown';
+  // Bug fix 2026-06-15 (Anh báo "Đợi mờ kẹt"): reason='cooldown' là snapshot TĨNH từ
+  // fetch cũ, server không tự cập nhật. Chỉ coi là cooldown khi đồng hồ ĐỘNG còn > 0.
+  // Khi giây = 0 → chuyển 'available' NGAY (sáng, bấm được), không chờ re-fetch.
+  if (state.value.reason === 'cooldown' && cooldownSecondsLeft.value > 0) return 'cooldown';
   return 'available';
 });
 
@@ -301,10 +304,9 @@ const roleLabel = computed(() => {
   return '👤 Nhân viên';
 });
 
-// Bug fix: auto-refresh khi countdown cooldown hết
-watch(cooldownSecondsLeft, (val, oldVal) => {
-  if (oldVal > 0 && val === 0) setTimeout(() => void fetchEligibility(), 500);
-});
+// Bug fix 2026-06-15: refetch khi cooldown hết đã chuyển vào composable use-lead-pool
+// (watch theo điều kiện =0, không transition >0→0 — bền hơn). Bỏ watcher cũ ở đây để
+// tránh 2 watcher đá nhau. btnMode đã xét cooldownSecondsLeft>0 nên nút hết kẹt ngay.
 
 // 2026-05-28: lead pending đã quá expiresAt → server tự reap. Watch expiresLabel
 // về "00:00:00" trong pending mode → re-fetch để FAB hết hiện pending.

@@ -4,7 +4,7 @@
  * Composable cho LeadFloatingButton + LeadRequestModal.
  * Cache eligibility state, poll cooldown countdown, fire request, force note, return.
  */
-import { ref, computed, onUnmounted } from 'vue';
+import { ref, computed, watch, onUnmounted } from 'vue';
 import { api } from '@/api/index';
 
 export interface PoolConfig {
@@ -74,6 +74,8 @@ const requesting = ref(false);
 
 const tickNow = ref(Date.now());
 let tickTimer: number | null = null;
+// Bug fix 2026-06-15 — chống đăng ký trùng watch cooldown (composable gọi nhiều lần).
+let cooldownWatchAttached = false;
 
 function startTicker() {
   if (tickTimer) return;
@@ -208,6 +210,20 @@ export function useLeadPool() {
       console.warn('[lead-pool] stats failed:', err?.response?.data || err);
       return null;
     }
+  }
+
+  // Bug fix 2026-06-15 (Anh báo nút "Đợi" kẹt): khi cooldown chạm 0, tự đồng bộ server
+  // để lấy canRequest=true mới. Trigger theo điều kiện `=== 0` (KHÔNG theo transition
+  // >0→0 mong manh — dễ bỏ lỡ khi tab background throttle / component remount). Đăng ký
+  // 1 lần (cờ) vì composable có thể gọi nhiều nơi.
+  if (!cooldownWatchAttached) {
+    cooldownWatchAttached = true;
+    watch(cooldownSecondsLeft, (s) => {
+      if (s === 0 && eligibility.value?.reason === 'cooldown') {
+        stopTicker();
+        void fetchEligibility();
+      }
+    });
   }
 
   onUnmounted(stopTicker);
