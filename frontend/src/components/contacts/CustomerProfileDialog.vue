@@ -257,20 +257,20 @@
                 <div class="attr-grid">
                   <div class="attr-card">
                     <h4 class="attr-h"><span class="ic">🪪</span> Định danh Cha <span class="dim2">(ngoài biến)</span></h4>
-                    <div class="ar"><span class="ak">Global ID</span><span class="av"><span v-if="cc.zaloGlobalId" class="mono">{{ cc.zaloGlobalId }}</span><span v-else class="dim">—</span></span></div>
-                    <div class="ar"><span class="ak">Username</span><span class="av"><span v-if="cc.zaloUsername" class="mono">{{ cc.zaloUsername }}</span><span v-else class="dim">—</span></span></div>
-                    <div class="ar dim-row"><span class="ak">UID</span><span class="av dim">per-nick → xem bảng trên / tab "Nick chăm"</span></div>
-                    <div class="ar"><span class="ak">Có Zalo?</span><span class="av"><span class="zpill" :class="zaloPillClass">{{ zaloPillText }}</span></span></div>
-                    <div class="ar"><span class="ak">Lần tra cuối</span><span class="av">{{ cc.zaloLookupAt ? formatDate(cc.zaloLookupAt) : '—' }}<span v-if="cc.zaloLookupAttempts" class="dim"> · {{ cc.zaloLookupAttempts }} lần</span></span></div>
+                    <div class="cpd-ar"><span class="cpd-ak">Global ID</span><span class="cpd-av"><span v-if="cc.zaloGlobalId" class="mono">{{ cc.zaloGlobalId }}</span><span v-else class="dim">—</span></span></div>
+                    <div class="cpd-ar"><span class="cpd-ak">Username</span><span class="cpd-av"><span v-if="cc.zaloUsername" class="mono">{{ cc.zaloUsername }}</span><span v-else class="dim">—</span></span></div>
+                    <div class="cpd-ar dim-row"><span class="cpd-ak">UID</span><span class="cpd-av dim">per-nick → xem bảng trên / tab "Nick chăm"</span></div>
+                    <div class="cpd-ar"><span class="cpd-ak">Có Zalo?</span><span class="cpd-av"><span class="zpill" :class="zaloPillClass">{{ zaloPillText }}</span></span></div>
+                    <div class="cpd-ar"><span class="cpd-ak">Lần tra cuối</span><span class="cpd-av">{{ cc.zaloLookupAt ? formatDate(cc.zaloLookupAt) : '—' }}<span v-if="cc.zaloLookupAttempts" class="dim"> · {{ cc.zaloLookupAttempts }} lần</span></span></div>
                   </div>
                   <div class="attr-card">
                     <h4 class="attr-h"><span class="ic">⚙</span> Hệ thống & nguồn <span class="dim2">(ngoài biến)</span></h4>
-                    <div class="ar"><span class="ak">Consent</span><span class="av">{{ cc.consentStatus || '—' }}<span v-if="cc.consentSource" class="dim"> · {{ cc.consentSource }}</span></span></div>
-                    <div class="ar"><span class="ak">Ngày nguồn</span><span class="av">{{ cc.sourceDate ? formatDate(cc.sourceDate) : '—' }}</span></div>
-                    <div class="ar"><span class="ak">Tổng lịch hẹn</span><span class="av">{{ cc.totalAppointments ?? 0 }}</span></div>
-                    <div class="ar"><span class="ak">Tạo / Cập nhật</span><span class="av">{{ cc.createdAt ? formatDate(cc.createdAt) : '—' }}<span class="dim"> · {{ cc.updatedAt ? formatDate(cc.updatedAt) : '—' }}</span></span></div>
-                    <div class="ar"><span class="ak">Liên hệ đầu</span><span class="av">{{ cc.firstContactDate ? formatDate(cc.firstContactDate) : '—' }}</span></div>
-                    <div class="ar"><span class="ak">Vào pool</span><span class="av">{{ cc.pooledCount ?? 0 }} lần</span></div>
+                    <div class="cpd-ar"><span class="cpd-ak">Consent</span><span class="cpd-av">{{ cc.consentStatus || '—' }}<span v-if="cc.consentSource" class="dim"> · {{ cc.consentSource }}</span></span></div>
+                    <div class="cpd-ar"><span class="cpd-ak">Ngày nguồn</span><span class="cpd-av">{{ cc.sourceDate ? formatDate(cc.sourceDate) : '—' }}</span></div>
+                    <div class="cpd-ar"><span class="cpd-ak">Tổng lịch hẹn</span><span class="cpd-av">{{ cc.totalAppointments ?? 0 }}</span></div>
+                    <div class="cpd-ar"><span class="cpd-ak">Tạo / Cập nhật</span><span class="cpd-av">{{ cc.createdAt ? formatDate(cc.createdAt) : '—' }}<span class="dim"> · {{ cc.updatedAt ? formatDate(cc.updatedAt) : '—' }}</span></span></div>
+                    <div class="cpd-ar"><span class="cpd-ak">Liên hệ đầu</span><span class="cpd-av">{{ cc.firstContactDate ? formatDate(cc.firstContactDate) : '—' }}</span></div>
+                    <div class="cpd-ar"><span class="cpd-ak">Vào pool</span><span class="cpd-av">{{ cc.pooledCount ?? 0 }} lần</span></div>
                   </div>
                 </div>
               </div>
@@ -982,14 +982,15 @@ async function copyAttr(code: string) {
 .attr-card.full { grid-column: 1 / -1; }
 .attr-h { margin: 0; padding: 9px 13px; font-size: 12px; font-weight: 700; color: var(--brand-700, #0b5880); background: var(--surface-2, #f7f9fc); border-bottom: 1px solid var(--line, #e7eaf0); display: flex; align-items: center; gap: 7px; }
 .attr-h .ic { font-size: 13px; }
-.ar { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding: 7px 13px; border-bottom: 1px solid var(--line-2, #eef1f6); font-size: 12.5px; }
-.ar:last-child { border-bottom: none; }
-.ar .ak { color: var(--ink-4, #97a0b3); font-weight: 600; flex: none; min-width: 96px; }
-.ar .av { color: var(--ink, #141a24); text-align: right; word-break: break-word; }
-.ar .av .mono { font-family: var(--mono, 'Roboto Mono', monospace); font-size: 11.5px; color: var(--ink-2, #475066); background: var(--surface-3, #f1f4f9); padding: 1px 6px; border-radius: 5px; }
-.ar .av .dim, .ar .av.dim, .dim { color: var(--ink-4, #97a0b3); }
-.ar .av .prev, .ar .av.prev { font-style: italic; color: var(--ink-3, #6b7488); }
-.ar.dim-row .ak, .ar.dim-row .av { font-style: italic; }
+/* cpd-ar/ak/av: prefix riêng, TRÁNH đụng global .av (avatar gradient) trong hs-crm-theme.css */
+.cpd-ar { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding: 7px 13px; border-bottom: 1px solid var(--line-2, #eef1f6); font-size: 12.5px; }
+.cpd-ar:last-child { border-bottom: none; }
+.cpd-ar .cpd-ak { color: var(--ink-4, #97a0b3); font-weight: 600; flex: none; min-width: 96px; }
+.cpd-ar .cpd-av { flex: 1; min-width: 0; color: var(--ink, #141a24); text-align: right; word-break: break-word; background: none; border-radius: 0; }
+.cpd-ar .cpd-av .mono { font-family: var(--mono, 'Roboto Mono', monospace); font-size: 11.5px; color: var(--ink-2, #475066); background: var(--surface-3, #f1f4f9); padding: 1px 6px; border-radius: 5px; }
+.cpd-ar .cpd-av .dim, .cpd-ar .cpd-av.dim, .dim { color: var(--ink-4, #97a0b3); }
+.cpd-ar .cpd-av .prev, .cpd-ar .cpd-av.prev { font-style: italic; color: var(--ink-3, #6b7488); }
+.cpd-ar.dim-row .cpd-ak, .cpd-ar.dim-row .cpd-av { font-style: italic; }
 /* Score breakdown 4 chiều */
 .bd-row { display: flex; gap: 16px; flex-wrap: wrap; padding: 12px 13px; }
 .bd-it { display: flex; flex-direction: column; gap: 5px; min-width: 110px; flex: 1; }
