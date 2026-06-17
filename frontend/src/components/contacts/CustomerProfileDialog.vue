@@ -200,6 +200,78 @@
                   </div>
                 </div>
               </div>
+
+              <!-- ════ P2: Bảng attribute đầy đủ (read-only, xem 360°) ════ -->
+              <div v-if="!isCreate" class="cpd-attr">
+                <!-- Lead score breakdown 4 chiều -->
+                <div v-if="hasScoreBd" class="attr-card full">
+                  <h4 class="attr-h"><span class="ic">📊</span> Lead Score — {{ Math.round((c?.displayLeadScore ?? c?.leadScore) || 0) }}/100 (4 chiều)</h4>
+                  <div class="bd-row">
+                    <div v-for="b in scoreBd" :key="b.key" class="bd-it">
+                      <div class="bd-l">{{ b.label }} <b>{{ Math.round(b.val) }}</b></div>
+                      <div class="bd-t"><i :style="{ width: Math.min(100, b.val) + '%', background: b.color }"></i></div>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="attr-grid">
+                  <!-- Định danh Zalo (Cha) -->
+                  <div class="attr-card">
+                    <h4 class="attr-h"><span class="ic">🪪</span> Định danh Zalo (Cha)</h4>
+                    <div class="ar"><span class="ak">Global ID</span><span class="av"><span v-if="cc.zaloGlobalId" class="mono">{{ cc.zaloGlobalId }}</span><span v-else class="dim">—</span></span></div>
+                    <div class="ar"><span class="ak">Username</span><span class="av"><span v-if="cc.zaloUsername" class="mono">{{ cc.zaloUsername }}</span><span v-else class="dim">—</span></span></div>
+                    <div class="ar"><span class="ak">Có Zalo?</span><span class="av"><span class="zpill" :class="zaloPillClass">{{ zaloPillText }}</span></span></div>
+                    <div class="ar"><span class="ak">Lần tra cuối</span><span class="av">{{ cc.zaloLookupAt ? formatDate(cc.zaloLookupAt) : '—' }}<span v-if="cc.zaloLookupAttempts" class="dim"> · {{ cc.zaloLookupAttempts }} lần</span></span></div>
+                    <div class="ar dim-row"><span class="ak">UID</span><span class="av dim">per-nick → tab "Nick chăm"</span></div>
+                  </div>
+
+                  <!-- Địa chỉ -->
+                  <div class="attr-card">
+                    <h4 class="attr-h"><span class="ic">📍</span> Địa chỉ</h4>
+                    <div class="ar"><span class="ak">Tỉnh / Thành</span><span class="av">{{ cc.province || '—' }}</span></div>
+                    <div class="ar"><span class="ak">Quận / Huyện</span><span class="av">{{ cc.district || '—' }}</span></div>
+                    <div class="ar"><span class="ak">Phường / Xã</span><span class="av">{{ cc.ward || '—' }}</span></div>
+                    <div class="ar"><span class="ak">Địa chỉ</span><span class="av">{{ cc.addressLine || '—' }}</span></div>
+                  </div>
+
+                  <!-- MXH + thu nhập -->
+                  <div class="attr-card">
+                    <h4 class="attr-h"><span class="ic">🌐</span> Mạng xã hội & khác</h4>
+                    <div class="ar"><span class="ak">Facebook</span><span class="av">{{ cc.socialFacebook || '—' }}</span></div>
+                    <div class="ar"><span class="ak">TikTok</span><span class="av">{{ cc.socialTiktok || '—' }}</span></div>
+                    <div class="ar"><span class="ak">Thu nhập</span><span class="av">{{ cc.incomeRange || '—' }}</span></div>
+                  </div>
+
+                  <!-- Hoạt động -->
+                  <div class="attr-card">
+                    <h4 class="attr-h"><span class="ic">📨</span> Hoạt động</h4>
+                    <div class="ar"><span class="ak">KH nhắn cuối</span><span class="av">{{ cc.lastInboundAt ? formatRecentDateTime(cc.lastInboundAt) : '—' }}</span></div>
+                    <div v-if="cc.lastInboundPreview" class="ar"><span class="ak">Tin gần nhất</span><span class="av prev">"{{ cleanPreview(cc.lastInboundPreview, cc.lastInboundType) }}"</span></div>
+                    <div class="ar"><span class="ak">Sale nhắn cuối</span><span class="av">{{ cc.lastOutboundAt ? formatRecentDateTime(cc.lastOutboundAt) : '—' }}</span></div>
+                    <div class="ar"><span class="ak">Tương tác cuối</span><span class="av">{{ cc.lastInteractionAt ? formatRecentDateTime(cc.lastInteractionAt) : '—' }}</span></div>
+                    <div class="ar"><span class="ak">Tổng tin in/out</span><span class="av"><b>{{ cc.totalInbound ?? 0 }}</b> / {{ cc.totalOutbound ?? 0 }}</span></div>
+                    <div class="ar"><span class="ak">Tổng lịch hẹn</span><span class="av">{{ cc.totalAppointments ?? 0 }}</span></div>
+                  </div>
+
+                  <!-- Đồng ý & nguồn -->
+                  <div class="attr-card">
+                    <h4 class="attr-h"><span class="ic">🛡</span> Đồng ý & nguồn</h4>
+                    <div class="ar"><span class="ak">Consent</span><span class="av">{{ cc.consentStatus || '—' }}<span v-if="cc.consentSource" class="dim"> · {{ cc.consentSource }}</span></span></div>
+                    <div class="ar"><span class="ak">Ngày nguồn</span><span class="av">{{ cc.sourceDate ? formatDate(cc.sourceDate) : '—' }}</span></div>
+                    <div class="ar"><span class="ak">Lịch hẹn kế</span><span class="av">{{ cc.nextAppointment ? formatRecentDateTime(cc.nextAppointment) : '—' }}</span></div>
+                  </div>
+
+                  <!-- Hệ thống -->
+                  <div class="attr-card">
+                    <h4 class="attr-h"><span class="ic">⚙</span> Hệ thống</h4>
+                    <div class="ar"><span class="ak">Tạo lúc</span><span class="av">{{ cc.createdAt ? formatDate(cc.createdAt) : '—' }}</span></div>
+                    <div class="ar"><span class="ak">Cập nhật</span><span class="av">{{ cc.updatedAt ? formatDate(cc.updatedAt) : '—' }}</span></div>
+                    <div class="ar"><span class="ak">Liên hệ đầu</span><span class="av">{{ cc.firstContactDate ? formatDate(cc.firstContactDate) : '—' }}</span></div>
+                    <div class="ar"><span class="ak">Vào pool</span><span class="av">{{ cc.pooledCount ?? 0 }} lần</span></div>
+                  </div>
+                </div>
+              </div>
+
               <div v-if="!isCreate" class="cpd-aggnote">
                 💡 Field gắn nhãn <span class="agg">tổng hợp</span> tự cập nhật từ các nick chăm (tab "Nick chăm").
                 Thông tin cá nhân sửa trực tiếp tại đây, lưu vào hồ sơ tổng.
@@ -229,6 +301,7 @@
                   </div>
                   <div class="s-r s-r2">
                     <span class="s-sale">Sale <b>{{ ownerName(f) }}</b></span>
+                    <span v-if="(f as any).zaloUidInNick" class="s-uid" :title="'UID Zalo của KH nhìn từ nick này'">🆔 {{ (f as any).zaloUidInNick }}</span>
                     <span v-if="f.statusRef" class="chip" :style="{ background: (f.statusRef.color || '#5a6478') + '22', color: f.statusRef.color || '#5a6478' }">{{ f.statusRef.name }}</span>
                     <span v-for="tag in friendTags(f)" :key="tag" class="ftag ft-manual">{{ tag }}</span>
                     <span class="s-meta">
@@ -339,6 +412,19 @@ type TabKey = 'overview' | 'nicks' | 'timeline' | 'notes';
 const activeTab = ref<TabKey>('overview');
 
 const c = ref<Contact | null>(null);
+// P2 Hồ sơ — cast gọn để bind các attribute read-only (field có sẵn từ API full-row).
+const cc = computed<Record<string, any>>(() => (c.value ?? {}) as any);
+// Lead score breakdown 4 chiều (engagement/intent/fit/velocity) từ aggregateBreakdown.
+const scoreBd = computed(() => {
+  const b = cc.value.aggregateBreakdown || {};
+  return [
+    { key: 'engagement', label: 'Tương tác', val: Number(b.engagement ?? 0), color: '#1786be' },
+    { key: 'intent',     label: 'Ý định mua', val: Number(b.intent ?? 0),     color: '#ec4899' },
+    { key: 'fit',        label: 'Phù hợp',    val: Number(b.fit ?? 0),        color: '#12b76a' },
+    { key: 'velocity',   label: 'Tốc độ',     val: Number(b.velocity ?? 0),   color: '#f5a524' },
+  ];
+});
+const hasScoreBd = computed(() => scoreBd.value.some((x) => x.val > 0));
 const loading = ref(false);
 const error = ref<string | null>(null);
 const saving = ref(false);
@@ -800,6 +886,31 @@ function formatVnPhone(phone: string | null | undefined): string {
 .tag-add-in { border: 1px dashed var(--smax-grey-300); border-radius: 9px; padding: 1px 8px; font-size: 11px; width: 80px; font-family: inherit; }
 .tag-add-in:focus { outline: none; border-color: var(--smax-primary); }
 .cpd-aggnote { margin-top: 14px; font-size: 11.5px; color: var(--smax-grey-700); background: #f7f9fc; border: 1px solid var(--smax-grey-200); border-radius: 7px; padding: 9px 13px; }
+
+/* ── P2 Hồ sơ: bảng attribute đầy đủ (HS theme) ── */
+.cpd-attr { margin-top: 14px; display: flex; flex-direction: column; gap: 12px; }
+.attr-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.attr-card { border: 1px solid var(--line, #e7eaf0); border-radius: var(--r-md, 10px); overflow: hidden; background: var(--surface, #fff); }
+.attr-card.full { grid-column: 1 / -1; }
+.attr-h { margin: 0; padding: 9px 13px; font-size: 12px; font-weight: 700; color: var(--brand-700, #0b5880); background: var(--surface-2, #f7f9fc); border-bottom: 1px solid var(--line, #e7eaf0); display: flex; align-items: center; gap: 7px; }
+.attr-h .ic { font-size: 13px; }
+.ar { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding: 7px 13px; border-bottom: 1px solid var(--line-2, #eef1f6); font-size: 12.5px; }
+.ar:last-child { border-bottom: none; }
+.ar .ak { color: var(--ink-4, #97a0b3); font-weight: 600; flex: none; min-width: 96px; }
+.ar .av { color: var(--ink, #141a24); text-align: right; word-break: break-word; }
+.ar .av .mono { font-family: var(--mono, 'Roboto Mono', monospace); font-size: 11.5px; color: var(--ink-2, #475066); background: var(--surface-3, #f1f4f9); padding: 1px 6px; border-radius: 5px; }
+.ar .av .dim, .ar .av.dim, .dim { color: var(--ink-4, #97a0b3); }
+.ar .av .prev, .ar .av.prev { font-style: italic; color: var(--ink-3, #6b7488); }
+.ar.dim-row .ak, .ar.dim-row .av { font-style: italic; }
+/* Score breakdown 4 chiều */
+.bd-row { display: flex; gap: 16px; flex-wrap: wrap; padding: 12px 13px; }
+.bd-it { display: flex; flex-direction: column; gap: 5px; min-width: 110px; flex: 1; }
+.bd-l { font-size: 11px; color: var(--ink-3, #6b7488); font-weight: 600; display: flex; justify-content: space-between; }
+.bd-l b { font-family: var(--mono, monospace); color: var(--ink, #141a24); }
+.bd-t { height: 6px; border-radius: 3px; background: var(--line, #e7eaf0); overflow: hidden; }
+.bd-t i { display: block; height: 100%; border-radius: 3px; transition: width .3s; }
+/* UID per-nick ở tab Nick chăm */
+.s-uid { font-family: var(--mono, monospace); font-size: 10.5px; color: var(--ink-3, #6b7488); background: var(--surface-3, #f1f4f9); padding: 1px 6px; border-radius: 5px; }
 
 /* Nick strip (lai ①+② đã chốt) */
 .deck-head { font-size: 11px; text-transform: uppercase; color: var(--smax-grey-700); font-weight: 700; margin-bottom: 9px; }
