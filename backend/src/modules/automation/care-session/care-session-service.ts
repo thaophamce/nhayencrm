@@ -731,6 +731,113 @@ export async function reconcileMissingSequenceStart(): Promise<{ recovered: numb
 }
 
 // ════════════════════════════════════════════════════════════════════════
+// SELF-HEAL bước sequence kẹt (2026-06-18 — fix triệt để ca e7ade24c)
+// ════════════════════════════════════════════════════════════════════════
+// Lưới an toàn "không bao giờ kẹt cứng": bước bám đuổi FAIL (hết 3 retry) → on('failed')
+// chỉ log → KHÔNG gì enqueue lại → chết hẳn (RATE_LIMITED, network, crash...). Hàm này phát
+// hiện khách ĐANG trong sequence active mà KHÔNG còn job pending nào (chưa xong, không pause,
+// không chat gần đây) → enqueue lại bước kẹt.
+//
+// CHỐNG LOOP: marker Redis `seqheal:{trigger}:{contact}:{step}` SET NX EX 1 ngày → tối đa 1
+// lần/khách/bước/NGÀY. Lỗi dai (block xoá) sẽ fail lại nhưng chỉ thử lại hôm sau, không hammer.
+// KHÔNG đụng khách chat gần đây (tránh gửi đè). Bổ trợ cho Lớp 1 (RATE_LIMITED đã tự hoãn 00:00).
+export async function reconcileStuckSequenceSteps(): Promise<{ recovered: number }> {
+  const { getSequenceStepQueue, buildSequenceStepJobId } = await import('../queues/queue-registry.js');
+  const { getBullMQRedis } = await import('../queues/redis-connection.js');
+  const queue = getSequenceStepQueue();
+  const redis = getBullMQRedis();
+  const HOUR_MS = 60 * 60 * 1000;
+  const cutoff = new Date(Date.now() - HOUR_MS); // hoạt động cuối phải cũ > 1h (cho retry gốc xong)
+
+  // 1) Tập (trigger:contact) ĐANG có job pending (delayed/waiting/active) — 1 lần scan.
+  const pending = new Set<string>();
+  try {
+    const jobs = await queue.getJobs(['delayed', 'waiting', 'active'], 0, 5000);
+    for (const j of jobs) {
+      const d = j.data as { triggerId?: string; contactId?: string } | undefined;
+      if (d?.triggerId && d?.contactId) pending.add(`${d.triggerId}:${d.contactId}`);
+    }
+  } catch (err) {
+    logger.warn(`[care-session] self-heal scan jobs failed: ${(err as Error).message}`);
+    return { recovered: 0 };
+  }
+
+  // 2) Phiên active đã khởi động, KHÔNG pause, mở > 1h.
+  const candidates = await prisma.careSession.findMany({
+    where: {
+      state: 'active',
+      pausedAtStepIdx: null,
+      sequenceStartEnqueuedAt: { not: null },
+      sourceSequenceId: { not: null },
+      sourceTriggerId: { not: null },
+      openedAt: { lte: cutoff },
+    },
+    select: {
+      id: true, orgId: true, contactId: true, nickId: true,
+      sourceTriggerId: true, sourceSequenceId: true, enrollEpoch: true, lastCustomerActivityAt: true,
+    },
+    take: 200,
+  });
+  if (candidates.length === 0) return { recovered: 0 };
+
+  const totalStepsCache = new Map<string, number>();
+  async function totalStepsOf(sequenceId: string): Promise<number> {
+    if (totalStepsCache.has(sequenceId)) return totalStepsCache.get(sequenceId)!;
+    let n = await prisma.sequenceStep.count({ where: { sequenceId, blockId: { not: null } } });
+    if (n === 0) {
+      const seq = await prisma.automationSequence.findUnique({ where: { id: sequenceId }, select: { steps: true } });
+      n = Array.isArray(seq?.steps) ? (seq!.steps as unknown[]).length : 0;
+    }
+    totalStepsCache.set(sequenceId, n);
+    return n;
+  }
+
+  let recovered = 0;
+  for (const s of candidates) {
+    if (!s.sourceTriggerId || !s.sourceSequenceId) continue;
+    if (pending.has(`${s.sourceTriggerId}:${s.contactId}`)) continue; // còn job → không kẹt
+    if (s.lastCustomerActivityAt && s.lastCustomerActivityAt > cutoff) continue; // khách đang chat → đừng đè
+    try {
+      // Bước gửi gần nhất → bước kế. detail dạng "step N/M" (N 0-based).
+      const lastSent = await prisma.automationEventLog.findFirst({
+        where: { triggerId: s.sourceTriggerId, contactId: s.contactId, eventType: 'sequence_step_sent' },
+        orderBy: { createdAt: 'desc' },
+        select: { detail: true, createdAt: true },
+      });
+      if (lastSent?.createdAt && lastSent.createdAt > cutoff) continue; // vừa gửi < 1h → chưa kẹt
+      const m = lastSent?.detail?.match(/step (\d+)\/(\d+)/);
+      const lastIdx = m ? parseInt(m[1], 10) : -1; // -1 = chưa gửi bước nào
+      const nextIdx = lastIdx + 1;
+      const totalSteps = m ? parseInt(m[2], 10) : await totalStepsOf(s.sourceSequenceId);
+      if (totalSteps <= 0 || nextIdx >= totalSteps) continue; // chưa rõ / đã xong
+
+      // Chống loop: 1 lần/khách/bước/ngày.
+      const marker = `seqheal:${s.sourceTriggerId}:${s.contactId}:${nextIdx}`;
+      const ok = await redis.set(marker, '1', 'EX', 86400, 'NX');
+      if (ok !== 'OK') continue;
+
+      const epoch = s.enrollEpoch ?? 1;
+      const jobId = buildSequenceStepJobId(s.sourceTriggerId, s.sourceSequenceId, s.contactId, nextIdx, epoch);
+      if (await queue.getJob(jobId)) continue; // job đã tồn tại
+      await queue.add(
+        'sequence-step',
+        {
+          triggerId: s.sourceTriggerId, contactId: s.contactId, sequenceId: s.sourceSequenceId,
+          nickId: s.nickId, orgId: s.orgId, stepIdx: nextIdx, totalSteps, enrollEpoch: epoch,
+        },
+        { jobId, delay: 0 },
+      );
+      recovered++;
+      logger.info(`[care-session] self-heal: enqueue lại bước kẹt ${nextIdx}/${totalSteps} contact=${s.contactId} trigger=${s.sourceTriggerId}`);
+    } catch (err) {
+      logger.warn(`[care-session] self-heal session=${s.id} failed: ${(err as Error).message}`);
+    }
+  }
+  if (recovered > 0) logger.info(`[care-session] self-heal recovered ${recovered} bước kẹt`);
+  return { recovered };
+}
+
+// ════════════════════════════════════════════════════════════════════════
 // T3 — LISTENER: đọc phiên mở + lazy-close + ghi event idempotent
 // ════════════════════════════════════════════════════════════════════════
 

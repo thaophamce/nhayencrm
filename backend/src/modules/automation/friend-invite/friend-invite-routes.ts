@@ -23,8 +23,8 @@ import {
 import { listMucTieuForOrg } from './muc-tieu-list-service.js';
 import { getSequenceStepQueue } from '../queues/queue-registry.js';
 import { getContactPauseRemaining } from '../queues/event-hooks.js';
-// Observability "vì sao không gửi" 2026-06-18 — dịch deferReason → câu cho per-row dashboard.
-import { resolveBlockReason } from '../shared/block-reason-catalog.js';
+// Observability "vì sao không gửi" 2026-06-18 — dịch deferReason → câu (per-row) + gom badge.
+import { resolveBlockReason, categoryDisplay } from '../shared/block-reason-catalog.js';
 
 const BASE = '/api/v1/automation/triggers';
 
@@ -1707,6 +1707,20 @@ export async function friendInviteRoutes(app: FastifyInstance): Promise<void> {
       };
     });
 
+    // ── Đợt 2 Observability: dải badge "Luồng đang nghẽn vì..." ──
+    // Gom blocker hiện thời theo nhóm lý do TOÀN trigger (từ triggerProgressMap, không chỉ page).
+    const blockerCounts = new Map<string, number>();
+    for (const p of triggerProgressMap.values()) {
+      if (p.blockCategory) blockerCounts.set(p.blockCategory, (blockerCounts.get(p.blockCategory) ?? 0) + 1);
+    }
+    const blockerSummary = Array.from(blockerCounts.entries())
+      .map(([category, count]) => {
+        const d = categoryDisplay(category);
+        return { category, label: d.label, hint: d.hint, count, priority: d.priority, showToSale: d.showToSale };
+      })
+      .filter((b) => b.showToSale && b.count > 0)
+      .sort((a, b) => b.priority - a.priority);
+
     return reply.send({
       trigger: {
         id: trigger.id,
@@ -1770,6 +1784,8 @@ export async function friendInviteRoutes(app: FastifyInstance): Promise<void> {
       entriesTotal: totalEntries,
       entriesOffset: offset,
       entriesLimit: limit,
+      // Đợt 2 Observability — dải badge tổng hợp "Luồng đang nghẽn vì..." (đã lọc showToSale + sort).
+      blockerSummary,
     });
   });
 
@@ -2306,6 +2322,9 @@ export async function friendInviteRoutes(app: FastifyInstance): Promise<void> {
     search?: string;
     // FE alias: search box gửi `q`, BE cũ chỉ đọc `search` → text filter bị bỏ qua.
     q?: string;
+    // Đợt 2 Observability 2026-06-18: lọc theo nhóm lý do blocker (quota_message_exhausted,
+    // outside_hour_window, sequence_disabled...) — tách "hết quota tin" khỏi lỗi gửi thường.
+    category?: string;
   };
   const eventsHandler = async (
     request: import('fastify').FastifyRequest<{ Params: { id: string }; Querystring: EventsQuery }>,
@@ -2367,8 +2386,10 @@ export async function friendInviteRoutes(app: FastifyInstance): Promise<void> {
     const where: {
       triggerId: string;
       eventType?: string;
+      category?: string;
       createdAt?: { gte?: Date; lte?: Date };
       summary?: { contains: string; mode: 'insensitive' };
+      OR?: Array<Record<string, unknown>>;
     } = {
       triggerId: trigger.id,
       createdAt: { gte: createdAtGte, lte: createdAtLte },
@@ -2376,8 +2397,23 @@ export async function friendInviteRoutes(app: FastifyInstance): Promise<void> {
     if (typeFilter && typeof typeFilter === 'string' && typeFilter !== 'all' && typeFilter.trim()) {
       where.eventType = typeFilter.trim();
     }
+    // Đợt 2: lọc theo nhóm lý do (cột category) — ăn index (trigger_id, category, created_at).
+    if (typeof q.category === 'string' && q.category !== 'all' && q.category.trim()) {
+      where.category = q.category.trim();
+    }
     if (typeof searchFilter === 'string' && searchFilter.trim()) {
-      where.summary = { contains: searchFilter.trim(), mode: 'insensitive' };
+      const term = searchFilter.trim();
+      // Tìm theo cả nội dung sự kiện (summary) LẪN tên khách hàng (resolve contactId).
+      const matchedContacts = await prisma.contact.findMany({
+        where: { orgId: user.orgId, fullName: { contains: term, mode: 'insensitive' } },
+        select: { id: true },
+        take: 300,
+      });
+      const matchedIds = matchedContacts.map((c) => c.id);
+      where.OR = [
+        { summary: { contains: term, mode: 'insensitive' } },
+        ...(matchedIds.length ? [{ contactId: { in: matchedIds } }] : []),
+      ];
     }
 
     try {
@@ -2546,6 +2582,8 @@ async function enrichEventRows(
     // Wave 3 dùng summary; Luồng Mục Tiêu dùng detail. Cả hai cùng tồn tại.
     summary: string | null;
     detail: string | null;
+    // Đợt 2 Observability 2026-06-18: nhóm lý do blocker (lọc + tô màu FE).
+    category: string | null;
     metadata: unknown;
     contactId: string | null;
     nickId: string | null;
@@ -2565,6 +2603,8 @@ async function enrichEventRows(
     rowIndex: number | null;
     status: string;
     detail: unknown;
+    category: string | null;
+    summary: string | null;
     metadata: unknown;
   }>
 > {
@@ -2629,6 +2669,10 @@ async function enrichEventRows(
       // Bản trước chỉ đọc r.summary → detailText FE mất emoji/text. Đọc detail TRƯỚC,
       // fallback summary (Wave 3 dùng summary cho welcome/friend events).
       detail: r.detail || r.summary || null,
+      // Đợt 2 Observability 2026-06-18: category (nhóm lý do) + summary (nhãn tiếng Việt server
+      // gắn sẵn) để FE lọc/nhóm + hiện đúng câu cho event bị-chặn.
+      category: r.category ?? null,
+      summary: r.summary ?? null,
       // I6 2026-06-03 — trả metadata riêng để FE detailText() dựng "Gửi bước 2/4"
       // từ metadata.stepIdx/totalSteps, welcome channel, v.v. (trước đây gộp vào detail).
       metadata: r.metadata ?? null,

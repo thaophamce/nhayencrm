@@ -277,7 +277,46 @@ export async function careSessionRoutes(app: FastifyInstance): Promise<void> {
         select: { id: true, type: true, content: true, status: true, channel: true, error: true, createdAt: true, sentAt: true },
       });
 
-      return reply.send({ session, notifications });
+      // Sự kiện SẮP TỚI (anh chốt 2026-06-18): job kế của (mục tiêu, KH) đang nằm trong BullMQ
+      // → biết bước nào / lúc nào sẽ gửi, đang hold thì runAt = lúc chạy lại. "Tương lai sẽ làm gì".
+      let upcoming: { stepIdx: number; runAt: Date; stepName: string | null } | null = null;
+      if (session.sourceTriggerId) {
+        try {
+          const { getSequenceStepQueue } = await import('../queues/queue-registry.js');
+          const queue = getSequenceStepQueue();
+          const jobs = await queue.getJobs(['delayed', 'waiting', 'active'], 0, 5000);
+          const prefix = `${session.sourceTriggerId}-${session.contactId}-`;
+          let best: { stepIdx: number; at: number } | null = null;
+          for (const job of jobs) {
+            if (!job.id || !job.id.startsWith(prefix)) continue;
+            const stepIdx = parseInt(job.id.slice(prefix.length), 10);
+            if (Number.isNaN(stepIdx)) continue;
+            // delay HIỆN TẠI (đã cộng hold nếu KH reply) → runAt thật.
+            const curDelay = (job as { delay?: number }).delay ?? job.opts?.delay ?? 0;
+            const at = (job.processedOn ?? job.timestamp ?? Date.now()) + curDelay;
+            if (!best || at < best.at) best = { stepIdx, at };
+          }
+          if (best) {
+            let stepName: string | null = null;
+            if (session.sourceSequenceId) {
+              const seq = await prisma.automationSequence.findUnique({
+                where: { id: session.sourceSequenceId }, select: { steps: true },
+              });
+              const steps = Array.isArray(seq?.steps) ? (seq!.steps as Array<{ blockId?: string }>) : [];
+              const blockId = steps[best.stepIdx]?.blockId;
+              if (blockId) {
+                const blk = await prisma.block.findUnique({ where: { id: blockId }, select: { name: true } });
+                stepName = blk?.name ?? null;
+              }
+            }
+            upcoming = { stepIdx: best.stepIdx, runAt: new Date(best.at), stepName };
+          }
+        } catch {
+          /* BullMQ không sẵn → bỏ qua upcoming (best-effort) */
+        }
+      }
+
+      return reply.send({ session, notifications, upcoming });
     },
   );
 

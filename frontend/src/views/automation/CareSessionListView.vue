@@ -125,7 +125,13 @@
               <div class="t">{{ ev.text }}</div>
               <div class="ts">{{ ev.ts }}</div>
             </div>
-            <div v-if="!detailEvents.length" class="empty sm">Chưa có sự kiện.</div>
+            <!-- Tương lai: sự kiện sắp tới (BullMQ) / đang giữ / đã đóng (anh chốt 2026-06-18) -->
+            <div v-if="futureLine" class="tl-item tl-future" :class="futureLine.cls">
+              <span class="d"></span>
+              <div class="t">{{ futureLine.text }}</div>
+              <div class="ts">{{ futureLine.ts }}</div>
+            </div>
+            <div v-if="!detailEvents.length && !futureLine" class="empty sm">Chưa có sự kiện.</div>
           </div>
         </div>
         <div class="p-act">
@@ -167,7 +173,34 @@ const search = ref('');
 const filter = ref<'all' | 'reply' | 'paused' | 'active' | 'closed'>('all');
 const selected = ref<CareItem | null>(null);
 const detailEvents = ref<{ text: string; ts: string; cls: string }[]>([]);
+const detailUpcoming = ref<{ stepIdx: number; runAt: string; stepName: string | null } | null>(null);
 const detailLoading = ref(false);
+
+// Lý do đóng phiên → nhãn tiếng Việt (cho dòng "tương lai" khi phiên đã đóng).
+const CLOSE_REASON: Record<string, string> = {
+  source_done: 'luồng xong', sale_resolved: 'sale xử lý xong', customer_blocked: 'KH chặn',
+  janitor_silence: 'KH im lặng lâu', deal_won: 'chốt deal', stranger_blocked: 'KH chặn người lạ', completed: 'hoàn tất',
+};
+
+// Dòng "tương lai sẽ làm gì": sự kiện sắp tới (BullMQ) / đang giữ / đã đóng / đã hết bước.
+const futureLine = computed<{ text: string; ts: string; cls: string } | null>(() => {
+  const s = selected.value;
+  if (!s) return null;
+  if (s.uiState === 'closed') {
+    return { text: `Phiên đã đóng${s.closedReason ? ` — ${CLOSE_REASON[s.closedReason] ?? s.closedReason}` : ''}`,
+      ts: s.closedAt ? `${hhmm(s.closedAt)} · ${ago(s.closedAt)}` : '', cls: 'done' };
+  }
+  const up = detailUpcoming.value;
+  if (up) {
+    const paused = !!s.pausedUntil && new Date(s.pausedUntil).getTime() > Date.now();
+    const step = `Bước ${up.stepIdx + 1}${up.stepName ? ` · ${up.stepName}` : ''}`;
+    const when = `${hhmm(up.runAt)} · còn ${remaining(up.runAt)}`;
+    return paused
+      ? { text: `Đang giữ — kế tiếp gửi ${step}`, ts: when, cls: 'pause' }
+      : { text: `Sắp gửi — ${step}`, ts: when, cls: 'future' };
+  }
+  return { text: 'Luồng đã chạy hết bước (chờ KH trả lời hoặc đóng phiên)', ts: '', cls: 'done' };
+});
 
 const FILTERS = [
   { key: 'all', label: 'Tất cả' },
@@ -282,10 +315,12 @@ async function select(it: CareItem) {
   selected.value = it;
   detailLoading.value = true;
   detailEvents.value = [];
+  detailUpcoming.value = null;
   try {
-    const res = await api.get<{ events: { eventType: string; createdAt: string; payload?: { contentPreview?: string } }[] }>(
-      `/automation/care-sessions/${it.id}`,
-    );
+    const res = await api.get<{
+      session: { events: { eventType: string; createdAt: string; payload?: { contentPreview?: string } }[] };
+      upcoming: { stepIdx: number; runAt: string; stepName: string | null } | null;
+    }>(`/automation/care-sessions/${it.id}`);
     const EV: Record<string, { text: string; cls: string }> = {
       reply: { text: '💬 KH trả lời', cls: 'reply' },
       reaction_positive: { text: '❤️ KH thả cảm xúc tích cực', cls: 'reply' },
@@ -293,13 +328,15 @@ async function select(it: CareItem) {
       block: { text: '🚫 KH chặn nick', cls: 'pause' },
       lead: { text: '⭐ KH thành Lead', cls: 'notify' },
     };
-    detailEvents.value = (res.data.events ?? []).map((e) => {
+    detailEvents.value = (res.data.session?.events ?? []).map((e) => {
       const def = EV[e.eventType] ?? { text: e.eventType, cls: '' };
       const preview = e.payload?.contentPreview ? `: "${e.payload.contentPreview.slice(0, 40)}…"` : '';
       return { text: def.text + preview, ts: `${hhmm(e.createdAt)} · ${ago(e.createdAt)}`, cls: def.cls };
     });
-  } catch {
-    /* best-effort */
+    detailUpcoming.value = res.data.upcoming ?? null;
+  } catch (e) {
+    console.warn('[care-session] load detail failed', e);
+    detailUpcoming.value = null;
   } finally {
     detailLoading.value = false;
   }
@@ -426,6 +463,14 @@ onMounted(load);
 .tl-item.pause .d { border-color: var(--warning, #d9a441); background: var(--warning, #d9a441); }
 .tl-item .t { font-size: 12.5px; color: var(--ink, #141a24); font-weight: 500; }
 .tl-item .ts { font-size: 10.5px; color: var(--ink-3, #6b7488); margin-top: 1px; }
+/* Tương lai (sắp tới / đang giữ / đã đóng) — chấm rỗng nét đứt để phân biệt với log quá khứ. */
+.tl-item.tl-future .t { font-weight: 600; }
+.tl-item.tl-future.future .d { border-color: var(--brand, #1786be); background: #fff; border-style: dashed; }
+.tl-item.tl-future.future .t { color: var(--brand, #1786be); }
+.tl-item.tl-future.pause .d { border-color: var(--warning, #d9a441); background: #fff; border-style: dashed; }
+.tl-item.tl-future.pause .t { color: #b45309; }
+.tl-item.tl-future.done .d { border-color: var(--ink-3, #6b7488); background: #fff; }
+.tl-item.tl-future.done .t { color: var(--ink-3, #6b7488); }
 .p-act { padding: 13px 18px; border-top: 1px solid var(--line, #e7eaf0); display: flex; gap: 8px; }
 .p-act .btn { flex: 1; font-size: 13px; font-weight: 600; border-radius: 10px; padding: 9px; cursor: pointer; font-family: inherit; border: 1px solid var(--line, #e7eaf0); background: #fff; color: var(--ink, #141a24); }
 .p-act .btn.primary { background: var(--brand, #1786be); border-color: var(--brand, #1786be); color: #fff; }

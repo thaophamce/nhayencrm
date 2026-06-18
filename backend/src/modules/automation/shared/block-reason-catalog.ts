@@ -114,6 +114,29 @@ export function allBlockCodes(): string[] {
   return Object.keys(CATALOG);
 }
 
+// Hiển thị theo CATEGORY (cho dải badge tổng hợp Đợt 2 — gom nhiều khách cùng nhóm lý do).
+// Vài category không trùng raw code (content_missing/config_error/internal) nên cần map riêng.
+const CATEGORY_DISPLAY: Record<BlockCategory, { label: string; hint: string; priority: number; showToSale: boolean }> = {
+  quota_message_exhausted: { label: 'Hết 200 tin/ngày', hint: 'Tự chạy lại 00:00', priority: 90, showToSale: true },
+  quota_friend_exhausted: { label: 'Hết lượt kết bạn', hint: 'Tự chạy lại 00:00', priority: 88, showToSale: true },
+  outside_hour_window: { label: 'Ngoài giờ gửi', hint: 'Tự chạy lại khi tới giờ', priority: 70, showToSale: true },
+  nick_gap: { label: 'Nick đang nghỉ tay', hint: 'Tự chạy lại sau ít phút', priority: 50, showToSale: true },
+  nick_offline: { label: 'Nick chưa online', hint: 'Bật/đăng nhập lại nick', priority: 80, showToSale: true },
+  awaiting_reply: { label: 'KH đang chờ trả lời', hint: 'Tự chạy lại khi hết giờ giữ', priority: 60, showToSale: true },
+  multi_nick: { label: 'Khách đã có nhiều nick add', hint: 'Bỏ qua tránh spam', priority: 40, showToSale: true },
+  cross_nick_recency: { label: 'Mới add/nhắn gần đây', hint: 'Bỏ qua tránh trùng', priority: 38, showToSale: true },
+  sequence_disabled: { label: 'Kịch bản bám đuổi đang TẮT', hint: 'Bật kịch bản', priority: 95, showToSale: true },
+  content_missing: { label: 'Nội dung bước lỗi', hint: 'Sửa lại bước trong kịch bản', priority: 85, showToSale: true },
+  config_error: { label: 'Lỗi cấu hình bước', hint: 'Kiểm tra cấu hình kịch bản', priority: 30, showToSale: true },
+  internal: { label: '', hint: '', priority: 0, showToSale: false },
+  unknown: { label: 'Chưa rõ lý do', hint: 'Kiểm tra log kỹ thuật', priority: 10, showToSale: true },
+};
+
+export function categoryDisplay(category: string | null | undefined): { label: string; hint: string; priority: number; showToSale: boolean } {
+  if (category && (category in CATEGORY_DISPLAY)) return CATEGORY_DISPLAY[category as BlockCategory];
+  return CATEGORY_DISPLAY.unknown;
+}
+
 /** Tất cả category (cho clearBlockMarker xoá gọn theo danh sách, khỏi SCAN keyspace). */
 export const ALL_BLOCK_CATEGORIES: BlockCategory[] = [
   'quota_message_exhausted',

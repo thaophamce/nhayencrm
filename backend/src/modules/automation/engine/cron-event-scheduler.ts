@@ -31,6 +31,7 @@ import { startNickWorker } from '../friend-invite/nick-worker.js';
 import {
   sweepSilentCareSessions,
   reconcileMissingSequenceStart,
+  reconcileStuckSequenceSteps,
   resumePausedSequences,
 } from '../care-session/care-session-service.js';
 
@@ -114,10 +115,14 @@ export async function startCronEventScheduler(): Promise<void> {
   // (jobId dedup an toàn). Mỗi 2 phút — bù khi enqueue fail lúc tạo phiên.
   careSessionReconcileJob = cron.schedule(
     '*/2 * * * *',
-    () => { void reconcileMissingSequenceStart(); },
+    () => {
+      void reconcileMissingSequenceStart();
+      // 2026-06-18 (fix triệt để): self-heal bước sequence kẹt (bước fail không tự chạy lại).
+      void reconcileStuckSequenceSteps();
+    },
     { timezone: TZ },
   );
-  logger.info('[cron-scheduler] care-session reconcile registered (every 2 min ' + TZ + ')');
+  logger.info('[cron-scheduler] care-session reconcile registered (every 2 min ' + TZ + ', + self-heal stuck steps)');
 
   // LUẬT 4 RESUME (Sequence recode Đợt 1 2026-06-13): phiên đã closed vì im-lặng mà còn
   // pausedAtStepIdx → re-enqueue bước dở đúng luồng → chạy tiếp. Chạy SAU janitor (mỗi

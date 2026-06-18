@@ -3,6 +3,7 @@ import { describe, it, expect } from 'vitest';
 import {
   resolveBlockReason,
   categoryOf,
+  categoryDisplay,
   allBlockCodes,
   ALL_BLOCK_CATEGORIES,
 } from '../src/modules/automation/shared/block-reason-catalog.js';
@@ -53,6 +54,30 @@ describe('categoryOf', () => {
   it('trả category từ raw code', () => {
     expect(categoryOf('outside_hour_window (...)')).toBe('outside_hour_window');
     expect(categoryOf(null)).toBe('unknown');
+  });
+});
+
+describe('categoryDisplay — nhãn theo nhóm cho badge (Đợt 2)', () => {
+  it('category trùng code → có nhãn', () => {
+    expect(categoryDisplay('quota_message_exhausted').label).toBe('Hết 200 tin/ngày');
+    expect(categoryDisplay('sequence_disabled').label).toContain('TẮT');
+  });
+  it('category KHÔNG trùng code (content_missing/config_error) vẫn có nhãn', () => {
+    expect(categoryDisplay('content_missing').label.length).toBeGreaterThan(0);
+    expect(categoryDisplay('config_error').label.length).toBeGreaterThan(0);
+  });
+  it('internal → showToSale=false (không nổi badge)', () => {
+    expect(categoryDisplay('internal').showToSale).toBe(false);
+  });
+  it('category lạ/null → fallback unknown', () => {
+    expect(categoryDisplay('xyz').label).toBe('Chưa rõ lý do');
+    expect(categoryDisplay(null).label).toBe('Chưa rõ lý do');
+  });
+  it('mọi category (trừ internal) có nhãn không rỗng', () => {
+    for (const c of ALL_BLOCK_CATEGORIES) {
+      if (c === 'internal') continue;
+      expect(categoryDisplay(c).label.length, `category=${c} thiếu nhãn`).toBeGreaterThan(0);
+    }
   });
 });
 

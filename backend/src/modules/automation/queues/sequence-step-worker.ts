@@ -568,6 +568,22 @@ async function processJob(
       },
     });
 
+    // 2026-06-18 FIX TRIỆT ĐỂ (ca e7ade24c kẹt 12 KH): RATE_LIMITED = đụng trần 200 tin/ngày.
+    // TRƯỚC: coi là lỗi tạm → throw → retry 3 lần/30s → job FAIL → on('failed') chỉ log →
+    // KHÔNG gì enqueue lại → bước chết hẳn (quota reset 00:00 cũng không tự chạy). SAU: hoãn job
+    // tới 00:00 VN (như guard-peek) → job SỐNG, tự bật lại khi quota reset. Nhãn "Tự chạy lại 00:00" đúng.
+    if (isQuotaMsg && token) {
+      const vnNow = new Date(Date.now() + 7 * 3600_000);
+      const vnMid = new Date(vnNow);
+      vnMid.setUTCDate(vnMid.getUTCDate() + 1);
+      vnMid.setUTCHours(0, 0, 0, 0);
+      const resumeAt = vnMid.getTime() - 7 * 3600_000;
+      await job.updateData({ ...job.data, deferReason: 'quota_capped' }).catch(() => {});
+      await job.moveToDelayed(resumeAt, token);
+      logger.info(`${tag} RATE_LIMITED → hoãn tới 00:00 VN (${new Date(resumeAt).toISOString()}) thay vì retry-chết`);
+      throw new DelayedError();
+    }
+
     if (actionResult.retryable === false || classified.classification === 'permanent') {
       throw new UnrecoverableError(`Permanent: ${actionResult.errorCode ?? classified.errorCode}`);
     }

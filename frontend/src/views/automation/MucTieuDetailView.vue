@@ -215,6 +215,21 @@
           </a>
         </div>
 
+        <!-- ===== Đợt 2 Observability — DẢI BADGE "Luồng đang nghẽn vì..." ===== -->
+        <!-- Gom blocker hiện thời theo nhóm lý do. Bấm 1 badge → mở tab Log lọc đúng lý do đó. -->
+        <div v-if="data.blockerSummary && data.blockerSummary.length" class="blocker-strip" role="status">
+          <span class="bs-head"><v-icon size="15" color="#c77700">mdi-progress-alert</v-icon> Luồng đang nghẽn vì:</span>
+          <button
+            v-for="b in data.blockerSummary"
+            :key="b.category"
+            class="bs-badge"
+            :title="`${b.count} khách · ${b.hint} — bấm để lọc Log`"
+            @click="focusBlocker(b.category)"
+          >
+            {{ b.label }} <span class="bs-count">{{ b.count }}</span>
+          </button>
+        </div>
+
         <!-- ============ ETA BAR ============ -->
         <!-- Wave 4 2026-06-03 — P1 sequence-aware "Còn X KH":
              - isDone=true  → "✅ Đã xử lý hết KH"
@@ -778,6 +793,13 @@
               </option>
             </select>
 
+            <!-- Đợt 2 Observability — lọc theo NHÓM LÝ DO "vì sao không gửi" -->
+            <select v-model="logFilter.category" class="filter-select filter-select-type" title="Lọc theo lý do bị chặn/hoãn">
+              <option v-for="opt in LOG_CATEGORY_OPTIONS" :key="opt.key" :value="opt.key">
+                {{ opt.label }}
+              </option>
+            </select>
+
             <button class="filter-reset" @click="resetLogFilter" title="Đặt lại lọc"><v-icon size="16">mdi-restore</v-icon></button>
           </div>
 
@@ -1034,6 +1056,15 @@ interface DashboardData {
   entriesTotal: number;
   entriesOffset: number;
   entriesLimit: number;
+  // Đợt 2 Observability 2026-06-18 — dải badge "Luồng đang nghẽn vì..." (gom blocker theo lý do).
+  blockerSummary?: BlockerSummaryItem[];
+}
+
+interface BlockerSummaryItem {
+  category: string;
+  label: string;
+  hint: string;
+  count: number;
 }
 
 interface LiveEvent {
@@ -1204,6 +1235,7 @@ const logFilter = ref<{
   q: string;
   khId: string;
   nickId: string;
+  category: string;
 }>({
   type: 'all',
   from: isoNDaysAgo(7),
@@ -1211,7 +1243,23 @@ const logFilter = ref<{
   q: '',
   khId: '',
   nickId: '',
+  category: 'all',
 });
+
+// Đợt 2 Observability 2026-06-18 — lọc Log theo NHÓM LÝ DO (cột category). Khớp categoryDisplay BE.
+const LOG_CATEGORY_OPTIONS: { key: string; label: string }[] = [
+  { key: 'all', label: 'Mọi lý do' },
+  { key: 'quota_message_exhausted', label: '🚧 Hết 200 tin/ngày' },
+  { key: 'quota_friend_exhausted', label: '🚧 Hết lượt kết bạn' },
+  { key: 'outside_hour_window', label: '🕒 Ngoài giờ gửi' },
+  { key: 'nick_offline', label: '📴 Nick chưa online' },
+  { key: 'nick_gap', label: '⏳ Nick nghỉ tay' },
+  { key: 'awaiting_reply', label: '💬 KH đang chờ trả lời' },
+  { key: 'sequence_disabled', label: '⛔ Kịch bản tắt' },
+  { key: 'multi_nick', label: '👥 Khách nhiều nick' },
+  { key: 'cross_nick_recency', label: '🔁 Mới add gần đây' },
+  { key: 'content_missing', label: '✏️ Nội dung bước lỗi' },
+];
 
 // Option B v2 2026-06-03 — range preset chips (24h / 7 ngày / 30 ngày / Tất cả).
 // Bỏ 'custom' (date input rườm rà) — 4 preset đủ dùng theo Anh chốt.
@@ -1736,6 +1784,16 @@ function readTabFromHash(): TabKey {
   return 'dashboard';
 }
 
+// Đợt 2 Observability — bấm badge "Luồng nghẽn" → mở tab Log lọc đúng nhóm lý do đó.
+function focusBlocker(category: string): void {
+  logFilter.value.category = category;
+  logFilter.value.type = 'all';
+  logRange.value = '7d';
+  logFilter.value.from = isoNDaysAgo(7);
+  logFilter.value.to = todayIso();
+  setTab('log');
+}
+
 // ===================================================================
 // ============ MONITOR (live events) ================================
 // ===================================================================
@@ -1860,6 +1918,8 @@ async function loadLog(): Promise<void> {
         // Option B 2026-06-03 — 2 dropdown filter mới. BE chưa hỗ trợ thì sẽ ignore.
         khId: logFilter.value.khId || undefined,
         nickId: logFilter.value.nickId || undefined,
+        // Đợt 2 — lọc theo nhóm lý do (cột category).
+        category: logFilter.value.category && logFilter.value.category !== 'all' ? logFilter.value.category : undefined,
         limit: LOG_PAGE_SIZE,
         offset: (logPage.value - 1) * LOG_PAGE_SIZE,
       },
@@ -1892,6 +1952,7 @@ watch(
     logFilter.value.q,
     logFilter.value.khId,
     logFilter.value.nickId,
+    logFilter.value.category,
   ],
   () => {
     logPage.value = 1;
@@ -1926,6 +1987,7 @@ function resetLogFilter(): void {
     q: '',
     khId: '',
     nickId: '',
+    category: 'all',
   };
   selectedLogIds.value = [];
 }
@@ -3258,6 +3320,26 @@ onUnmounted(() => {
   border: 1px solid transparent;
   border-left-width: 4px;
   font-size: 13px;
+}
+/* Đợt 2 Observability — dải badge "Luồng đang nghẽn vì..." */
+.blocker-strip {
+  margin-top: 12px;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  padding: 10px 14px; border-radius: 6px;
+  background: #fff8e1; border: 1px solid #ffe082; border-left: 4px solid #f5a623;
+}
+.blocker-strip .bs-head { font-size: 13px; font-weight: 600; color: #974f00; display: inline-flex; align-items: center; gap: 5px; }
+.bs-badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 10px; border-radius: 14px; cursor: pointer;
+  background: #fff; border: 1px solid #ffcf7a; color: #974f00;
+  font-size: 12px; font-weight: 500; line-height: 1.4;
+}
+.bs-badge:hover { background: #fff3d6; border-color: #f5a623; }
+.bs-badge .bs-count {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px;
+  background: #f5a623; color: #fff; font-size: 11px; font-weight: 700;
 }
 .nick-health-banner.level-danger {
   background: var(--danger-bg, #ffebe6);
