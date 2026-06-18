@@ -811,24 +811,44 @@ export async function reconcileStuckSequenceSteps(): Promise<{ recovered: number
       const totalSteps = m ? parseInt(m[2], 10) : await totalStepsOf(s.sourceSequenceId);
       if (totalSteps <= 0 || nextIdx >= totalSteps) continue; // chưa rõ / đã xong
 
-      // Chống loop: 1 lần/khách/bước/ngày.
-      const marker = `seqheal:${s.sourceTriggerId}:${s.contactId}:${nextIdx}`;
-      const ok = await redis.set(marker, '1', 'EX', 86400, 'NX');
-      if (ok !== 'OK') continue;
-
       const epoch = s.enrollEpoch ?? 1;
       const jobId = buildSequenceStepJobId(s.sourceTriggerId, s.sourceSequenceId, s.contactId, nextIdx, epoch);
-      if (await queue.getJob(jobId)) continue; // job đã tồn tại
-      await queue.add(
-        'sequence-step',
-        {
+      // Bước kẹt = bước FAIL → job cũ vẫn tồn tại CÙNG jobId nhưng ở trạng thái 'failed' (chết).
+      // Quyết định trước khi set marker (tránh đốt marker oan): thêm mới / retry job chết / bỏ.
+      const existing = await queue.getJob(jobId);
+      let action: 'add' | 'retry' | null = null;
+      if (!existing) {
+        action = 'add';
+      } else {
+        const st = await existing.getState().catch(() => 'unknown');
+        if (st === 'failed' && !(existing.failedReason ?? '').includes('Permanent')) {
+          action = 'retry'; // job chết (RATE_LIMITED...) → cho chạy lại. BỎ lỗi vĩnh viễn (Permanent).
+        } else {
+          continue; // delayed/waiting/active = đang pending thật; hoặc Permanent = chết đúng → bỏ
+        }
+      }
+
+      // Chống loop: 1 lần/khách/bước/ngày — chỉ set khi sắp THỰC SỰ hành động.
+      const marker = `seqheal:${s.sourceTriggerId}:${s.contactId}:${nextIdx}`;
+      if ((await redis.set(marker, '1', 'EX', 86400, 'NX')) !== 'OK') continue;
+
+      if (action === 'retry') {
+        await existing!.retry().catch(async (e) => {
+          // retry fail (job đã bị dọn?) → thử add mới như fallback.
+          logger.warn(`[care-session] self-heal retry lỗi, thử add: ${(e as Error).message}`);
+          await queue.add('sequence-step', {
+            triggerId: s.sourceTriggerId, contactId: s.contactId, sequenceId: s.sourceSequenceId,
+            nickId: s.nickId, orgId: s.orgId, stepIdx: nextIdx, totalSteps, enrollEpoch: epoch,
+          }, { jobId, delay: 0 }).catch(() => {});
+        });
+      } else {
+        await queue.add('sequence-step', {
           triggerId: s.sourceTriggerId, contactId: s.contactId, sequenceId: s.sourceSequenceId,
           nickId: s.nickId, orgId: s.orgId, stepIdx: nextIdx, totalSteps, enrollEpoch: epoch,
-        },
-        { jobId, delay: 0 },
-      );
+        }, { jobId, delay: 0 });
+      }
       recovered++;
-      logger.info(`[care-session] self-heal: enqueue lại bước kẹt ${nextIdx}/${totalSteps} contact=${s.contactId} trigger=${s.sourceTriggerId}`);
+      logger.info(`[care-session] self-heal: ${action === 'retry' ? 'RETRY job chết' : 'enqueue'} bước ${nextIdx}/${totalSteps} contact=${s.contactId} trigger=${s.sourceTriggerId}`);
     } catch (err) {
       logger.warn(`[care-session] self-heal session=${s.id} failed: ${(err as Error).message}`);
     }

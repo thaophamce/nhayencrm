@@ -9,12 +9,17 @@ vi.mock('../src/modules/automation/queues/sequence-step-worker.js', () => ({
 
 // ── queue giả (dynamic import trong hàm) ─────────────────────────────────────
 const queueAdd = vi.fn(async () => ({ id: 'j' }));
+const retryFn = vi.fn(async () => undefined);
 let pendingJobs: Array<{ data: { triggerId: string; contactId: string } }> = [];
-let existingJob: unknown = null;
+// existingJob = null (chưa có job) | {state, failedReason} (job cùng jobId)
+let existingJob: { state: string; failedReason?: string } | null = null;
 vi.mock('../src/modules/automation/queues/queue-registry.js', () => ({
   getSequenceStepQueue: () => ({
     getJobs: async () => pendingJobs,
-    getJob: async () => existingJob,
+    getJob: async () =>
+      existingJob
+        ? { getState: async () => existingJob!.state, failedReason: existingJob!.failedReason, retry: retryFn }
+        : null,
     add: queueAdd,
   }),
   buildSequenceStepJobId: (t: string, s: string, c: string, i: number, e: number) => `${t}-${s}-${c}-e${e}-${i}`,
@@ -58,6 +63,7 @@ function candidate(over: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   queueAdd.mockClear();
+  retryFn.mockClear();
   pendingJobs = [];
   existingJob = null;
   markerStore = new Set();
@@ -103,6 +109,33 @@ describe('reconcileStuckSequenceSteps — self-heal bước kẹt', () => {
     lastSent = { detail: 'step 2/5', createdAt: new Date() }; // gửi 2 vừa nãy
     const r = await reconcileStuckSequenceSteps();
     expect(r.recovered).toBe(0);
+  });
+
+  it('job cùng jobId ở trạng thái FAILED (bước chết RATE_LIMITED) → RETRY (bug e7ade24c)', async () => {
+    candidates = [candidate()];
+    existingJob = { state: 'failed', failedReason: 'Đã đạt giới hạn 200 message/ngày' };
+    const r = await reconcileStuckSequenceSteps();
+    expect(r.recovered).toBe(1);
+    expect(retryFn).toHaveBeenCalledTimes(1); // retry job chết, KHÔNG add mới
+    expect(queueAdd).not.toHaveBeenCalled();
+  });
+
+  it('job FAILED nhưng Permanent (NO_FRIEND_ROW) → BỎ, không retry', async () => {
+    candidates = [candidate()];
+    existingJob = { state: 'failed', failedReason: 'Permanent: NO_FRIEND_ROW' };
+    const r = await reconcileStuckSequenceSteps();
+    expect(r.recovered).toBe(0);
+    expect(retryFn).not.toHaveBeenCalled();
+    expect(markerStore.size).toBe(0); // không đốt marker oan
+  });
+
+  it('job cùng jobId đang delayed/active (pending thật) → BỎ', async () => {
+    candidates = [candidate()];
+    existingJob = { state: 'delayed' };
+    const r = await reconcileStuckSequenceSteps();
+    expect(r.recovered).toBe(0);
+    expect(retryFn).not.toHaveBeenCalled();
+    expect(queueAdd).not.toHaveBeenCalled();
   });
 
   it('marker đã tồn tại (đã heal hôm nay) → bỏ (chống loop)', async () => {
