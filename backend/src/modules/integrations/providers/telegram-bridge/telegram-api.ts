@@ -15,7 +15,7 @@ async function call<T = unknown>(method: string, body: Record<string, unknown>):
   const token = getTelegramBotToken();
   if (!token) return null;
   const payload = JSON.stringify(body);
-  for (let attempt = 1; attempt <= 2; attempt++) {
+  for (let attempt = 1; attempt <= 3; attempt++) {
     try {
       const res = await fetch(`${BASE}/bot${token}/${method}`, {
         method: 'POST',
@@ -30,11 +30,11 @@ async function call<T = unknown>(method: string, body: Record<string, unknown>):
       }
       return data.result ?? null;
     } catch (err) {
-      if (attempt < 2) {
-        await delay(600);
-        continue; // nghẽn mạng thoáng qua → thử lại 1 lần
+      if (attempt < 3) {
+        await delay(attempt * 700); // mạng chập chờn → backoff tăng dần (0.7s, 1.4s) rồi thử lại
+        continue;
       }
-      logger.warn(`[telegram-bridge] ${method} exception (sau retry): ${String(err)}`);
+      logger.warn(`[telegram-bridge] ${method} exception (sau 3 lần): ${String(err)}`);
       return null;
     }
   }
@@ -57,6 +57,36 @@ export async function sendMessage(chatId: string, text: string, threadId?: numbe
   return (await call('sendMessage', body)) !== null;
 }
 
+export interface TgMessageUpdate {
+  update_id: number;
+  message?: {
+    message_id: number;
+    message_thread_id?: number;
+    chat: { id: number; type: string };
+    from?: { id: number; is_bot: boolean; first_name?: string; username?: string };
+    text?: string;
+  };
+}
+
+/**
+ * Long-poll getUpdates (chiều RA — nhận tin sale gõ trong topic). offset=-1 lấy update mới
+ * nhất (dùng để drain update cũ lúc boot). timeoutSec = thời gian Telegram giữ kết nối chờ.
+ */
+export async function getUpdates(offset: number, timeoutSec = 25): Promise<TgMessageUpdate[] | null> {
+  const token = getTelegramBotToken();
+  if (!token) return [];
+  try {
+    const url = `${BASE}/bot${token}/getUpdates?offset=${offset}&timeout=${timeoutSec}&allowed_updates=${encodeURIComponent('["message"]')}`;
+    const res = await fetch(url, { signal: AbortSignal.timeout((timeoutSec + 20) * 1000) });
+    const data = (await res.json()) as { ok: boolean; result?: TgMessageUpdate[] };
+    return data.ok ? data.result ?? [] : [];
+  } catch (err) {
+    // null = lỗi mạng (long-poll tới api.telegram.org chập chờn) → loop tự backoff + retry.
+    logger.debug(`[telegram-bridge] getUpdates lỗi (sẽ retry): ${String(err)}`);
+    return null;
+  }
+}
+
 export type SendMediaMethod = 'sendPhoto' | 'sendVideo' | 'sendAudio' | 'sendDocument';
 export type SendMediaField = 'photo' | 'video' | 'audio' | 'document';
 
@@ -76,7 +106,7 @@ export async function sendMedia(
 ): Promise<boolean> {
   const token = getTelegramBotToken();
   if (!token) return false;
-  for (let attempt = 1; attempt <= 2; attempt++) {
+  for (let attempt = 1; attempt <= 3; attempt++) {
     try {
       const form = new FormData();
       form.append('chat_id', chatId);
@@ -98,11 +128,11 @@ export async function sendMedia(
       }
       return true;
     } catch (err) {
-      if (attempt < 2) {
-        await delay(800);
-        continue; // nghẽn mạng thoáng qua → thử lại 1 lần
+      if (attempt < 3) {
+        await delay(attempt * 900); // mạng chập chờn → backoff (0.9s, 1.8s) rồi thử lại
+        continue;
       }
-      logger.warn(`[telegram-bridge] ${method} exception (sau retry): ${String(err)}`);
+      logger.warn(`[telegram-bridge] ${method} exception (sau 3 lần): ${String(err)}`);
       return false;
     }
   }

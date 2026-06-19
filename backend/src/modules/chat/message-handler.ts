@@ -302,6 +302,12 @@ export async function handleIncomingMessage(
           },
         });
         if (claimed.count > 0) {
+          // 2026-06-19 Cầu Telegram: echo media OUTBOUND từ CRM → mirror sang Telegram (lấy
+          // id row vừa claim theo zaloMsgId).
+          const claimedRow = await prisma.message
+            .findFirst({ where: { conversationId: conversation.id, zaloMsgId: msg.msgId }, select: { id: true } })
+            .catch(() => null);
+          if (claimedRow) publishMessagePersisted({ messageId: claimedRow.id, conversationId: conversation.id });
           logger.debug(`[message-handler] Skipping self echo: claimed placeholder (album=${msg.albumKey ?? 'none'} idx=${msg.albumIndex})`);
           return null;
         }
@@ -331,6 +337,11 @@ export async function handleIncomingMessage(
               data: { zaloCliMsgId: msg.cliMsgId },
             }).catch(() => {});
           }
+          // 2026-06-19 Cầu Telegram: đây là echo của tin OUTBOUND gửi từ CRM (sale web /
+          // automation / hệ thống / bridge). Đường này return TRƯỚC nhánh create nên phải bắn
+          // publishMessagePersisted Ở ĐÂY để cầu mirror sang Telegram. Tin sentVia='bridge'
+          // (gốc Telegram) sẽ bị forwarder bỏ qua (chống lặp).
+          publishMessagePersisted({ messageId: recentDupe.id, conversationId: conversation.id });
           logger.debug('[message-handler] Skipping self echo: content match within 30s');
           return null;
         }
@@ -404,6 +415,16 @@ export async function handleIncomingMessage(
             where: { zaloMsgId: msg.msgId, zaloCliMsgId: null },
             data: { zaloCliMsgId: msg.cliMsgId },
           }).catch(() => {});
+        }
+        // 2026-06-19 Cầu Telegram: tin OUTBOUND gửi từ CRM (sale web / automation / hệ thống /
+        // bridge) tạo row TRƯỚC → echo selfListen hit P2002 ở đây. Bắn publishMessagePersisted
+        // (tin SELF) để cầu mirror các tin đó sang Telegram. CHỈ self → tránh re-forward tin KH
+        // khi Zalo gửi trùng. Tin sentVia='bridge' (gốc Telegram) sẽ bị forwarder bỏ qua.
+        if (msg.isSelf && msg.msgId) {
+          const existing = await prisma.message
+            .findFirst({ where: { conversationId: conversation.id, zaloMsgId: msg.msgId }, select: { id: true } })
+            .catch(() => null);
+          if (existing) publishMessagePersisted({ messageId: existing.id, conversationId: conversation.id });
         }
         logger.debug(`[message-handler] Skipping duplicate zaloMsgId=${msg.msgId} (cliMsgId backfill attempted)`);
         return null;

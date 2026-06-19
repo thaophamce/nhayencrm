@@ -20,6 +20,7 @@ import {
   type SendMediaMethod,
   type SendMediaField,
 } from './telegram-api.js';
+import { startTelegramReceiver, wasSentByBridge } from './receiver.js';
 
 let started = false;
 
@@ -33,7 +34,8 @@ export function initTelegramBridge(): void {
   bridgeBus.on('message.persisted', (ev: MessagePersistedEvent) => {
     void forwardMessage(ev); // fire-and-forget; lỗi nuốt bên trong
   });
-  logger.info('[telegram-bridge] BẬT — đang lắng nghe message.persisted.');
+  startTelegramReceiver(); // Phase 2 — chiều ra (long-poll getUpdates)
+  logger.info('[telegram-bridge] BẬT — đang lắng nghe message.persisted + nhận chiều ra.');
 }
 
 function escapeHtml(s: string): string {
@@ -69,6 +71,7 @@ async function forwardMessage(ev: MessagePersistedEvent): Promise<void> {
       where: { id: ev.messageId },
       select: {
         id: true,
+        zaloMsgId: true,
         content: true,
         contentType: true,
         senderType: true,
@@ -93,6 +96,9 @@ async function forwardMessage(ev: MessagePersistedEvent): Promise<void> {
       },
     });
     if (!message) return;
+    // Chống lặp: tin GỐC TỪ TELEGRAM (sentVia='bridge') hoặc msgId cầu vừa gửi → khỏi
+    // re-forward về Telegram (sale đã gõ ở Telegram rồi).
+    if (message.sentVia === 'bridge' || wasSentByBridge(message.zaloMsgId)) return;
     const conv = message.conversation;
 
     if (conv.threadType !== 'user') return; // chỉ chat 1-1 (bỏ nhóm Zalo)
@@ -140,6 +146,8 @@ function buildLabel(message: ForwardMessage, conv: ForwardConv, customerName: st
     who = `👤 <b>${escapeHtml(customerName)}</b>`;
   } else if (message.sentVia === 'automation') {
     who = '🤖 <b>Tự động</b>';
+  } else if (message.sentVia === 'system') {
+    who = '🔔 <b>Hệ thống</b>';
   } else {
     const senderMeta = (message.metadata as { sender?: { name?: string } } | null)?.sender;
     const saleName =
