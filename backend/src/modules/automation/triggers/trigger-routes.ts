@@ -30,6 +30,7 @@ import {
 } from './types.js';
 import { automationEventBus } from '../engine/event-bus.js';
 import { getOwnerScope, applyOwnerScope } from '../../rbac/owner-scope.js';
+import { blockVisibilityWhere } from '../blocks/block-visibility.js';
 import { registerCronTrigger, unregisterCronTrigger } from '../engine/cron-event-scheduler.js';
 import { deleteFriendInviteTrigger } from '../friend-invite/friend-invite-routes.js';
 
@@ -140,8 +141,12 @@ export async function triggerRoutes(app: FastifyInstance): Promise<void> {
         });
         if (!bc) return reply.status(400).send({ error: 'broadcast not found' });
       } else if (body.bindingKind === 'block') {
+        // 2026-06-18: chỉ gắn Khối mình ĐƯỢC THẤY (không gắn khối riêng tư người khác qua blockId).
+        const blockScope = await getOwnerScope({
+          userId: user.id, orgId: user.orgId, legacyRole: user.role, resource: 'block',
+        });
         const blk = await prisma.block.findFirst({
-          where: { id: body.blockId, orgId: user.orgId, archivedAt: null },
+          where: { id: body.blockId, orgId: user.orgId, archivedAt: null, ...blockVisibilityWhere(blockScope, user.id) },
           select: { id: true },
         });
         if (!blk) return reply.status(400).send({ error: 'block not found or archived' });

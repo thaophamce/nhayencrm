@@ -31,7 +31,8 @@ import { renderTemplate, renderTemplateDetailed, shiftStylesForRender } from '..
 // GĐ Block-media (2026-06-13): D4 vá tên file dùng chung; D3 bump usageCount khi gửi media qua Block.
 import { buildSendFileName } from '../media/media-routes.js';
 import { bumpUsage } from '../media/media-service.js';
-import { getOwnerScope, applyOwnerScope } from '../rbac/owner-scope.js';
+import { getOwnerScope } from '../rbac/owner-scope.js';
+import { blockVisibilityWhere } from '../automation/blocks/block-visibility.js';
 
 type QueryParams = Record<string, string>;
 
@@ -1781,7 +1782,10 @@ export async function chatRoutes(app: FastifyInstance) {
       userId: user.id, orgId: user.orgId, legacyRole: user.role, resource: 'block',
     });
     const block = await prisma.block.findFirst({
-      where: { id: blockId, orgId: user.orgId, archivedAt: null, ...applyOwnerScope(ownerScope) },
+      // 2026-06-18: lọc theo THƯ MỤC công khai/riêng tư (blockVisibilityWhere) — KHÔNG theo
+      // người tạo (applyOwnerScope cũ) → sale gửi được khối CÔNG KHAI do người khác tạo,
+      // nhưng vẫn KHÔNG gửi được khối riêng tư của người khác. Đồng bộ với màn chọn khối.
+      where: { id: blockId, orgId: user.orgId, archivedAt: null, ...blockVisibilityWhere(ownerScope, user.id) },
     });
     if (!block) return reply.status(404).send({ error: 'block not found' });
     if (block.actionType !== 'send_message') {

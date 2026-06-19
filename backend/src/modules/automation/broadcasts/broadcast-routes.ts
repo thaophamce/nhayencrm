@@ -35,6 +35,7 @@ import { requireGrant } from '../../rbac/rbac-middleware.js';
 import { getZaloScope } from '../../zalo/zalo-scope.js';
 import { logger } from '../../../shared/utils/logger.js';
 import { getOwnerScope, applyOwnerScope } from '../../rbac/owner-scope.js';
+import { blockVisibilityWhere } from '../blocks/block-visibility.js';
 import { resolveSegmentToContactIds } from '../engine/segment-resolver.js';
 import { PRESET_SEGMENTS } from '../engine/broadcasts-preset-segments.js';
 import {
@@ -205,8 +206,12 @@ export async function broadcastRoutes(app: FastifyInstance): Promise<void> {
       if (!body.segmentSpec || typeof body.segmentSpec !== 'object') {
         return reply.status(400).send({ error: 'segmentSpec is required' });
       }
+      // 2026-06-18: chỉ gửi loạt bằng Khối mình ĐƯỢC THẤY (không dùng khối riêng tư người khác).
+      const blockScope = await getOwnerScope({
+        userId: user.id, orgId: user.orgId, legacyRole: user.role, resource: 'block',
+      });
       const block = await prisma.block.findFirst({
-        where: { id: body.blockId, orgId: user.orgId },
+        where: { id: body.blockId, orgId: user.orgId, ...blockVisibilityWhere(blockScope, user.id) },
         select: { id: true, actionType: true, archivedAt: true },
       });
       if (!block) return reply.status(400).send({ error: 'block not found' });

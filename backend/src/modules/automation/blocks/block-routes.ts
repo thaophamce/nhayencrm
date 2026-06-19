@@ -16,6 +16,7 @@ import { requireGrant } from '../../rbac/rbac-middleware.js';
 import { logger } from '../../../shared/utils/logger.js';
 import { getOwnerScope } from '../../rbac/owner-scope.js';
 import { resolveBlockContent } from './resolve-block-content.js';
+import { blockVisibilityWhere } from './block-visibility.js';
 import {
   isSupportedActionType,
   validateBlockContent,
@@ -25,26 +26,23 @@ import {
 const BASE = '/api/v1/automation/blocks';
 
 /**
- * RBAC visibility 2026-06-09 — fragment Prisma where lọc Khối user được THẤY/DÙNG.
- * canViewAll (Marketing/Trưởng phòng/Admin/owner) → {} (thấy hết org).
- * Còn lại (Sale):
- *   - Khối trong thư mục CÔNG KHAI (cả org dùng),
- *   - Khối trong thư mục RIÊNG TƯ của chính mình,
- *   - Khối LẺ (chưa phân loại, folderId NULL) — coi như công khai (UI hiển thị 'public').
- * Khớp block-folder-routes (folder public | private+ownerUserId) + BlocksView (block lẻ = public).
+ * 2026-06-18: lưu/đổi Khối vào 1 thư mục thì thư mục đó phải DÙNG ĐƯỢC bởi user —
+ * công khai HOẶC riêng tư của chính mình (view_all được mọi thư mục trong org).
+ * Chặn sale lưu khối vào thư mục riêng tư của người khác.
  */
-function blockVisibilityWhere(
-  ownerScope: { canViewAll: boolean },
-  userId: string,
-): Record<string, unknown> {
-  if (ownerScope.canViewAll) return {};
-  return {
-    OR: [
-      { folder: { visibility: 'public' } },
-      { folder: { visibility: 'private', ownerUserId: userId } },
-      { folderId: null }, // Khối lẻ chưa phân loại = công khai (mọi sale dùng)
-    ],
-  };
+async function folderUsableByUser(
+  folderId: string,
+  user: { id: string; orgId: string; role: string },
+): Promise<boolean> {
+  const ownerScope = await getOwnerScope({
+    userId: user.id, orgId: user.orgId, legacyRole: user.role, resource: 'block',
+  });
+  const where: Record<string, unknown> = { id: folderId, orgId: user.orgId };
+  if (!ownerScope.canViewAll) {
+    where.OR = [{ visibility: 'public' }, { visibility: 'private', ownerUserId: user.id }];
+  }
+  const f = await prisma.blockFolder.findFirst({ where, select: { id: true } });
+  return !!f;
 }
 
 export async function blockRoutes(app: FastifyInstance): Promise<void> {
@@ -129,13 +127,9 @@ export async function blockRoutes(app: FastifyInstance): Promise<void> {
         return reply.status(400).send({ error: 'content invalid', detail: contentValidation.error });
       }
 
-      // Optional FK validation
-      if (body.folderId) {
-        const folder = await prisma.blockFolder.findFirst({
-          where: { id: body.folderId, orgId: user.orgId },
-          select: { id: true },
-        });
-        if (!folder) return reply.status(400).send({ error: 'folder not found' });
+      // Optional FK validation — thư mục phải dùng được bởi user (không lưu vào riêng tư người khác).
+      if (body.folderId && !(await folderUsableByUser(body.folderId, user))) {
+        return reply.status(400).send({ error: 'Thư mục không tồn tại hoặc bạn không có quyền lưu khối vào đó' });
       }
       if (body.ownerNickId) {
         // Phase Zalo Account Mutation Gate 2026-05-27: ownerNickId phải nằm
@@ -186,13 +180,21 @@ export async function blockRoutes(app: FastifyInstance): Promise<void> {
       const { id } = request.params as { id: string };
       const body = request.body as Record<string, any>;
 
+      // 2026-06-18: chỉ sửa Khối mình ĐƯỢC THẤY (không sửa khối riêng tư người khác).
+      const editScope = await getOwnerScope({
+        userId: user.id, orgId: user.orgId, legacyRole: user.role, resource: 'block',
+      });
       const existing = await prisma.block.findFirst({
-        where: { id, orgId: user.orgId },
+        where: { id, orgId: user.orgId, ...blockVisibilityWhere(editScope, user.id) },
         select: { id: true, actionType: true, archivedAt: true },
       });
       if (!existing) return reply.status(404).send({ error: 'block not found' });
       if (existing.archivedAt) {
         return reply.status(409).send({ error: 'block is archived; unarchive first' });
+      }
+      // Đổi thư mục → thư mục đích phải dùng được bởi user (không chuyển vào riêng tư người khác).
+      if (body.folderId && !(await folderUsableByUser(body.folderId, user))) {
+        return reply.status(400).send({ error: 'Thư mục không tồn tại hoặc bạn không có quyền chuyển khối vào đó' });
       }
 
       // If actionType changes, revalidate content against NEW actionType.
@@ -299,22 +301,33 @@ export async function blockRoutes(app: FastifyInstance): Promise<void> {
       // nghĩa). Broadcast + Trigger FK vẫn chặn xóa đúng. Task đang chạy = BullMQ jobs,
       // không query kiểu này; engine snapshot block content lúc enqueue nên xóa block
       // KHÔNG ảnh hưởng job đang chạy → an toàn không cần chặn theo task.
-      const [broadcastRef, triggerRef] = await Promise.all([
+      const [broadcastRef, triggerRef, sequences] = await Promise.all([
         prisma.automationBroadcast.count({ where: { blockId: id, orgId: user.orgId } }),
         prisma.automationTrigger.count({ where: { blockId: id, orgId: user.orgId } }),
+        // Sequence tham chiếu Khối qua JSON steps[].blockId (KHÔNG FK) → quét trong JS.
+        // Sequences ít (vài chục) nên load steps OK; chặn xoá để không làm gãy bước luồng.
+        prisma.automationSequence.findMany({
+          where: { orgId: user.orgId },
+          select: { id: true, name: true, steps: true },
+        }),
       ]);
 
-      if (broadcastRef + triggerRef > 0) {
+      // 2026-06-18 FIX (anh chốt): chặn xoá hẳn khi Khối đang dùng trong bước Sequence
+      // (trước đây chỉ chặn Broadcast/Trigger → xoá khối đang dùng trong luồng → bước trỏ rỗng).
+      const seqRefs = sequences.filter(
+        (s) => Array.isArray(s.steps) && (s.steps as Array<{ blockId?: string }>).some((st) => st?.blockId === id),
+      );
+
+      if (broadcastRef + triggerRef + seqRefs.length > 0) {
+        const parts: string[] = [];
+        if (broadcastRef > 0) parts.push(`${broadcastRef} chiến dịch gửi loạt`);
+        if (triggerRef > 0) parts.push(`${triggerRef} Mục tiêu`);
+        if (seqRefs.length > 0) parts.push(`${seqRefs.length} luồng kịch bản (${seqRefs.slice(0, 3).map((s) => s.name).join(', ')}${seqRefs.length > 3 ? '…' : ''})`);
         return reply.status(409).send({
           error: 'block in use',
-          detail: `Referenced by ${broadcastRef} broadcast(s), ${triggerRef} trigger(s). Archive instead.`,
+          detail: `Khối đang được dùng ở ${parts.join(' + ')}. Gỡ khỏi các nơi đó rồi xoá, hoặc dùng "Lưu trữ" để cất đi mà vẫn giữ luồng đang chạy.`,
         });
       }
-
-      // NOTE: sequences reference via JSON steps[].blockId — Prisma cannot count
-      // these efficiently. Engine validates at sequence-load time and surfaces a
-      // warning in /sequences list. Force the user through archive workflow to
-      // be safe.
 
       await prisma.block.delete({ where: { id } });
       return { success: true };
@@ -330,8 +343,12 @@ export async function blockRoutes(app: FastifyInstance): Promise<void> {
       const user = request.user!;
       const { id } = request.params as { id: string };
 
+      // 2026-06-18: chỉ nhân bản Khối mình ĐƯỢC THẤY (không clone khối riêng tư người khác).
+      const ownerScope = await getOwnerScope({
+        userId: user.id, orgId: user.orgId, legacyRole: user.role, resource: 'block',
+      });
       const source = await prisma.block.findFirst({
-        where: { id, orgId: user.orgId },
+        where: { id, orgId: user.orgId, ...blockVisibilityWhere(ownerScope, user.id) },
       });
       if (!source) return reply.status(404).send({ error: 'block not found' });
 
@@ -464,12 +481,8 @@ export async function blockRoutes(app: FastifyInstance): Promise<void> {
       }
 
       // Verify folderId belongs to org (nếu có)
-      if (body.folderId) {
-        const folder = await prisma.blockFolder.findFirst({
-          where: { id: body.folderId, orgId: user.orgId },
-          select: { id: true },
-        });
-        if (!folder) return reply.status(400).send({ error: 'Folder không tồn tại' });
+      if (body.folderId && !(await folderUsableByUser(body.folderId, user))) {
+        return reply.status(400).send({ error: 'Thư mục không tồn tại hoặc bạn không có quyền lưu khối vào đó' });
       }
 
       const created = await prisma.block.create({
