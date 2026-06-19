@@ -78,6 +78,8 @@ import { savedReportRoutes } from './modules/analytics/saved-report-routes.js';
 import { integrationRoutes } from './modules/integrations/integration-routes.js';
 // Automation + Marketing (engine, blocks, sequences, triggers, broadcasts,
 // care-session, lists, friend-invite) → extension bundle (src/_ee/automation).
+// Telegram bridge (Zalo↔Telegram) is core — stays outside _ee.
+import { initTelegramBridge } from './modules/integrations/providers/telegram-bridge/index.js';
 import { aiRoutes } from './modules/ai/ai-routes.js';
 import { chatOperationsRoutes, registerChatSocketHandlers } from './modules/chat/chat-operations-routes.js';
 import { groupRoutes } from './modules/zalo/group-routes.js';
@@ -400,6 +402,16 @@ async function bootstrap() {
     // sweepers, list enrichment, nick workers) → started by the extension bundle.
     // Open-core: extension cron/worker startups (no-op in Community edition).
     await ee?.startExtensionJobs?.(app, io);
+
+    // 2026-06-19 — Cầu Telegram (Phase 1): subscribe bridge-bus, mirror tin Zalo→Telegram.
+    // Core feature (outside _ee) — chạy ở cả Extension lẫn Community.
+    if (config.nodeEnv !== 'test') {
+      try {
+        initTelegramBridge();
+      } catch (err) {
+        logger.error('[telegram-bridge] init failed (non-fatal):', err);
+      }
+    }
   } catch (err) {
     logger.error('Failed to start server:', err);
     process.exit(1);
