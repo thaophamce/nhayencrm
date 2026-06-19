@@ -11,7 +11,7 @@
 // (docker-compose.yml). Verify POC spike 5/5 PASS 2026-06-01.
 
 import { Redis } from 'ioredis';
-import { logger } from '../../../shared/utils/logger.js';
+import { logger } from '../utils/logger.js';
 
 const REDIS_URL = process.env.REDIS_URL ?? 'redis://redis:6379';
 
