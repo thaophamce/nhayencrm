@@ -7,19 +7,20 @@
 // chọn nick cho đường event → sequence (materializeFromEvent).
 // ════════════════════════════════════════════════════════════════════════
 //
-// CHỌN NICK (anh chốt 2026-06-12 — xem [[feedback_zalocrm_multi_sequence_rule]]):
+// CHỌN NICK — CHIA CỨNG + FAILOVER (anh chốt 2026-06-20, đổi từ bản 2026-06-12):
 //   1. List nick được phép = trigger.segmentSpec.nickIds (sale cấu hình lúc tạo
 //      Mục tiêu — ĐÂY là tầng phân quyền Zalo scope; runtime không lọc owner thêm).
 //      Nếu list rỗng → mọi nick connected trong org đều ứng viên.
-//   2. Lọc: nick connected + còn quota gửi tin hôm nay.
-//   3. ĐỢT NÀY (chờ TODO SEQ-C1 findUser-qua-phone): chỉ chọn nick ĐÃ có Friend
-//      row gửi-được-ngay với KH (accepted, hoặc pending_sent + hasConversation).
-//      KH chưa quan hệ nick nào → trả null, materializer skip ghi lý do rõ.
-//   4. Bốc NGẪU NHIÊN 1 nick trong số ứng viên (rải tải, tránh dồn 1 nick → Zalo
-//      nghi spam). Nick này sẽ đi HẾT luồng cho KH đó (sequence-step-worker mang
-//      nickId theo mọi step — không bốc lại giữa chừng).
+//   2. Pool chia cứng = nick connected + còn quota gửi tin hôm nay (resolveEligibleNicks).
+//      KHÔNG còn lọc theo Friend row khi PHÂN — khách nào cũng được giao xuống nick.
+//   3. Materializer chia ĐỀU khách lên pool (round-robin per KH). Nick được phân TỰ tra
+//      UID cho khách của mình qua SDK (ensureUidForPair → lưu Friend row), rồi chạy luồng.
+//   4. Tra KHÔNG ra (no_phone/no_zalo/capped/offline) → ghi log sự cố + CHUYỂN NGAY sang
+//      nick kế trong thứ tự (pickNickWithFailover). Hết nick mới bỏ KH kèm lý do rõ.
+//      Nick chốt được sẽ đi HẾT luồng cho KH đó (sequence-step-worker mang nickId mọi step).
 
 import { prisma } from '../../../shared/database/prisma-client.js';
+import { logger } from '../../../shared/utils/logger.js';
 import { peekQuota } from '../queues/quota-lua.js';
 import { ensureUidForPair } from './ensure-uid.js';
 
@@ -28,6 +29,13 @@ export interface SequenceNickSelection {
   /** UID của KH trong nick này (zaloUidInNick) — gửi tin cần cái này */
   zaloUidInNick: string;
   reason: 'existing_friend' | 'resolved_uid';
+}
+
+/** 1 lần thử tra UID của 1 nick cho 1 KH — gom lại để báo cáo sự cố khi failover. */
+export interface NickLookupAttempt {
+  nickId: string;
+  code: string;
+  detail: string;
 }
 
 /**
@@ -52,109 +60,79 @@ export async function resolveManualNickForContact(args: {
 }
 
 /**
- * Chọn 1 nick để gắn KH vào sequence bám đuổi.
+ * Pool nick để CHIA CỨNG (round-robin) — KHÔNG lọc theo Friend row.
+ * = nick trong allowedNickIds đang connected + còn quota gửi tin hôm nay.
+ * List rỗng → mọi nick connected trong org. Materializer chia đều khách lên pool này.
  *
  * @param allowedNickIds  trigger.segmentSpec.nickIds — null/empty = không giới hạn
- * @returns nick đã chọn + UID KH trong nick đó, hoặc null nếu không có nick gửi-được.
- *
- * Lý do trả null (materializer dùng để ghi skip reason):
- *   - 'no_allowed_nick_connected'   : list nick không có cái nào connected
- *   - 'no_friend_row'               : KH chưa quan hệ nick nào (chờ SEQ-C1 findUser)
- *   - 'all_nicks_capped'            : nick có Friend row nhưng đều đầy cap ngày
  */
-export async function pickSequenceNickForContact(args: {
-  orgId: string;
-  contactId: string;
-  allowedNickIds?: string[] | null;
-}): Promise<SequenceNickSelection | { nickId: null; reason: string }> {
-  const { orgId, contactId } = args;
+export async function resolveEligibleNicks(
+  orgId: string,
+  allowedNickIds?: string[] | null,
+): Promise<string[]> {
   const allowed =
-    args.allowedNickIds && args.allowedNickIds.length > 0
-      ? new Set(args.allowedNickIds)
-      : null;
+    allowedNickIds && allowedNickIds.length > 0 ? new Set(allowedNickIds) : null;
 
-  // 1. Friend rows gửi-được-ngay — 2026-06-13 (gửi bất chấp): KHÔNG còn ép
-  //    accepted/pending. MỌI Friend row đều ứng viên (KH lạ gửi vào hộp người lạ).
-  //    KH chưa có Friend row với nick nào trong list → thử ensureUidForPair (SEQ-C1)
-  //    để KHÔNG skip âm thầm khách lạ (lỗi cũ).
-  const friends = await prisma.friend.findMany({
-    where: {
-      orgId,
-      contactId,
-      strangerBlocked: { not: true }, // bỏ cặp KH đã bật chặn tin lạ
-      // FIX code-review #4: loại KH đã CHẶN/XÓA/TỪ CHỐI nick (filter cũ OR[accepted|
-      // pending+chat] ngầm loại các status này — filter mới phải loại lại tường minh).
-      friendshipStatus: { notIn: ['blocked', 'removed', 'rejected'] },
-      zaloAccount: { status: 'connected' },
-    },
-    select: {
-      zaloAccountId: true,
-      zaloUidInNick: true,
-      zaloAccount: { select: { dailyMessageCap: true } },
-    },
-  });
-
-  // 2. Áp list nick được phép (phân quyền Zalo scope từ Mục tiêu).
-  let scoped = allowed
-    ? friends.filter((f) => allowed.has(f.zaloAccountId))
-    : friends;
-
-  // 3. KH chưa có Friend row gửi-được trong list → THỬ resolve UID qua SĐT cho từng
-  //    nick được phép (SEQ-C1). Nick đầu tiên resolve được → dùng. KHÔNG skip âm thầm.
-  if (scoped.length === 0) {
-    const candidateNickIds = await resolveCandidateNickIds(orgId, allowed);
-    for (const nid of candidateNickIds) {
-      const r = await ensureUidForPair({ orgId, nickId: nid, contactId });
-      if (r.ok) {
-        const nick = await prisma.zaloAccount.findUnique({ where: { id: nid }, select: { dailyMessageCap: true } });
-        scoped = [{ zaloAccountId: nid, zaloUidInNick: r.uid, zaloAccount: { dailyMessageCap: nick?.dailyMessageCap ?? 0 } }];
-        break;
-      }
-    }
-  }
-
-  if (scoped.length === 0) {
-    // Resolve thất bại mọi nick → ghi lý do rõ (no_zalo/no_phone), KHÔNG skip im.
-    return { nickId: null, reason: 'no_sendable_nick_after_lookup' };
-  }
-
-  // 3. Lọc nick còn quota gửi tin hôm nay (cap=0 nghĩa là disable → luôn cho qua).
-  const underCap: SequenceNickSelection[] = [];
-  for (const f of scoped) {
-    const cap = f.zaloAccount?.dailyMessageCap ?? 0;
-    if (cap <= 0) {
-      underCap.push({ nickId: f.zaloAccountId, zaloUidInNick: f.zaloUidInNick, reason: 'existing_friend' });
-      continue;
-    }
-    const { capped } = await peekQuota(f.zaloAccountId, 'message', cap);
-    if (!capped) {
-      underCap.push({ nickId: f.zaloAccountId, zaloUidInNick: f.zaloUidInNick, reason: 'existing_friend' });
-    }
-  }
-
-  if (underCap.length === 0) {
-    return { nickId: null, reason: 'all_nicks_capped' };
-  }
-
-  // 4. Bốc NGẪU NHIÊN 1 nick (rải tải cross-nick).
-  const picked = underCap[Math.floor(Math.random() * underCap.length)];
-  return picked;
-}
-
-/**
- * Danh sách nickId ứng viên để thử resolve UID (KH chưa có Friend row nào trong list).
- * = các nick trong allowedNickIds đang connected; nếu list rỗng → mọi nick connected
- * trong org. Giới hạn 10 để không đốt cap friend_lookup khi list lớn.
- */
-async function resolveCandidateNickIds(orgId: string, allowed: Set<string> | null): Promise<string[]> {
   const nicks = await prisma.zaloAccount.findMany({
     where: {
       orgId,
       status: 'connected',
       ...(allowed ? { id: { in: [...allowed] } } : {}),
     },
-    select: { id: true },
-    take: 10,
+    select: { id: true, dailyMessageCap: true },
   });
-  return nicks.map((n) => n.id);
+
+  // Lọc nick còn quota gửi tin hôm nay (cap<=0 = disable cap → luôn cho qua).
+  const eligible: string[] = [];
+  for (const n of nicks) {
+    const cap = n.dailyMessageCap ?? 0;
+    if (cap <= 0) {
+      eligible.push(n.id);
+      continue;
+    }
+    const { capped } = await peekQuota(n.id, 'message', cap);
+    if (!capped) eligible.push(n.id);
+  }
+  return eligible;
+}
+
+/**
+ * CHIA CỨNG + FAILOVER (anh chốt 2026-06-20): nick được phân TỰ tra UID cho KH của mình
+ * qua SDK (ensureUidForPair → lưu Friend row). Tra KHÔNG ra → ghi log sự cố + CHUYỂN NGAY
+ * sang nick kế trong orderedNickIds. Hết nick → trả null kèm mọi attempt để báo cáo.
+ *
+ * @param orderedNickIds  thứ tự thử nick — materializer xoay round-robin theo từng KH
+ *                        (KH thứ i bắt đầu ở nick i%n, fail thì sang nick kế).
+ * @returns nick chốt được + UID + danh sách attempt; hoặc { nickId:null, attempts } khi
+ *          mọi nick đều tra ko ra UID cho KH này.
+ */
+export async function pickNickWithFailover(args: {
+  orgId: string;
+  contactId: string;
+  orderedNickIds: string[];
+}): Promise<
+  | (SequenceNickSelection & { attempts: NickLookupAttempt[] })
+  | { nickId: null; attempts: NickLookupAttempt[] }
+> {
+  const { orgId, contactId, orderedNickIds } = args;
+  const attempts: NickLookupAttempt[] = [];
+
+  for (const nickId of orderedNickIds) {
+    const r = await ensureUidForPair({ orgId, nickId, contactId });
+    if (r.ok) {
+      return {
+        nickId,
+        zaloUidInNick: r.uid,
+        reason: r.source === 'existing_friend' ? 'existing_friend' : 'resolved_uid',
+        attempts,
+      };
+    }
+    // Ghi nhận sự cố tra UID của nick này rồi FAILOVER sang nick kế NGAY.
+    attempts.push({ nickId, code: r.code, detail: r.detail });
+    logger.warn(
+      `[nick-selector] tra UID fail contact=${contactId} nick=${nickId} (${r.code}) → chuyển nick kế`,
+    );
+  }
+
+  return { nickId: null, attempts };
 }

@@ -24,7 +24,7 @@ import {
   getSequenceStepQueue,
 } from '../queues/queue-registry.js';
 import { enqueueSequenceStart } from '../queues/sequence-step-worker.js';
-import { pickSequenceNickForContact } from './nick-selector.js';
+import { resolveEligibleNicks, pickNickWithFailover } from './nick-selector.js';
 
 export interface MaterializeResult {
   campaignsCreated: number;
@@ -213,8 +213,9 @@ export async function materializeFromEvent(
     // 7. Per-contact enrollment → BullMQ (2026-06-12 rewrite, AutomationTask đã drop).
     //
     // ĐỔI SO VỚI BẢN CŨ (ghi AutomationTask stub → 0 việc thật → KH không bám đuổi):
-    //   - Chọn nick: pickSequenceNickForContact (ngẫu nhiên trong list segmentSpec.nickIds,
-    //     connected + dưới cap + có Friend row). Nick này đi HẾT luồng cho KH.
+    //   - Chọn nick: CHIA CỨNG round-robin trên resolveEligibleNicks (connected + còn cap
+    //     tin, KHÔNG lọc Friend row). pickNickWithFailover: nick được phân tự tra UID, tra
+    //     ko ra → log + failover nick kế NGAY. Nick chốt được đi HẾT luồng cho KH.
     //   - Enqueue: enqueueSequenceStart (BullMQ jobId `${trigger}-${contact}-0`).
     //   - Idempotent: BullMQ jobId dedup (cùng KH cùng Mục tiêu → 1 job step-0). Bỏ
     //     check-task-DB cũ.
@@ -227,17 +228,29 @@ export async function materializeFromEvent(
       ? ((trigger.segmentSpec as { nickIds: string[] }).nickIds)
       : null;
 
-    for (const contactId of contactIds) {
-      // Chọn nick gắn KH (đợt này: chỉ nick ĐÃ có Friend row gửi-được-ngay).
-      // KH lạ (chưa quan hệ nick nào) → skip, chờ TODO SEQ-C1 (findUser qua phone).
-      const pick = await pickSequenceNickForContact({
-        orgId: event.orgId,
-        contactId,
-        allowedNickIds,
-      });
+    // CHIA CỨNG (anh chốt 2026-06-20): pool nick được-phép + connected + còn cap tin.
+    // KHÔNG còn lọc Friend row khi phân — khách nào cũng giao xuống nick được.
+    const eligibleNicks = await resolveEligibleNicks(event.orgId, allowedNickIds);
+    if (eligibleNicks.length === 0) {
+      result.skipped++;
+      result.reasons.push(`trigger ${trigger.id}: no_eligible_nick (không nick nào connected/còn cap tin)`);
+      continue;
+    }
+
+    for (let i = 0; i < contactIds.length; i++) {
+      const contactId = contactIds[i];
+      // Chia đều: KH thứ i bắt đầu ở nick (i % n); tra ko ra thì failover sang nick kế.
+      const start = i % eligibleNicks.length;
+      const orderedNickIds = [...eligibleNicks.slice(start), ...eligibleNicks.slice(0, start)];
+
+      // Nick được phân tự tra UID (ensureUidForPair → lưu Friend row). Hết nick → bỏ KH.
+      const pick = await pickNickWithFailover({ orgId: event.orgId, contactId, orderedNickIds });
       if (pick.nickId === null) {
         result.skipped++;
-        result.reasons.push(`contact ${contactId}: no_sendable_nick (${pick.reason})`);
+        // Báo cáo sự cố: mọi nick đều tra ko ra UID cho KH này.
+        const why = pick.attempts.map((a) => `${a.nickId}:${a.code}`).join(', ') || 'no_nick';
+        result.reasons.push(`contact ${contactId}: no_sendable_nick — ${why}`);
+        logger.warn(`[materializer] contact ${contactId} bỏ qua — mọi nick tra UID ko ra: ${why}`);
         continue;
       }
 
