@@ -194,7 +194,18 @@ async function saveOneMessageToMedia(args: {
       logger.info(`[media][audit] nhận diện video từ đuôi .${extForKind} (Zalo gửi dạng file) msg=${messageId}`);
     }
   }
-  const mediaName = realName || (kind === 'image' ? 'Lưu từ chat' : kind === 'video' ? 'Video lưu từ chat' : 'Tệp lưu từ chat');
+  // 2026-06-20 (anh chốt): ẢNH Zalo không kèm tên → thay "Lưu từ chat" giống hệt nhau bằng
+  // "[tên cuối của sale] dd/mm" (vd "Ngoán 20/06") cho dễ phân biệt + biết ai lưu, khi nào.
+  // Áp cho MỌI fallback (ảnh/video/file thiếu tên thật). Sale vẫn đổi tên lại được trong kho.
+  const saver = await prisma.user.findUnique({ where: { id: userId }, select: { fullName: true } });
+  const saleLast =
+    (saver?.fullName ?? '').trim().split(/\s+/).pop()
+    || (nick.displayName ?? '').trim().split(/\s+/).pop()
+    || 'Chat';
+  const ddmm = (message.sentAt ?? new Date()).toLocaleDateString('en-GB', {
+    day: '2-digit', month: '2-digit', timeZone: 'Asia/Ho_Chi_Minh',
+  });
+  const mediaName = realName || `${saleLast} ${ddmm}`;
 
   // Validation file (audit 2026-06-12): save-from-chat KHÔNG qua classify() như /upload.
   // Chặn đuôi nguy hiểm (thực thi) để file độc không vào kho rồi gửi lại khách. KHÔNG dùng
