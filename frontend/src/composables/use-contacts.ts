@@ -93,6 +93,8 @@ export interface Contact {
   // #4 (2026-06-20): số lần gắn sequence (auto+manual), aggregate mức Cha — read-only
   sequenceAttachCount?: number;
   sequenceActiveCount?: number;
+  // #3 (2026-06-20): số lần đã gửi kết bạn cho SĐT này (mức Cha) — read-only
+  friendInviteSentCount?: number;
 
   // Consent
   consentStatus?: string | null;
@@ -283,6 +285,7 @@ export interface ContactFilters {
   dateFrom?: string;
   dateTo?: string;
   sequenceAttachMin?: number | null; // #4: lọc KH gắn ≥ N sequence
+  friendInviteMin?: number | null;   // #3: lọc KH đã gửi kết bạn ≥ N lần
 }
 
 export const SOURCE_OPTIONS = [
@@ -324,6 +327,7 @@ export function useContacts() {
     dateFrom: '',
     dateTo: '',
     sequenceAttachMin: null,
+    friendInviteMin: null,
   });
 
   const pagination = reactive({ page: 1, limit: 20 });
@@ -349,6 +353,7 @@ export function useContacts() {
           dateFrom: filters.dateFrom || undefined,
           dateTo: filters.dateTo || undefined,
           sequenceAttachMin: filters.sequenceAttachMin ?? undefined,
+          friendInviteMin: filters.friendInviteMin ?? undefined,
         },
       });
       contacts.value = res.data.contacts ?? res.data;
