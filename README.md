@@ -478,14 +478,28 @@ By using ZaloCRM, you acknowledge that you understand and accept these terms and
 
 ## Giấy phép
 
-**GNU General Public License v3.0 (GPL-3.0)** — Tự do sử dụng, chỉnh sửa và phân phối lại. Xem [LICENSE](LICENSE).
+Copyright © 2026 **Nguyễn Tiến Lộc**.
 
-### Copyleft (bắt buộc)
+ZaloCRM là **phần mềm tự do** phát hành theo **GNU Affero General Public License v3.0 (AGPL-3.0)** —
+xem [LICENSE](LICENSE). Mã nguồn công khai: <https://github.com/locphamnguyen/ZaloCRM>.
 
-Theo GPL-3.0, mọi bản **phân phối lại** (kể cả bản đã chỉnh sửa) **bắt buộc**:
-- Phát hành dưới cùng giấy phép **GPL-3.0**.
-- Kèm theo **mã nguồn đầy đủ** (hoặc phương thức lấy mã nguồn) của bản bạn phân phối.
+### Copyleft + điều khoản mạng (AGPL §13) — bắt buộc
+Mọi bản **phân phối lại HOẶC cung cấp dưới dạng dịch vụ qua mạng (SaaS)** — kể cả bản đã chỉnh sửa — **bắt buộc**:
+- Phát hành dưới cùng **AGPL-3.0**.
+- **Công khai mã nguồn đầy đủ** (kể cả phần bạn sửa) cho người dùng — gồm cả người dùng truy cập qua mạng.
 - Giữ nguyên thông báo bản quyền + giấy phép.
+
+→ Không ai có thể biến ZaloCRM thành sản phẩm **đóng/độc quyền** (kể cả host SaaS) mà không mở mã nguồn.
+
+### Giấy phép thương mại (dual-license)
+Nếu bạn muốn dùng ZaloCRM **không chịu ràng buộc copyleft của AGPL** (vd nhúng vào sản phẩm đóng,
+phân phối bản tuỳ biến không công khai mã, hoặc cung cấp SaaS độc quyền) → mua **giấy phép thương mại**.
+Liên hệ: **locnt@locnguyendata.com**.
+
+### Thương hiệu (Trademark)
+Tên **"ZaloCRM"**, logo và nhận diện thương hiệu **KHÔNG** được cấp theo AGPL (AGPL/GPL không cấp quyền
+nhãn hiệu). Bạn được fork và phân phối lại mã nguồn theo AGPL, nhưng **không được dùng tên/logo "ZaloCRM"**
+để đặt tên, quảng bá hay bán bản phái sinh nếu chưa được phép bằng văn bản. Hãy đổi tên thương hiệu cho bản fork của bạn.
 
 ---
 
