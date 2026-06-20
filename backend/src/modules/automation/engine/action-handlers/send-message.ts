@@ -37,15 +37,6 @@ import { bumpUsage } from '../../../media/media-service.js';
 
 type ZaloStyle = { st: string; start: number; len: number };
 
-// 2026-06-13: nhận diện lỗi "KH bật chặn tin người lạ" (anh đính chính — KHÔNG phải
-// Zalo chặn toàn bộ). Quan sát: zalo:127 + message tiếng Việt "không thể nhận tin
-// nhắn từ" / "người lạ". Match cả code lẫn message để không phụ thuộc 1 nguồn.
-function isStrangerRejectError(code: string | undefined, msg: string): boolean {
-  if (code === '127' || code === 'zalo:127') return true;
-  const m = (msg || '').toLowerCase();
-  return m.includes('nhận tin nhắn từ') || m.includes('người lạ') || m.includes('zalo:127');
-}
-
 // 2026-06-13: truy tên file thật từ Kho qua mediaAssetId (block file thường filename trống).
 async function resolveMediaFilename(mediaAssetId: string | undefined, fallback: string | undefined): Promise<string> {
   if (fallback && fallback.trim()) return fallback.trim();
@@ -154,15 +145,11 @@ export async function sendMessageHandler(ctx: ActionContext): Promise<ActionResu
     }
   }
 
-  // KH đã từng bật chặn tin người lạ → DỪNG riêng cặp này, không thử gửi lại (spam lỗi).
-  if (friend.strangerBlocked) {
-    return {
-      outcome: 'failure',
-      errorCode: 'STRANGER_BLOCKED',
-      errorMessage: 'Khách bật chế độ không nhận tin người lạ — cần kết bạn trước mới bám đuổi được.',
-      retryable: false,
-    };
-  }
+  // 2026-06-20 (anh chốt): BỎ check strangerBlocked. Cờ này TRƯỚC đây set bằng heuristic
+  // zalo:127 SAI — bằng chứng: KH Ngoán nhận 4 tin OK rồi tin 5 mới "lỗi 127" → 127 KHÔNG
+  // phải "KH chặn lạ" (Zalo không cấm nhắn người lạ). Cờ set vĩnh viễn đầu độc KH ở mọi
+  // chiến dịch sau. Giờ KHÔNG đọc/đặt cờ này nữa; cột giữ lại (inert) cho tới khi có cách
+  // nhận diện "chặn lạ" ĐÚNG (verify từ Zalo). Lỗi gửi thật → log raw + bỏ lượt (xem catch).
   // 2026-06-13 (Sequence recode Đợt 1 — GỬI BẤT CHẤP, FIX code-review #1+#4):
   //   - Đường sequence/manual bám đuổi MẶC ĐỊNH cho gửi bất chấp bạn/lạ (anh chốt trụ
   //     cột 2). KHÔNG còn phụ thuộc runtimeRules.allowStrangerMessage (bug cũ: sequence
@@ -345,25 +332,17 @@ export async function sendMessageHandler(ctx: ActionContext): Promise<ActionResu
       }
       if (code === 'RATE_LIMITED') return { outcome: 'failure', errorCode: 'RATE_LIMITED', errorMessage: msg, retryable: true };
       if (code === 'NOT_CONNECTED') return { outcome: 'failure', errorCode: 'NOT_CONNECTED', errorMessage: msg, retryable: true };
-      // 2026-06-13: KH tự bật "không nhận tin người lạ" (anh đính chính — KHÔNG phải Zalo
-      // chặn toàn bộ). Zalo trả zalo:127 / message chứa "nhận tin nhắn từ" / "người lạ".
-      // → đánh dấu Friend.strangerBlocked + DỪNG riêng cặp này (không spam lỗi lặp).
-      if (isStrangerRejectError(code, msg)) {
-        await prisma.friend
-          .update({
-            where: { zaloAccountId_zaloUidInNick: { zaloAccountId: ctx.assignedNickId, zaloUidInNick: threadId } },
-            data: { strangerBlocked: true, strangerBlockedAt: new Date() },
-          })
-          .catch((e) => logger.warn(`[send-message] set strangerBlocked failed: ${(e as Error).message}`));
-        logger.info(`[send-message] KH bật chặn tin người lạ — dừng sequence riêng contact=${ctx.contactId} nick=${ctx.assignedNickId}`);
-        return {
-          outcome: 'failure',
-          errorCode: 'STRANGER_BLOCKED',
-          errorMessage: 'Khách bật chế độ không nhận tin người lạ — cần kết bạn trước mới bám đuổi được.',
-          retryable: false,
-        };
-      }
-      return { outcome: 'failure', errorCode: 'SEND_MESSAGE_FAILED', errorMessage: msg, retryable: false };
+      // 2026-06-20 (anh chốt): KHÔNG đoán "chặn người lạ" từ zalo:127 nữa (bằng chứng: KH
+      // nhận nhiều tin OK rồi mới lỗi). LƯU code+message GỐC của Zalo (msg đã kèm "[zalo:NNN]")
+      // để LẦN SAU BIẾT CHẮC 127 là gì thay vì đoán. KHÔNG đánh strangerBlocked (không đầu
+      // độc KH). Lỗi gửi → bỏ lượt này (sót), chiến dịch sau bám lại. Gom đủ raw rồi mới
+      // phân loại 127 cho đúng (rate-limit/spam?). errorCode kèm số Zalo để stats lọc được.
+      const zaloCodeRaw = /\[zalo:(\d+)\]/.exec(msg)?.[1] ?? (code ?? 'unknown');
+      logger.warn(
+        `[send-message] SEND FAIL RAW contact=${ctx.contactId} nick=${ctx.assignedNickId} ` +
+          `zaloCode=${zaloCodeRaw} rawMsg=${msg}`,
+      );
+      return { outcome: 'failure', errorCode: `SEND_FAILED_${zaloCodeRaw}`, errorMessage: msg, retryable: false };
     } finally {
       // Dọn temp media (Đường B) — chạy dù gửi OK hay lỗi.
       for (const c of tmpCleanups) await c().catch(() => {});
