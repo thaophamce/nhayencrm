@@ -7,9 +7,26 @@ import { authMiddleware } from '../../../auth/auth-middleware.js';
 import { requireGrant } from '../../../rbac/rbac-middleware.js';
 import { provisionNickGroup, isProvisionerConfigured } from './provisioner.js';
 import { generateLinkCode } from './link.js';
+import { isTelegramBridgeConfigured, getNickBridgeConfig } from '../../../../shared/telegram-bridge-config.js';
 
 export async function telegramBridgeRoutes(app: FastifyInstance): Promise<void> {
   app.addHook('preHandler', authMiddleware);
+
+  // Trạng thái cầu của 1 nick (cho UI: nút Bật cầu + hiển thị). Không cần grant đặc biệt
+  // (chỉ đọc). Có guard tenant: chỉ trả config nếu cùng org.
+  app.get('/api/v1/telegram-bridge/:zaloAccountId/status', async (request: FastifyRequest, reply: FastifyReply) => {
+    const { zaloAccountId } = request.params as { zaloAccountId: string };
+    const cfg = await getNickBridgeConfig(zaloAccountId);
+    if (cfg && request.user?.orgId && cfg.orgId !== request.user.orgId) {
+      return reply.status(404).send({ error: 'Nick không tồn tại.' });
+    }
+    return reply.send({
+      botConfigured: isTelegramBridgeConfigured(),       // hệ thống đã có TELEGRAM_BRIDGE_BOT_TOKEN
+      provisionerConfigured: isProvisionerConfigured(),  // đã có TELEGRAM_PROVISIONER_* (tự tạo group)
+      enabled: !!cfg?.enabled,
+      telegramChatId: cfg?.telegramChatId ?? null,
+    });
+  });
 
   // Sinh mã liên kết cho user hiện tại — sale gõ `/link <mã>` cho bot Telegram để gắn.
   app.post('/api/v1/telegram-bridge/link-code', async (request: FastifyRequest, reply: FastifyReply) => {
