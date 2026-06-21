@@ -8,6 +8,7 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { prisma } from '../../shared/database/prisma-client.js';
 import { authMiddleware, requireActiveUser } from './auth-middleware.js';
+import { requireGrant } from '../rbac/rbac-middleware.js';
 import bcrypt from 'bcryptjs';
 import { randomUUID } from 'node:crypto';
 import { logger } from '../../shared/utils/logger.js';
@@ -422,11 +423,10 @@ export async function userRoutes(app: FastifyInstance) {
 
   // GET /api/v1/audit-logs — nhật ký hành động admin (owner/admin). 2026-06-09.
   // Đọc từ ActivityLog category='admin'. Hỗ trợ filter ?action= &actorId= &limit= &offset=.
-  app.get('/api/v1/audit-logs', async (request: FastifyRequest, reply: FastifyReply) => {
+  // RBAC 2026-06-20: chuyển từ check role cũ (owner/admin) sang grant audit_log.access
+  // để khớp ma trận — nhóm như HC-NS được cấp audit_log sẽ xem được, không bị role chặn.
+  app.get('/api/v1/audit-logs', { preHandler: requireGrant('audit_log', 'access') }, async (request: FastifyRequest, reply: FastifyReply) => {
     const currentUser = request.user!;
-    if (!['owner', 'admin'].includes(currentUser.role)) {
-      return reply.status(403).send({ error: 'Chỉ owner/admin xem được nhật ký' });
-    }
     const q = request.query as { action?: string; actorId?: string; limit?: string; offset?: string };
     const limit = Math.min(Number(q.limit) || 50, 200);
     const offset = Number(q.offset) || 0;

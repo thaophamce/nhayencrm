@@ -613,7 +613,7 @@ export async function friendRoutes(app: FastifyInstance) {
   // ── Friend Management ─────────────────────────────────────────────────────
 
   // DELETE .../friends/:userId — remove friend
-  app.delete(`${BASE}/:userId`, async (request: FastifyRequest, reply: FastifyReply) => {
+  app.delete(`${BASE}/:userId`, { preHandler: requireGrant('friend', 'delete') }, async (request: FastifyRequest, reply: FastifyReply) => {
     const { accountId, userId } = request.params as { accountId: string; userId: string };
     const user = request.user!;
     try {
@@ -627,7 +627,7 @@ export async function friendRoutes(app: FastifyInstance) {
   });
 
   // PUT .../friends/:userId/alias — set custom alias { alias }
-  app.put(`${BASE}/:userId/alias`, async (request: FastifyRequest, reply: FastifyReply) => {
+  app.put(`${BASE}/:userId/alias`, { preHandler: requireGrant('friend', 'edit') }, async (request: FastifyRequest, reply: FastifyReply) => {
     const { accountId, userId } = request.params as { accountId: string; userId: string };
     const { alias } = request.body as { alias: string };
     const user = request.user!;
@@ -643,7 +643,7 @@ export async function friendRoutes(app: FastifyInstance) {
   });
 
   // DELETE .../friends/:userId/alias — remove custom alias
-  app.delete(`${BASE}/:userId/alias`, async (request: FastifyRequest, reply: FastifyReply) => {
+  app.delete(`${BASE}/:userId/alias`, { preHandler: requireGrant('friend', 'edit') }, async (request: FastifyRequest, reply: FastifyReply) => {
     const { accountId, userId } = request.params as { accountId: string; userId: string };
     const user = request.user!;
     try {
