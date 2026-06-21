@@ -3661,6 +3661,78 @@ model FacebookAppConfig {
   @@map("facebook_app_configs")
 }
 
+// ── Zalo Ads Lead Form (Extension / _ee/zalo-ads) ──────────────────────────
+// Lead từ quảng cáo Zalo Form qua OA OpenAPI (poll GET oa/form/get). orgId là
+// cột thường (cô lập tenant qua RLS + ORG_SCOPED_MODELS + withTenant), không FK
+// Organization — theo tiền lệ FacebookLeadEvent (giảm coupling).
+model ZaloOaAppConfig {
+  id               String   @id @default(cuid())
+  orgId            String   @unique @map("org_id")
+  appId            String?  @map("app_id")
+  appSecretEnc     String?  @map("app_secret_enc") @db.Text // encryptToken(appSecret)
+  oauthRedirectUri String?  @map("oauth_redirect_uri")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  @@map("zalo_oa_app_configs")
+}
+
+model ZaloOaConnection {
+  id              String    @id @default(cuid())
+  orgId           String    @map("org_id")
+  oaId            String    @map("oa_id")
+  oaName          String?   @map("oa_name")
+  accessTokenEnc  String    @map("access_token_enc") @db.Text // ~25h
+  refreshTokenEnc String    @map("refresh_token_enc") @db.Text // ~3 tháng, dùng 1 lần (tự xoay)
+  tokenExpiresAt  DateTime? @map("token_expires_at")
+  status          String    @default("connected") // connected | revoked | error
+  lastError       String?   @map("last_error")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  forms ZaloFormMapping[]
+
+  @@unique([orgId, oaId])
+  @@map("zalo_oa_connections")
+}
+
+model ZaloFormMapping {
+  id               String   @id @default(cuid())
+  orgId            String   @map("org_id")
+  oaConnectionId   String   @map("oa_connection_id")
+  formId           String   @map("form_id")
+  formName         String?  @map("form_name")
+  customerListId   String   @map("customer_list_id")
+  fieldMap         Json     @default("{}") @map("field_map") // { "<questionId>": "name|phone|email|<custom>" }
+  questionTitles   Json     @default("{}") @map("question_titles") // { "<questionId>": "<title>" } — hiển thị UI
+  lastSyncedToTime Int?     @map("last_synced_to_time") // epoch s — con trỏ poll
+  enabled          Boolean  @default(true)
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  oaConnection ZaloOaConnection @relation(fields: [oaConnectionId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, formId])
+  @@map("zalo_form_mappings")
+}
+
+model ZaloLeadEvent {
+  id          String    @id @default(cuid())
+  orgId       String    @map("org_id")
+  dedupeKey   String    @map("dedupe_key") // sha256(orgId+formId+submitTime+phone) — leadId không ổn định
+  formId      String    @map("form_id")
+  rawPayload  Json      @map("raw_payload")
+  processedAt DateTime? @map("processed_at")
+  contactId   String?   @map("contact_id")
+  listEntryId String?   @map("list_entry_id")
+  error       String?
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  @@unique([orgId, dedupeKey])
+  @@index([orgId, formId])
+  @@index([createdAt])
+  @@map("zalo_lead_events")
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // Phase Media Library 2026-06-11 (Anh chốt qua office-hours + CEO/Eng/Design review)
 // Mô hình 2 tầng (eng review E2/E3):

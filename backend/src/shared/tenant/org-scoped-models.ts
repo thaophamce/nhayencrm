@@ -28,4 +28,5 @@ export const ORG_SCOPED_MODELS: ReadonlySet<string> = new Set([
   'TriggerQueueEntry', 'Department', 'PermissionGroup', 'LeadRequest',
   'LeadPoolConfig', 'LeadPoolBonusQuota', 'FacebookPageAccount',
   'FacebookLeadgenForm', 'WebhookLog', 'MetaCampaignCache', 'NotifyDedupState',
+  'ZaloOaAppConfig', 'ZaloOaConnection', 'ZaloFormMapping', 'ZaloLeadEvent',
 ]);
