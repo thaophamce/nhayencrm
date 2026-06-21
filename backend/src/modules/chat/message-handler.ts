@@ -855,7 +855,15 @@ async function upsertContact(msg: IncomingMessage, orgId: string): Promise<strin
       if (!fc.zaloUid && contactUid) patch.zaloUid = contactUid;
       if (contactName && fc.fullName === 'Unknown') patch.fullName = contactName;
       if (Object.keys(patch).length > 0) {
-        await prisma.contact.update({ where: { id: fc.id }, data: patch });
+        // BEST-EFFORT: backfill KHÔNG được làm hỏng xử lý tin nhắn. Khi globalId/username thuộc
+        // HỒ SƠ TRÙNG khác (Contact B) → P2002 unique (org_id, zalo_global_id). Đây là vùng dedup,
+        // KHÔNG phải việc của upsertContact → nuốt lỗi để tin nhắn vẫn được lưu.
+        // (2026-06-21 hotfix: trước đó throw → handleIncomingMessage catch → DROP tin nhắn KH trùng.)
+        try {
+          await prisma.contact.update({ where: { id: fc.id }, data: patch });
+        } catch (e) {
+          logger.warn(`[upsertContact] friend-first backfill bỏ qua contact=${fc.id}: ${(e as { code?: string })?.code ?? String(e)}`);
+        }
       }
       return fc.id;
     }
