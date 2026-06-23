@@ -59,12 +59,17 @@
           {{ error }}
         </v-alert>
 
-        <!-- AGPL-3.0 §13: cung cấp mã nguồn cho người dùng tương tác qua mạng. -->
+        <!--
+          AGPL-3.0 §13: cung cấp mã nguồn cho người dùng tương tác qua mạng.
+          TẠM ẨN 2026-06-23 (chưa chốt giấy phép sau khi tách khỏi repo locphamnguyen/ZaloCRM).
+          Bỏ comment khối <p> bên dưới để hiển thị lại; nhớ đổi link sang repo PUBLIC đúng trước khi bật.
         <p class="agpl-source text-center text-caption mt-6">
           ZaloCRM — phần mềm tự do
           <a href="https://github.com/locphamnguyen/ZaloCRM" target="_blank" rel="noopener noreferrer">AGPL-3.0</a>
           · <a href="https://github.com/locphamnguyen/ZaloCRM" target="_blank" rel="noopener noreferrer">Mã nguồn</a>
         </p>
+        -->
+        <!-- AGPL notice tạm ẩn — xem khối comment phía trên -->
       </div>
     </section>
   </div>
