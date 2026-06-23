@@ -275,7 +275,12 @@ input, select, textarea { font-family: inherit; }
 /* ╔══ PART 5–15 · APP CHROME + TẤT CẢ MÀN ══╗ */
 /* ===== App shell ===== */
   html, body { height: 100%; }
-  #app { display: flex; flex-direction: column; height: 100vh; min-width: 1100px; }
+  #app { display: flex; flex-direction: column; height: 100vh; }
+  /* min-width:1100 chỉ cho desktop/tablet (≥768px). Dưới 768px (điện thoại) BỎ ép
+     1100px — nếu không, trang /login (AuthLayout) + bản mobile bị căng theo 1100px
+     rồi card căn-giữa văng sang phải, mất hút ngoài màn hình thật (F12 không lộ).
+     768 = MOBILE_BREAKPOINT của use-mobile.ts. (fix lệch login mobile 2026-06-23) */
+  @media (min-width: 768px) { #app { min-width: 1100px; } }
 
   /* Top nav */
   .nav {
