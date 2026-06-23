@@ -6,6 +6,7 @@
  */
 import { prisma } from '../../shared/database/prisma-client.js';
 import { logger } from '../../shared/utils/logger.js';
+import { safeContactUpdate, safeContactCreate } from '../../shared/database/safe-contact-write.js';
 import { publishMessagePersisted } from '../../shared/bridge-bus.js';
 import { randomUUID } from 'node:crypto';
 import { emitWebhook } from '../api/webhook-service.js';
@@ -915,7 +916,9 @@ async function upsertContact(msg: IncomingMessage, orgId: string): Promise<strin
   }
 
   if (!contact) {
-    const created = await prisma.contact.create({
+    // Phòng thủ race P2002 (org_id, zalo_global_id): worker khác vừa chèn hồ sơ cùng globalId
+    // giữa lúc findFirst↑ và create → dùng lại hồ sơ đó thay vì văng (rớt tin nhắn).
+    const created = await safeContactCreate({
       data: {
         id: randomUUID(),
         orgId,
@@ -925,7 +928,7 @@ async function upsertContact(msg: IncomingMessage, orgId: string): Promise<strin
         fullName: contactName || 'Unknown',
       },
       select: { id: true, fullName: true, zaloGlobalId: true, zaloUid: true },
-    });
+    }, 'message-upsert') as { id: string; fullName: string | null; zaloGlobalId: string | null; zaloUid: string | null };
     contact = created;
     emitWebhook(orgId, 'contact.created', { contactId: contact.id, fullName: contact.fullName });
   } else {
@@ -941,7 +944,9 @@ async function upsertContact(msg: IncomingMessage, orgId: string): Promise<strin
       patch.fullName = contactName;
     }
     if (Object.keys(patch).length > 0) {
-      await prisma.contact.update({ where: { id: contact.id }, data: patch });
+      // Phòng thủ P2002: globalId/username vừa resolve có thể đã thuộc hồ sơ trùng khác →
+      // ghi phần an toàn, bỏ field trùng, KHÔNG văng (trước đây throw → DROP tin nhắn KH trùng).
+      await safeContactUpdate(contact.id, patch, 'message-upsert');
     }
   }
 

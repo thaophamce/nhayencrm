@@ -33,6 +33,7 @@ import { withTenant } from '../../shared/tenant/tenant-context.js';
 import { logActivity } from '../activity/activity-logger.js';
 import { applyFriendTransition } from './friend-event-handler.js';
 import { resolveOrCreateContact } from '../contacts/resolve-contact.js';
+import { safeContactUpdate } from '../../shared/database/safe-contact-write.js';
 import { buildFriendUpdatedPayload } from '../../shared/friend-serializer.js';
 // getAllFriends() trả gender/dob/sdob cùng shape getUserInfo — tái dùng parse của cron.
 import { mapGender, parseBirthDate } from '../contacts/contact-profile-sync-cron.js';
@@ -372,7 +373,10 @@ async function processFriend(args: ProcessFriendArgs): Promise<void> {
   // SĐT công khai → phone/phone2/phone3/phonesExtra (helper chung, chống trùng, không đè số chính).
   Object.assign(cPatch, buildPhoneCapturePatch(contact, args.phoneNumber));
   if (Object.keys(cPatch).length) {
-    await prisma.contact.update({ where: { id: contact.id }, data: cPatch });
+    // Phòng thủ P2002: SĐT/globalId công khai có thể đã thuộc hồ sơ trùng khác (cùng người,
+    // 1 hồ sơ SĐT-import + 1 hồ sơ Zalo). Đụng trùng → ghi phần an toàn, bỏ field trùng, KHÔNG
+    // văng (trước đây throw → bỏ qua nguyên friend trong sync). Gộp là việc của tầng dedup globalId.
+    await safeContactUpdate(contact.id, cPatch, 'friend-sync');
   }
 
   // 2. Drive friendship state machine (handles upsert + counter delta + assignedUser).
