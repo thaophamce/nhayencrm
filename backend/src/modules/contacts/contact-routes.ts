@@ -211,7 +211,9 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
           // sort=score → lead score cao lên đầu; mặc định = tương tác mới nhất.
           orderBy: (sort === 'score'
             ? [
-                { leadScore: { sort: 'desc', nulls: 'last' } },
+                // leadScore Int @default(0) — KHÔNG nullable → Prisma chỉ nhận
+                // SortOrder thuần ('desc'), không nhận {sort,nulls} (gây 500).
+                { leadScore: 'desc' },
                 { lastActivity: { sort: 'desc', nulls: 'last' } },
               ]
             : [
@@ -367,6 +369,27 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
     } catch (err) {
       logger.error('[contacts] Stats error:', err);
       return reply.status(500).send({ error: 'Failed to compute stats' });
+    }
+  });
+
+  // ── GET /api/v1/contacts/sources — danh sách nguồn khách (distinct + count) ──
+  // Dùng cho dropdown bộ lọc "Nguồn khách" trên mobile. Bỏ null, sắp theo count desc.
+  app.get('/api/v1/contacts/sources', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const user = request.user!;
+      const grouped = await prisma.contact.groupBy({
+        by: ['source'],
+        where: { orgId: user.orgId, mergedInto: null, source: { not: null } },
+        _count: { source: true },
+        orderBy: { _count: { source: 'desc' } },
+      });
+      const sources = grouped
+        .filter((g) => g.source)
+        .map((g) => ({ source: g.source as string, count: g._count.source }));
+      return { sources };
+    } catch (err) {
+      logger.error('[contacts] Sources error:', err);
+      return reply.status(500).send({ error: 'Failed to list sources' });
     }
   });
 
