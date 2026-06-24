@@ -152,6 +152,31 @@
 
     <!-- Editor content -->
     <EditorContent :editor="editor" class="editor-content" />
+
+    <!-- @mention popup — Teleport ra body, neo theo caret (mentionPos). -->
+    <Teleport to="body">
+      <div
+        v-if="mentionOpen && mentionItems.length"
+        class="mention-popup"
+        :style="{ left: mentionPos.left + 'px', top: mentionPos.top + 'px' }"
+      >
+        <button
+          v-for="(m, i) in mentionItems"
+          :key="m.uid"
+          type="button"
+          class="mention-item"
+          :class="{ active: i === mentionIndex }"
+          @mousedown.prevent="selectMention(m)"
+          @mouseenter="mentionIndex = i"
+        >
+          <v-avatar size="22" color="grey-lighten-3" class="mention-avatar">
+            <v-img v-if="m.avatar" :src="m.avatar" />
+            <span v-else class="mention-avatar-fallback">{{ m.name.charAt(0).toUpperCase() }}</span>
+          </v-avatar>
+          <span class="mention-name">{{ m.name }}</span>
+        </button>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -161,8 +186,11 @@ import { useEditor, EditorContent } from '@tiptap/vue-3';
 import { Mark, mergeAttributes } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
+import Mention from '@tiptap/extension-mention';
+import type { SuggestionProps, SuggestionKeyDownProps } from '@tiptap/suggestion';
 import { api } from '@/api/index';
 import { useToast } from '@/composables/use-toast';
+import { useGroups } from '@/composables/use-groups';
 
 // Lucide icons (anh chốt 2026-05-22 — bộ icon đồng bộ thay MDI)
 import {
@@ -243,10 +271,21 @@ const props = withDefaults(defineProps<{
   // ở editor và chuyển cho popup điều hướng (vì popup Teleport ra body, không hứng được phím).
   // Trả true = đã xử lý → editor consume, KHÔNG tự gửi/xuống dòng.
   interceptKeys?: (event: KeyboardEvent) => boolean;
+  // 2026-06-24: @mention thành viên nhóm — chỉ bật khi conv là group + có account/group id.
+  isGroup?: boolean;
+  accountId?: string | null;
+  groupId?: string | null;
+  // Danh sách thành viên để @tag (cha dựng từ người gửi trong hội thoại — tin cậy,
+  // không phụ thuộc API group-members live hay 404). Ưu tiên hơn fetch API.
+  members?: Array<{ uid: string; name: string; avatar?: string | null }>;
 }>(), {
   placeholder: 'Nhập tin nhắn...',
   showToolbar: false,
   submitOnEnter: true,
+  isGroup: false,
+  accountId: null,
+  groupId: null,
+  members: () => [],
 });
 
 const emit = defineEmits<{
@@ -257,6 +296,68 @@ const emit = defineEmits<{
 }>();
 
 const isFocused = ref(false);
+
+// ── @mention thành viên nhóm 2026-06-24 ──────────────────────────────────
+// Member shape thực tế từ GET /groups/:id/members: { uid, displayName?, name?, avatar? }.
+interface GroupMember { uid: string; name: string; avatar?: string | null }
+const { fetchMembers, members: rawMembers } = useGroups();
+const memberCache = ref<GroupMember[]>([]);
+let membersLoaded = false;
+let membersLoading: Promise<void> | null = null;
+
+// Fetch members 1 lần (cache) khi user bắt đầu gõ '@'. Idempotent qua membersLoaded.
+async function ensureMembers() {
+  if (membersLoaded || membersLoading) return membersLoading ?? undefined;
+  if (!props.accountId || !props.groupId) return;
+  membersLoading = (async () => {
+    await fetchMembers(props.accountId!, props.groupId!);
+    memberCache.value = (rawMembers.value || []).map((m: any) => ({
+      uid: String(m.uid ?? m.id ?? ''),
+      name: m.displayName || m.name || m.uid || 'Thành viên',
+      avatar: m.avatar ?? null,
+    })).filter((m) => m.uid);
+    membersLoaded = true;
+  })();
+  await membersLoading;
+  membersLoading = null;
+}
+
+// Reset cache khi đổi group (chuyển hội thoại) để không lẫn member nhóm cũ.
+watch(() => props.groupId, () => {
+  membersLoaded = false;
+  membersLoading = null;
+  memberCache.value = [];
+});
+
+// ── Popup state (Teleport trong template) ────────────────────────────────
+const mentionOpen = ref(false);
+const mentionItems = ref<GroupMember[]>([]);
+const mentionIndex = ref(0);
+const mentionPos = ref({ left: 0, top: 0 });
+// Lệnh chèn mention do Tiptap suggestion cung cấp trong render().
+let mentionCommand: ((item: GroupMember) => void) | null = null;
+
+function selectMention(item: GroupMember) {
+  // Tiptap mention command nhận { id, label }.
+  mentionCommand?.({ id: item.uid, label: item.name } as any);
+}
+
+function moveMention(delta: number) {
+  const n = mentionItems.value.length;
+  if (!n) return;
+  mentionIndex.value = (mentionIndex.value + delta + n) % n;
+}
+
+function chooseMention() {
+  const item = mentionItems.value[mentionIndex.value];
+  if (item) selectMention(item);
+}
+
+// Đặt vị trí popup theo clientRect con trỏ (popup nằm TRÊN caret, canh trái).
+function positionMention(rect: DOMRect | null | undefined) {
+  if (!rect) return;
+  mentionPos.value = { left: rect.left, top: rect.top };
+}
 
 const editor = useEditor({
   content: props.modelValue,
@@ -269,9 +370,76 @@ const editor = useEditor({
     Placeholder.configure({ placeholder: props.placeholder }),
     ZaloColorMark,
     ZaloSizeMark,
+    // @mention: LUÔN đăng ký extension (useEditor chỉ chạy 1 lần — nếu gate theo
+    // props.isGroup lúc init, group resolve sau sẽ không bao giờ có mention). Gate
+    // group nằm trong items(): chỉ group mới trả danh sách. Node attrs {id,label}.
+    Mention.configure({
+      HTMLAttributes: { class: 'mention' },
+      renderHTML({ options, node }) {
+        return ['span', mergeAttributes(options.HTMLAttributes), `@${node.attrs.label ?? node.attrs.id}`];
+      },
+      suggestion: {
+        char: '@',
+        async items({ query }: { query: string }) {
+          if (!props.isGroup) return [];
+          // ĐỦ thành viên nhóm từ API Zalo (getGroupInfo→members); GỘP thêm người đã
+          // chat (props.members) làm fallback khi API lỗi/404. Dedup theo uid, API trước.
+          await ensureMembers();
+          const propList: GroupMember[] = (props.members || []).map((m) => ({
+            uid: String(m.uid),
+            name: m.name || 'Thành viên',
+            avatar: m.avatar ?? null,
+          })).filter((m) => m.uid);
+          const map = new Map<string, GroupMember>();
+          for (const m of [...memberCache.value, ...propList]) {
+            if (m.uid && !map.has(m.uid)) map.set(m.uid, m);
+          }
+          const list = [...map.values()];
+          const q = query.trim().toLowerCase();
+          if (!q) return list.slice(0, 8);
+          return list.filter((m) => m.name.toLowerCase().includes(q)).slice(0, 8);
+        },
+        render() {
+          return {
+            onStart: (sp: SuggestionProps<GroupMember>) => {
+              mentionCommand = sp.command as unknown as (item: GroupMember) => void;
+              mentionItems.value = sp.items;
+              mentionIndex.value = 0;
+              positionMention(sp.clientRect?.());
+              mentionOpen.value = mentionItems.value.length > 0;
+            },
+            onUpdate: (sp: SuggestionProps<GroupMember>) => {
+              mentionCommand = sp.command as unknown as (item: GroupMember) => void;
+              mentionItems.value = sp.items;
+              mentionIndex.value = 0;
+              positionMention(sp.clientRect?.());
+              mentionOpen.value = mentionItems.value.length > 0;
+            },
+            onKeyDown: (kp: SuggestionKeyDownProps) => {
+              if (!mentionOpen.value) return false;
+              const k = kp.event.key;
+              if (k === 'ArrowUp') { moveMention(-1); return true; }
+              if (k === 'ArrowDown') { moveMention(1); return true; }
+              if (k === 'Enter') { chooseMention(); return true; }
+              if (k === 'Escape') { mentionOpen.value = false; return true; }
+              return false;
+            },
+            onExit: () => {
+              mentionOpen.value = false;
+              mentionItems.value = [];
+              mentionCommand = null;
+            },
+          };
+        },
+      },
+    }),
   ],
   editorProps: {
     handleKeyDown(_view, event) {
+      // @mention popup đang mở → để suggestion plugin tự xử ↑↓/Enter/Esc, KHÔNG gửi/xuống dòng.
+      if (mentionOpen.value && ['ArrowUp', 'ArrowDown', 'Enter', 'Escape'].includes(event.key)) {
+        return false;
+      }
       // Popup mẫu đang mở → nhường ↑↓/Enter/Esc cho popup điều hướng (chèn/đóng).
       if (props.interceptKeys && ['ArrowUp', 'ArrowDown', 'Enter', 'Escape'].includes(event.key)) {
         if (props.interceptKeys(event)) {
@@ -411,11 +579,13 @@ function insertText(text: string) {
 //   lst_1 / lst_2    → bullet / numbered list (apply per line)
 
 interface ZaloStyle { st: string; start: number; len: number }
+interface ZaloMention { uid: string; pos: number; len: number }
 interface TiptapMark { type: string; attrs?: Record<string, unknown> }
 interface TiptapNode {
   type: string;
   text?: string;
   marks?: TiptapMark[];
+  attrs?: Record<string, unknown>;
   content?: TiptapNode[];
 }
 
@@ -426,9 +596,10 @@ const MARK_TO_ZALO: Record<string, string> = {
   strike: 's',
 };
 
-function extractRichPayload(doc: TiptapNode | null): { text: string; styles: ZaloStyle[] } {
-  if (!doc) return { text: '', styles: [] };
+function extractRichPayload(doc: TiptapNode | null): { text: string; styles: ZaloStyle[]; mentions: ZaloMention[] } {
+  if (!doc) return { text: '', styles: [], mentions: [] };
   const styles: ZaloStyle[] = [];
+  const mentions: ZaloMention[] = [];
   let textBuf = '';
   // Track list context — apply lst_1/lst_2 per line inside list nodes.
   let listType: 'bullet' | 'ordered' | null = null;
@@ -438,6 +609,17 @@ function extractRichPayload(doc: TiptapNode | null): { text: string; styles: Zal
   }
 
   function walkNode(node: TiptapNode, blockListType: typeof listType) {
+    // @mention: chèn "@label" vào text + ghi mention {uid, pos, len} theo plain text.
+    // Xử lý TRƯỚC nhánh text/block. pos = vị trí ký tự '@', len = độ dài "@label" (gồm '@').
+    if (node.type === 'mention') {
+      const uid = String(node.attrs?.id ?? '');
+      const label = String(node.attrs?.label ?? node.attrs?.id ?? '');
+      const display = `@${label}`;
+      const pos = textBuf.length;
+      textBuf += display;
+      if (uid) mentions.push({ uid, pos, len: display.length });
+      return;
+    }
     if (node.type === 'text' && typeof node.text === 'string') {
       const start = textBuf.length;
       textBuf += node.text;
@@ -483,11 +665,11 @@ function extractRichPayload(doc: TiptapNode | null): { text: string; styles: Zal
   }
 
   walkNode(doc, listType);
-  return { text: textBuf, styles };
+  return { text: textBuf, styles, mentions };
 }
 
-function getRichPayload(): { text: string; styles: ZaloStyle[] } {
-  if (!editor.value) return { text: '', styles: [] };
+function getRichPayload(): { text: string; styles: ZaloStyle[]; mentions: ZaloMention[] } {
+  if (!editor.value) return { text: '', styles: [], mentions: [] };
   return extractRichPayload(editor.value.getJSON() as TiptapNode);
 }
 
@@ -791,5 +973,61 @@ onBeforeUnmount(() => { editor.value?.destroy(); });
   border-radius: 7px;
   font-family: ui-monospace, "Cascadia Code", Menlo, monospace;
   margin: 4px 0;
+}
+
+/* @mention node trong editor — pill xanh nhạt giống Zalo */
+.editor-content :deep(.tiptap-input .mention) {
+  color: var(--smax-primary, #2962ff);
+  background: var(--smax-primary-soft, #e3f2fd);
+  border-radius: 4px;
+  padding: 0 3px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+</style>
+
+<!-- Popup @mention Teleport ra body → KHÔNG dùng scoped (style scoped không áp được). -->
+<style>
+.mention-popup {
+  position: fixed;
+  z-index: 3000;
+  transform: translateY(calc(-100% - 6px)); /* nổi TRÊN caret */
+  min-width: 180px;
+  max-width: 280px;
+  max-height: 240px;
+  overflow-y: auto;
+  background: #fff;
+  border-radius: 10px;
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.16);
+  padding: 4px;
+}
+.mention-popup .mention-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  background: transparent;
+  border-radius: 7px;
+  cursor: pointer;
+  text-align: left;
+  font-size: 13px;
+  color: #212121;
+  transition: background 0.1s ease;
+}
+.mention-popup .mention-item.active,
+.mention-popup .mention-item:hover {
+  background: #e3f2fd;
+}
+.mention-popup .mention-avatar-fallback {
+  font-size: 11px;
+  font-weight: 700;
+  color: #6b7280;
+}
+.mention-popup .mention-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 </style>

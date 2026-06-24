@@ -39,7 +39,20 @@ export async function groupRoutes(app: FastifyInstance) {
     try {
       await resolveAccount(accountId, request.user!.orgId);
       if (!(await checkAccess(request, reply, accountId, 'read'))) return;
-      return { members: await zaloOps.getGroupMembersInfo(accountId, groupId) };
+      // 1) getGroupInfo → memVerList ("uid_ver"); 2) getGroupMembersInfo(uids) → profile.
+      const info = await zaloOps.getGroupInfo(accountId, groupId) as any;
+      const grid = info?.gridInfoMap?.[groupId] ?? Object.values(info?.gridInfoMap ?? {})[0];
+      const rawIds: string[] = Array.isArray(grid?.memVerList) ? grid.memVerList : [];
+      const uids = [...new Set(rawIds.map((k) => String(k).split('_')[0]).filter(Boolean))];
+      if (uids.length === 0) return { members: [] };
+      const prof = await zaloOps.getGroupMembersInfo(accountId, uids) as any;
+      const profiles = prof?.profiles ?? {};
+      const members = Object.values(profiles).map((p: any) => ({
+        uid: p.id,
+        displayName: p.displayName || p.zaloName || p.id,
+        avatar: p.avatar ?? null,
+      }));
+      return { members };
     } catch (err) { return handleError(reply, err, 'getGroupMembersInfo'); }
   });
 

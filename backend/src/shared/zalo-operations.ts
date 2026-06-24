@@ -540,9 +540,11 @@ async function getAllGroups(accountId: string) {
     (api) => api.getAllGroups());
 }
 
-async function getGroupMembersInfo(accountId: string, groupId: string) {
+// LƯU Ý: zca-js getGroupMembersInfo nhận DANH SÁCH UID MEMBER (string|string[]),
+// KHÔNG phải groupId. Lấy uid từ getGroupInfo().memVerList trước khi gọi.
+async function getGroupMembersInfo(accountId: string, memberIds: string | string[]) {
   return exec({ accountId, category: 'group_read', operation: 'getGroupMembersInfo' },
-    (api) => api.getGroupMembersInfo(groupId));
+    (api) => api.getGroupMembersInfo(memberIds as unknown as string));
 }
 
 async function getGroupBlockedMembers(accountId: string, groupId: string) {

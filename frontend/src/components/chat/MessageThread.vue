@@ -634,6 +634,10 @@
               :placeholder="inputPlaceholder"
               :show-toolbar="formatBarVisible"
               :intercept-keys="onComposerNavKey"
+              :is-group="conversation.threadType === 'group'"
+              :account-id="conversation.zaloAccount?.id ?? null"
+              :group-id="conversation.externalThreadId ?? null"
+              :members="chatMembers"
               class="input-editor"
               @submit="handleSend"
               @typing="onTypingEvent"
@@ -1052,7 +1056,7 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-  send: [content: string, replyMessageId?: string | null, styles?: Array<{ st: string; start: number; len: number }>];
+  send: [content: string, replyMessageId?: string | null, styles?: Array<{ st: string; start: number; len: number }>, mentions?: Array<{ uid: string; pos: number; len: number }>];
   'toggle-contact-panel': [];
   'ask-ai': [];
   'add-reaction': [msgId: string, reaction: string];
@@ -1213,6 +1217,24 @@ const editorRef = ref<InstanceType<typeof RichTextEditor> | null>(null);
 const editorWrapRef = ref<HTMLElement | null>(null); // anchor cho QuickTemplatePopup (Teleport ra body)
 const templatePopupRef = ref<InstanceType<typeof QuickTemplatePopup> | null>(null);
 const currentTypers = computed(() => props.typingUsers || []);
+
+// @mention: danh sách thành viên để tag = người ĐÃ GỬI tin trong hội thoại (uid +
+// tên + avatar). Nguồn này tin cậy (data đã load), KHÔNG phụ thuộc API group-members
+// live (hay 404). Dedup theo uid, bỏ tin của mình (self).
+const chatMembers = computed(() => {
+  const map = new Map<string, { uid: string; name: string; avatar: string | null }>();
+  for (const m of props.messages || []) {
+    const uid = (m as any).senderUid as string | undefined;
+    if (!uid || m.senderType === 'self' || map.has(uid)) continue;
+    const r = (m as any).senderResolved;
+    map.set(uid, {
+      uid,
+      name: r?.senderDisplayName || (m as any).senderName || 'Thành viên',
+      avatar: r?.senderAvatarUrl || groupAvatarStore.get(uid) || null,
+    });
+  }
+  return [...map.values()];
+});
 
 // 2026-05-22 anh chốt Zalo native UX: chỉ tin OUTGOING CUỐI CÙNG mới hiện
 // receipt indicator (delivered/seen). Tin cuối đã seen → ngầm hiểu tin trên cũng seen
@@ -2831,14 +2853,16 @@ function handleSend() {
 
   // 2026-05-21 fix: lấy rich payload {text, styles} từ editor để gửi format đi Zalo.
   // Nếu không có styles → behaves như plain text (backward compat).
-  const rich = (editorRef.value as any)?.getRichPayload?.() || { text: inputText.value, styles: [] };
+  const rich = (editorRef.value as any)?.getRichPayload?.() || { text: inputText.value, styles: [], mentions: [] };
   const textToSend = rich.text || inputText.value;
   const styles = Array.isArray(rich.styles) && rich.styles.length > 0 ? rich.styles : undefined;
+  // 2026-06-24: @mention thành viên nhóm — chỉ gửi khi có mention (group thread).
+  const mentions = Array.isArray(rich.mentions) && rich.mentions.length > 0 ? rich.mentions : undefined;
 
   if (props.editingMessage) {
     emit('edit-message', props.editingMessage.id, textToSend);
   } else {
-    emit('send', textToSend, props.replyingTo?.id ?? null, styles);
+    emit('send', textToSend, props.replyingTo?.id ?? null, styles, mentions);
   }
   inputText.value = '';
   editorRef.value?.clear();

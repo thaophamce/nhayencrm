@@ -711,9 +711,9 @@ export function useChat() {
     void fetchAiUsage();
   }
 
-  async function sendMessage(content: string, replyMessageId?: string | null, styles?: Array<{ st: string; start: number; len: number }>) {
+  async function sendMessage(content: string, replyMessageId?: string | null, styles?: Array<{ st: string; start: number; len: number }>, mentions?: Array<{ uid: string; pos: number; len: number }>) {
     if (!selectedConvId.value || !content.trim()) return;
-    await sendMessageTo(selectedConvId.value, content, replyMessageId, styles);
+    await sendMessageTo(selectedConvId.value, content, replyMessageId, styles, mentions);
   }
 
   /** Insert message vào messages.value đúng vị trí — primary key zaloMsgIdNum (Zalo Snowflake),
@@ -736,7 +736,7 @@ export function useChat() {
     arr.splice(lo, 0, msg);
   }
 
-  async function sendMessageTo(conversationId: string, content: string, replyMessageId?: string | null, styles?: Array<{ st: string; start: number; len: number }>) {
+  async function sendMessageTo(conversationId: string, content: string, replyMessageId?: string | null, styles?: Array<{ st: string; start: number; len: number }>, mentions?: Array<{ uid: string; pos: number; len: number }>) {
     if (!content.trim()) return;
     sendingMsg.value = true;
     try {
@@ -744,6 +744,8 @@ export function useChat() {
       const payload: Record<string, unknown> = { content };
       if (replyMessageId) payload.replyMessageId = replyMessageId;
       if (styles && styles.length > 0) payload.styles = styles;
+      // 2026-06-24: @mention thành viên nhóm — server đẩy thẳng sang zca-js.
+      if (mentions && mentions.length > 0) payload.mentions = mentions;
       const res = await api.post(`/conversations/${conversationId}/messages`, payload);
       if (conversationId === selectedConvId.value) {
         if (!messages.value.find(m => m.id === res.data.id)) {

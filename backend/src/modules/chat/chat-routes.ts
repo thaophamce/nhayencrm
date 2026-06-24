@@ -1495,10 +1495,11 @@ export async function chatRoutes(app: FastifyInstance) {
     // 2026-05-21: thêm `styles` cho Zalo RTF (bold/italic/underline/strikethrough).
     // Format: [{st: 'b'|'i'|'u'|'s', start: number, len: number}, ...]
     // FE extract từ Tiptap editor JSON, BE pass thẳng vào api.sendMessage.
-    const { content, replyMessageId, styles, echoId: echoIdRaw, clientMessageId } = request.body as {
+    const { content, replyMessageId, styles, mentions, echoId: echoIdRaw, clientMessageId } = request.body as {
       content: string;
       replyMessageId?: string;
       styles?: Array<{ st: string; start: number; len: number }>;
+      mentions?: Array<{ uid: string; pos: number; len: number }>;
       echoId?: string;
       clientMessageId?: string;
     };
@@ -1672,6 +1673,11 @@ export async function chatRoutes(app: FastifyInstance) {
       const sendPayload: Record<string, unknown> = { msg: content };
       if (Array.isArray(styles) && styles.length > 0) {
         sendPayload.styles = styles;
+      }
+      // @tag thành viên nhóm (group): zca-js nhận mentions [{uid,pos,len}] để Zalo
+      // render mention thật (highlight + thông báo cho người được tag).
+      if (Array.isArray(mentions) && mentions.length > 0 && threadType === 1) {
+        sendPayload.mentions = mentions;
       }
       if (quote) sendPayload.quote = quote;
       const sendResult = await instance.api.sendMessage(sendPayload, threadId, threadType);
