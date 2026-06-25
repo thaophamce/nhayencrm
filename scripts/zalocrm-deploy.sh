@@ -34,7 +34,10 @@ set_env() {
   K="$1" V="$2" perl -i -pe 's/^\Q$ENV{K}\E=.*/"$ENV{K}=$ENV{V}"/e' .env
   grep -qE "^$1=" .env || printf '%s=%s\n' "$1" "$2" >> .env
 }
-env_val() { grep -E "^$1=" .env 2>/dev/null | head -1 | cut -d= -f2-; }
+env_val() {  # đọc giá trị KEY từ .env; rỗng nếu chưa có .env / không khớp (an toàn set -e)
+  [ -f .env ] || return 0
+  grep -E "^$1=" .env 2>/dev/null | head -1 | cut -d= -f2- || true
+}
 gen() { openssl rand -hex "${1:-32}"; }
 
 # ── Pre-flight ────────────────────────────────────────────────────────────────
