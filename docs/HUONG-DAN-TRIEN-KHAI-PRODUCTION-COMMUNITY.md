@@ -24,10 +24,11 @@ curl -fsSL https://raw.githubusercontent.com/locphamnguyen/ZaloCRM/main/scripts/
 | OS | Cách chạy |
 |---|---|
 | **Linux** (Ubuntu/Debian/CentOS/Fedora/Alpine/Arch) | Chạy `curl … \| bash` **trực tiếp** — tự cài Docker qua `get.docker.com`. *(Môi trường khuyến nghị cho VPS/server.)* |
-| **Windows** | Dùng **WSL2**: cài [Docker Desktop](https://www.docker.com/products/docker-desktop/) (bật **WSL2 backend**) → mở **Ubuntu (WSL2)** → chạy **đúng lệnh `curl … \| bash`**. *(Script là bash, không chạy trên CMD/PowerShell.)* |
+| **Windows** *(đơn giản — không cần WSL thủ công)* | Mở **PowerShell** chạy:<br>`irm https://raw.githubusercontent.com/locphamnguyen/ZaloCRM/main/scripts/install.ps1 \| iex`<br>Script tự cài **Docker Desktop + Git** (qua winget) → clone/pull → deploy. *(Docker Desktop tự dựng WSL2 backend ngầm.)* |
+| **Windows** *(cách thủ công qua WSL2)* | Cài [Docker Desktop](https://www.docker.com/products/docker-desktop/) (bật **WSL2 backend**) → mở **Ubuntu (WSL2)** → chạy **`curl … \| bash`** như Linux. |
 | **macOS** | Cài **Docker Desktop** trước → chạy `curl … \| bash` (`git`/`openssl` tự cài qua Homebrew nếu thiếu). |
 
-> Yêu cầu chung: **Docker + Docker Compose v2**. Trên Linux script tự cài; trên Windows/macOS cài **Docker Desktop** trước.
+> Yêu cầu chung: **Docker + Docker Compose v2**. Trên Linux script tự cài; trên Windows/macOS cài **Docker Desktop** trước (PowerShell `install.ps1` tự cài Docker Desktop giúp bạn).
 
 **Đã có sẵn mã nguồn?** Dùng thẳng script deploy:
 
