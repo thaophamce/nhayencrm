@@ -14,6 +14,12 @@
 # Tuỳ biến qua biến môi trường:
 #   ZCRM_DIR=/srv/zcrm   curl ... | bash      # thư mục cài (mặc định: $HOME/zcrm)
 #   ZCRM_BRANCH=main     curl ... | bash      # nhánh git (mặc định: main)
+#   SKIP_DEPLOY=1        curl ... | bash      # chỉ tải/cập nhật nguồn, KHÔNG deploy
+#
+# Hệ điều hành:
+#   - Linux (Ubuntu/Debian/CentOS/Fedora/Alpine/Arch): chạy trực tiếp, tự cài Docker.
+#   - Windows: dùng WSL2 (cài Docker Desktop + WSL2 backend, mở Ubuntu WSL2 rồi chạy lệnh trên).
+#   - macOS: cài Docker Desktop trước.
 #
 set -euo pipefail
 

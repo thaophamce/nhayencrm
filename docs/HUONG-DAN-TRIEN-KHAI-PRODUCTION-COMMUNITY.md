@@ -17,7 +17,17 @@ curl -fsSL https://raw.githubusercontent.com/locphamnguyen/ZaloCRM/main/scripts/
 ```
 
 > Lệnh trên tự: kiểm tra môi trường (Docker · Docker Compose v2 · git · openssl) và **cài phần thiếu** · **clone** mã nguồn (cài mới) hoặc **`git pull`** (cập nhật) vào `~/zcrm` · chạy deploy (tự phát hiện cài mới/nâng cấp, backup DB, migrate, health-check).
-> Đổi thư mục cài: `ZCRM_DIR=/srv/zcrm curl -fsSL .../install.sh | bash`.
+> Đổi thư mục cài: `ZCRM_DIR=/srv/zcrm curl -fsSL .../install.sh | bash`. Chỉ tải/cập nhật nguồn (không deploy): thêm `SKIP_DEPLOY=1`.
+
+### 💻 Hệ điều hành hỗ trợ
+
+| OS | Cách chạy |
+|---|---|
+| **Linux** (Ubuntu/Debian/CentOS/Fedora/Alpine/Arch) | Chạy `curl … \| bash` **trực tiếp** — tự cài Docker qua `get.docker.com`. *(Môi trường khuyến nghị cho VPS/server.)* |
+| **Windows** | Dùng **WSL2**: cài [Docker Desktop](https://www.docker.com/products/docker-desktop/) (bật **WSL2 backend**) → mở **Ubuntu (WSL2)** → chạy **đúng lệnh `curl … \| bash`**. *(Script là bash, không chạy trên CMD/PowerShell.)* |
+| **macOS** | Cài **Docker Desktop** trước → chạy `curl … \| bash` (`git`/`openssl` tự cài qua Homebrew nếu thiếu). |
+
+> Yêu cầu chung: **Docker + Docker Compose v2**. Trên Linux script tự cài; trên Windows/macOS cài **Docker Desktop** trước.
 
 **Đã có sẵn mã nguồn?** Dùng thẳng script deploy:
 
