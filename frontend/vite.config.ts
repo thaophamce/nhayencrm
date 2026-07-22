@@ -11,6 +11,8 @@ const eeDir = existsSync(fileURLToPath(new URL('./src/_ee', import.meta.url)))
   ? './src/_ee'
   : './src/_ee-stubs';
 
+const backendTarget = process.env.BACKEND_URL || 'http://localhost:3901';
+
 export default defineConfig({
   plugins: [
     vue(),
@@ -24,10 +26,12 @@ export default defineConfig({
   },
   server: {
     port: 5173,
+    host: true,
+    allowedHosts: true,
     proxy: {
-      '/api': 'http://localhost:3000',
+      '/api': backendTarget,
       '/socket.io': {
-        target: 'http://localhost:3000',
+        target: backendTarget,
         ws: true,
       },
     },
