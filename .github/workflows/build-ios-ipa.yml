@@ -27,21 +27,17 @@ jobs:
           npm run build
           npx cap sync ios
 
-      - name: Build iOS App Archive
+      - name: Build iOS App (.app) & Package IPA
         run: |
           cd frontend/ios/App
-          xcodebuild -project App.xcodeproj -scheme App -sdk iphoneos -configuration Release -derivedDataPath build archive -archivePath build/App.xcarchive CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
-
-      - name: Export Unsigned IPA
-        run: |
-          cd frontend/ios/App
-          mkdir -p build/Payload
-          cp -r build/App.xcarchive/Products/Applications/App.app build/Payload/
-          cd build
+          xcodebuild -project App.xcodeproj -scheme App -configuration Release -sdk iphoneos SYMROOT=build CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=""
+          cd build/Release-iphoneos
+          mkdir Payload
+          cp -r App.app Payload/
           zip -r ZaloCRM-unsigned.ipa Payload
 
       - name: Upload IPA Artifact
         uses: actions/upload-artifact@v4
         with:
           name: ZaloCRM-iOS-IPA
-          path: frontend/ios/App/build/ZaloCRM-unsigned.ipa
+          path: frontend/ios/App/build/Release-iphoneos/ZaloCRM-unsigned.ipa
