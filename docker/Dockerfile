@@ -4,7 +4,7 @@ WORKDIR /app/frontend
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci --legacy-peer-deps
 COPY frontend/ ./
-RUN npm run build
+RUN NODE_OPTIONS="--max-old-space-size=4096" npm run build
 
 # ── Stage 2: Build backend ───────────────────────────────────────────────────
 FROM node:20-alpine AS backend-builder
@@ -13,10 +13,9 @@ WORKDIR /app/backend
 # để sharp có thể build từ source nếu prebuild musl không tải được (mạng/registry chặn).
 RUN apk add --no-cache vips-dev build-base python3
 COPY backend/package.json backend/package-lock.json ./
-# Dùng `npm install` thay `npm ci` vì lock file đôi khi out of sync với package.json
-# (vd: thêm package mới qua npm install --no-save trong dev). Tradeoff: build chậm hơn ~10s
-# nhưng KHÔNG fail nếu lock drift. Tooling cần regenerate lock sau khi add dep.
-RUN npm install --no-audit --no-fund
+# Production builds must be reproducible. Any package/lock drift is a release
+# error and must fail here instead of silently resolving a different tree.
+RUN npm ci --no-audit --no-fund
 COPY backend/ ./
 RUN DATABASE_URL="postgresql://build:build@localhost:5432/build" npx prisma generate
 RUN npm run build

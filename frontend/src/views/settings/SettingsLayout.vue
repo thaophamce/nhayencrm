@@ -4,12 +4,6 @@
   <div class="settings-layout">
     <!-- Sidebar -->
     <aside class="sl-sidebar" aria-label="Cài đặt sidebar">
-      <header class="sl-header">
-        <h1 class="sl-title">
-          <v-icon class="sl-icon" icon="mdi-cog-outline" size="20" />
-          <span>Cài đặt</span>
-        </h1>
-      </header>
 
       <div class="sl-search">
         <v-icon class="ic" icon="mdi-magnify" size="16" />
@@ -161,9 +155,9 @@ onMounted(() => {
 <style scoped>
 .settings-layout {
   display: grid;
-  grid-template-columns: 260px 1fr;
+  grid-template-columns: 220px 1fr;
   height: calc(100vh - 56px);
-  background: #FAFAFC;
+  background: #1A6FD4;
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   font-size: 13.5px;
   color: #1F2D3D;
@@ -173,8 +167,8 @@ onMounted(() => {
 
 /* ── Sidebar ── */
 .sl-sidebar {
-  background: white;
-  border-right: 1px solid #E4E5E9;
+  background: #1A6FD4;
+  border-right: 1px solid rgba(255, 255, 255, 0.16);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -182,7 +176,7 @@ onMounted(() => {
 
 .sl-header {
   padding: 16px 18px 12px;
-  border-bottom: 1px solid #E4E5E9;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.16);
   flex-shrink: 0;
 }
 .sl-title {
@@ -191,7 +185,7 @@ onMounted(() => {
   gap: 8px;
   font-size: 15px;
   font-weight: 700;
-  color: #1F2D3D;
+  color: #FFFFFF;
   margin: 0;
 }
 .sl-icon {
@@ -203,43 +197,46 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: 8px;
-  border-bottom: 1px solid #E4E5E9;
-  background: white;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.16);
+  background: transparent;
   flex-shrink: 0;
 }
 .sl-search input {
   flex: 1;
   border: none;
   outline: none;
-  background: #F4F4F7;
+  background: rgba(255, 255, 255, 0.14);
   border-radius: 6px;
   padding: 6px 10px;
   font-size: 12.5px;
   font-family: inherit;
-  color: #1F2D3D;
+  color: #FFFFFF;
   min-width: 0;
-  border: 1px solid transparent;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+}
+.sl-search input::placeholder {
+  color: rgba(255, 255, 255, 0.72);
 }
 .sl-search input:focus {
-  background: white;
-  border-color: #5E6AD2;
-  box-shadow: 0 0 0 2px rgba(94, 106, 210, 0.12);
+  background: rgba(255, 255, 255, 0.20);
+  border-color: #FFFFFF;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.15);
 }
 .sl-search .ic {
-  color: #97A0AC;
+  color: rgba(255, 255, 255, 0.80);
   font-size: 13px;
 }
 .sl-search-clear {
   background: transparent;
   border: none;
-  color: #97A0AC;
+  color: rgba(255, 255, 255, 0.80);
   cursor: pointer;
   padding: 4px 6px;
   border-radius: 4px;
   font-family: inherit;
   font-size: 10px;
 }
-.sl-search-clear:hover { color: #EF4444; background: #FEF2F2; }
+.sl-search-clear:hover { color: #FFFFFF; background: rgba(255, 255, 255, 0.12); }
 
 .sl-nav {
   flex: 1;
@@ -247,7 +244,7 @@ onMounted(() => {
   padding: 8px 6px 16px;
 }
 .sl-nav::-webkit-scrollbar { width: 5px; }
-.sl-nav::-webkit-scrollbar-thumb { background: #D4D6DB; border-radius: 2px; }
+.sl-nav::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.30); border-radius: 2px; }
 
 .sl-group {
   margin-bottom: 4px;
@@ -266,7 +263,7 @@ onMounted(() => {
   text-align: left;
   user-select: none;
 }
-.sl-group-header:hover { background: #F4F4F7; }
+.sl-group-header:hover { background: rgba(255, 255, 255, 0.12); }
 .sl-group-icon {
   font-size: 13px;
   flex-shrink: 0;
@@ -275,12 +272,12 @@ onMounted(() => {
   flex: 1;
   font-size: 11px;
   font-weight: 700;
-  color: #6B7785;
+  color: rgba(255, 255, 255, 0.82);
   text-transform: uppercase;
   letter-spacing: 0.06em;
 }
 .sl-chevron {
-  color: #97A0AC;
+  color: rgba(255, 255, 255, 0.72);
   font-size: 10px;
   transition: transform 0.15s;
 }
@@ -307,20 +304,20 @@ onMounted(() => {
   padding: 7px 10px;
   border-radius: 6px;
   text-decoration: none;
-  color: #1F2D3D;
-  font-size: 12.5px;
-  font-weight: 500;
+  color: #FFFFFF;
+  font-size: 16px;
+  font-weight: 600;
   transition: all 0.12s;
 }
 .sl-item:hover {
-  background: #F4F4F7;
+  background: rgba(255, 255, 255, 0.12);
 }
 .sl-item.active,
 .sl-item.router-link-exact-active {
-  background: #EEF0FF;
-  color: #5E6AD2;
-  font-weight: 600;
-  box-shadow: inset 3px 0 0 #5E6AD2;
+  background: rgba(255, 255, 255, 0.20);
+  color: #FFFFFF;
+  font-weight: 700;
+  box-shadow: inset 3px 0 0 #FFFFFF;
 }
 .sl-item-icon {
   font-size: 14px;
@@ -340,7 +337,7 @@ onMounted(() => {
 .sl-empty {
   padding: 20px 14px;
   font-size: 12px;
-  color: #97A0AC;
+  color: rgba(255, 255, 255, 0.72);
   text-align: center;
   font-style: italic;
 }
@@ -351,6 +348,7 @@ onMounted(() => {
   flex-direction: column;
   overflow: hidden;
   background: #FAFAFC;
+  border-top-left-radius: 24px;
 }
 .sl-breadcrumb {
   display: flex;

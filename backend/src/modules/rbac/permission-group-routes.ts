@@ -13,7 +13,7 @@ import {
   updatePermissionGroup,
   archivePermissionGroup,
 } from './permission-group-service.js';
-import { RESOURCES, ACTIONS, RESOURCE_ACTIONS } from './permission-types.js';
+import { RESOURCES, ACTIONS, RESOURCE_ACTIONS, MENU_TREE } from './permission-types.js';
 import { requireGrant } from './rbac-middleware.js';
 
 export async function registerPermissionGroupRoutes(app: FastifyInstance): Promise<void> {
@@ -35,6 +35,7 @@ export async function registerPermissionGroupRoutes(app: FastifyInstance): Promi
       resources: RESOURCES,
       actions: ACTIONS,
       resourceActions: RESOURCE_ACTIONS,
+      menuTree: MENU_TREE,
     });
   });
 

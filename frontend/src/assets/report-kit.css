@@ -1,4 +1,4 @@
-/* report-kit.css — Reports module design system (HS Holding). Scoped under .rpt-scope
+/* report-kit.css — Reports module design system (Nhà Yến). Scoped under .rpt-scope
    so generic class names (.kpi/.card/.tbl…) never leak into the rest of the app.
    Imported globally in main.ts. Brand tokens fall back to hs-crm-theme.css :root. */
 .rpt-scope{
@@ -108,10 +108,17 @@
 .rpt-scope .rk-loading{padding:48px;text-align:center;color:var(--rk-faint);font-size:13px}
 .rpt-scope .rk-empty{padding:28px;text-align:center;color:var(--rk-faint);font-size:12.5px;font-style:italic}
 /* shell — app khoá cuộn cấp trang (main.css overflow:hidden) nên shell PHẢI tự cuộn:
-   flex-column chiều cao = viewport - topnav(48px); sub-nav cố định; vùng nội dung cuộn. */
-.rpt-shell{background:var(--bg,#f5f7fa);height:calc(100vh - var(--smax-topnav-h, 48px));display:flex;flex-direction:column;overflow:hidden}
-.rpt-subnav{flex:none;display:flex;gap:4px;overflow-x:auto;background:#fff;border-bottom:1px solid #e6e9ef;padding:0 18px}
-.rpt-shell>.rpt-scope{flex:1 1 auto;min-height:0;overflow-y:auto}
-.rpt-subnav a{display:inline-flex;align-items:center;gap:7px;padding:13px 14px;font-size:13px;font-weight:600;color:#6b7785;text-decoration:none;border-bottom:2px solid transparent;white-space:nowrap}
-.rpt-subnav a:hover{color:var(--brand-700,#0b5880)}
-.rpt-subnav a.router-link-active{color:var(--brand,#1786be);border-bottom-color:var(--brand,#1786be)}
+   chiều cao = viewport - topnav(48px); sidebar cố định; vùng nội dung cuộn. */
+.rpt-shell{background:var(--bg,#f5f7fa);height:calc(100vh - var(--smax-topnav-h, 48px));display:flex;overflow:hidden}
+.rpt-sidebar{flex:0 0 220px;min-width:0;overflow-y:auto;background:linear-gradient(180deg,#1060C8 0%,#0B4FA8 100%);border-right:1px solid rgba(255,255,255,.16);padding:12px 8px}
+.rpt-subnav{display:flex;flex-direction:column;gap:2px}
+.rpt-shell>.rpt-scope{flex:1 1 auto;min-width:0;min-height:0;overflow-y:auto}
+.rpt-subnav a{display:flex;align-items:center;gap:10px;padding:12px 14px;font-size:13.5px;font-weight:600;color:#fff;text-decoration:none;border-radius:8px;white-space:nowrap}
+.rpt-subnav a:hover{color:#fff;background:rgba(255,255,255,.12)}
+.rpt-subnav a.router-link-active{color:#fff;background:rgba(255,255,255,.20);box-shadow:inset 3px 0 0 #fff;font-weight:700}
+@media(max-width:768px){
+  .rpt-shell{flex-direction:column}
+  .rpt-sidebar{flex:0 0 auto;overflow-y:visible;border-right:0;border-bottom:1px solid rgba(255,255,255,.16)}
+  .rpt-subnav{flex-direction:row;overflow-x:auto}
+  .rpt-subnav a{flex:0 0 auto}
+}

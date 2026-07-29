@@ -55,7 +55,7 @@
         <v-text-field
           v-model="logoUrl"
           label="Logo (đường dẫn ảnh)"
-          placeholder="/brand/hs-monogram.png hoặc https://..."
+          placeholder="/brand/brand-mark.png hoặc https://..."
           :disabled="!authStore.isOwner || saving"
           variant="outlined"
           density="compact"
@@ -77,7 +77,7 @@
       <v-text-field
         v-model="slogan"
         label="Slogan"
-        placeholder="Bền vững · Trường tồn"
+        placeholder="Lan tỏa hạnh phúc · Kết nối yêu thương"
         :disabled="!authStore.isOwner || saving"
         variant="outlined"
         class="mb-3"
@@ -86,7 +86,7 @@
       <v-text-field
         v-model="copyright"
         label="Copyright"
-        placeholder="© 2026 HS Holding"
+        placeholder="© 2026 Thiệp Cưới Nhà Yến"
         :disabled="!authStore.isOwner || saving"
         variant="outlined"
         class="mb-3"
@@ -126,7 +126,7 @@
       <div class="text-subtitle-2 mb-2">Xem trước giao diện mô phỏng trang đăng nhập với cấu hình hiện tại</div>
       <LoginPreview
         :logo-url="logoUrl"
-        :name="orgName || 'HS Holding'"
+        :name="'Nhà Yến CRM'"
         :slogan="slogan"
         :copyright="copyright"
         :email-placeholder="previewEmailPlaceholder"

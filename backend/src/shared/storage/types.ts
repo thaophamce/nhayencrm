@@ -19,13 +19,37 @@ export interface UploadResult {
   deduped: boolean;
 }
 
+export interface StorageSendOptions {
+  filename: string;
+  totalSize: number;
+  width?: number | null;
+  height?: number | null;
+}
+
+export type StorageSendSource = string | {
+  data: Buffer;
+  filename: string;
+  metadata: {
+    totalSize: number;
+    width?: number;
+    height?: number;
+  };
+};
+
+export interface StorageUploadOptions {
+  /** Caller already proved DB has no blob for this hash; immutable key may be overwritten safely on races. */
+  skipExistsCheck?: boolean;
+}
+
 export interface StorageDriver {
   /** Upload buffer (content-hash dedup). Key = `media/{sha256}{ext}`. */
-  uploadBuffer(buffer: Buffer, mimeType: string, originalName?: string): Promise<UploadResult>;
+  uploadBuffer(buffer: Buffer, mimeType: string, originalName?: string, options?: StorageUploadOptions): Promise<UploadResult>;
   /** Lấy object dưới dạng stream. Trả null nếu key không an toàn / không tồn tại. */
   getObjectStream(key: string): Promise<NodeJS.ReadableStream | null>;
   /** Đọc toàn bộ object thành Buffer. Trả null nếu key sai / không tồn tại. */
   getObjectBuffer(key: string): Promise<Buffer | null>;
+  /** Return local path when possible, otherwise zca-js compatible Buffer source. */
+  materializeForSend(key: string, options: StorageSendOptions): Promise<StorageSendSource | null>;
   /** Đảm bảo nơi lưu sẵn sàng (mkdir cho local, kiểm tra bucket cho R2). */
   ensureBucket(): Promise<void>;
   /** Public URL để gửi cho Zalo CDN / trình duyệt tải. */

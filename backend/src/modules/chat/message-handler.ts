@@ -481,58 +481,6 @@ export async function handleIncomingMessage(
     void applyContactAggregateFromMessage(aggregateInput);
     void applyFriendAggregate(aggregateInput);
 
-    // Phase 8 — Engagement daily aggregate hook (fire-and-forget).
-    // Skip for group threads (only meaningful for 1-1 contact engagement).
-    if (msg.threadType !== 'group' && contactId) {
-      void (async () => {
-        try {
-          const { incrementDailyAggregate, messageEngagementInputs, parseCallMeta } =
-            await import('../engagement/engagement-service.js');
-          // hasQuote: KH dùng quote-reply (Zalo "trả lời tin nhắn") → quote payload non-null/non-empty
-          const q = (msg as any).quote;
-          const hasQuote = q !== undefined && q !== null
-            && (typeof q !== 'object' || Object.keys(q).length > 0);
-          // callMeta: tách missed vs connected từ content.params
-          const callMeta = message.contentType === 'call'
-            ? parseCallMeta(msg.content, msg.isSelf)
-            : null;
-          const signals = messageEngagementInputs(message.contentType, msg.isSelf, hasQuote, callMeta);
-
-          // customerInitiated: KH nhắn trước trong ngày (chỉ khi inbound + chưa có activity nào hôm nay)
-          let customerInitiated = false;
-          if (!msg.isSelf) {
-            const today = new Date(sentAt);
-            const startOfDay = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()));
-            const priorToday = await prisma.message.findFirst({
-              where: {
-                conversationId: conversation.id,
-                sentAt: { gte: startOfDay, lt: sentAt },
-                id: { not: message.id },
-              },
-              select: { id: true },
-            });
-            customerInitiated = !priorToday;
-          }
-
-          await incrementDailyAggregate({
-            contactId,
-            orgId: account.orgId,
-            at: sentAt,
-            inboundMsg: signals.inbound,
-            outboundMsg: signals.outbound,
-            mediaShare: signals.mediaShare,
-            voiceMsg: signals.voiceMsg,
-            call: signals.call,
-            missedCall: signals.missedCall,
-            quoteReply: signals.quoteReply,
-            customerInitiated,
-          });
-        } catch (err) {
-          // silent — engagement is best-effort
-        }
-      })();
-    }
-
     // Phase 6 — Lead scoring hook (fire-and-forget).
     // Resolve friendId by (zaloAccountId, externalThreadId) sau aggregate đã chạy.
     // Nếu Friend chưa exist (lần đầu chat), aggregate sẽ tạo row → hook sẽ chạy ở message kế.
@@ -560,7 +508,7 @@ export async function handleIncomingMessage(
               onOutboundScoring(account.orgId, friend.id, { responseSecondsFromLastInbound: secs });
             }
           } else {
-            // Inbound — full keyword + engagement scoring
+            // Inbound — full keyword scoring
             const responseSecs = friend.lastOutboundAt
               ? Math.max(0, (sentAtMs - friend.lastOutboundAt.getTime()) / 1000)
               : null;

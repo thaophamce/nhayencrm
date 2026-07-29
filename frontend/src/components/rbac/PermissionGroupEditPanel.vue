@@ -37,67 +37,56 @@
             </div>
           </section>
 
-          <!-- ── Permission matrix ─────────────────── -->
+          <!-- ── Cây hiển thị site / tab ─────────────── -->
           <section class="section">
             <div class="section-title-row">
-              <h3 class="section-title">Ma trận quyền</h3>
+              <h3 class="section-title">Hiển thị site &amp; tab</h3>
               <div class="matrix-stats">
-                <span class="stat-chip stat-on">{{ totalChecked }} / {{ totalSlots }} bật</span>
+                <span class="stat-chip stat-on">{{ totalChecked }} bật</span>
               </div>
             </div>
 
-            <!-- Bulk actions -->
             <div class="bulk-row">
-              <button class="btn-bulk" :disabled="busy" @click="bulkAll(true)">✓ Tick tất cả</button>
-              <button class="btn-bulk" :disabled="busy" @click="bulkAll(false)">× Bỏ tất cả</button>
+              <button class="btn-bulk" :disabled="busy" @click="bulkTree(true)">✓ Bật tất cả</button>
+              <button class="btn-bulk" :disabled="busy" @click="bulkTree(false)">× Ẩn tất cả</button>
               <span class="bulk-sep">|</span>
-              <span class="bulk-hint">Click checkbox để toggle từng ô. Tick header để bật cả cột.</span>
+              <span class="bulk-hint">Bật = user thấy site/tab. Nút "Chỉ Admin" khóa cứng, không cấp cho nhóm khác.</span>
             </div>
 
-            <div class="matrix-wrap">
-              <table class="matrix">
-                <thead>
-                  <tr>
-                    <th class="th-resource">Chức năng</th>
-                    <th
-                      v-for="a in actions"
-                      :key="a"
-                      class="th-action"
-                      :title="`Click để tick / bỏ cả cột ${actionLabel(a)}`"
-                      @click="!busy && bulkColumn(a, !isColumnAllOn(a))"
-                    >
-                      <span class="th-label">{{ actionLabel(a) }}</span>
-                      <span class="th-toggle">{{ isColumnAllOn(a) ? '✓' : '·' }}</span>
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="r in resources" :key="r" class="resource-row">
-                    <td class="td-resource">
-                      <span class="resource-name">{{ resourceLabel(r) }}</span>
-                      <button
-                        class="btn-row-toggle"
-                        :disabled="busy"
-                        :title="`Tick / bỏ cả dòng ${resourceLabel(r)}`"
-                        @click="bulkRow(r, !isRowAllOn(r))"
-                      >
-                        {{ isRowAllOn(r) ? '✓' : '·' }}
-                      </button>
-                    </td>
-                    <td v-for="a in actions" :key="a" class="td-check">
+            <ul class="menu-tree">
+              <li v-for="(node, i) in menuTree" :key="i" class="tree-site">
+                <div class="tree-row tree-row-site">
+                  <label class="tree-toggle">
+                    <input
+                      v-if="isTickable(node)"
+                      type="checkbox"
+                      :checked="isNodeOn(node)"
+                      :disabled="busy"
+                      @change="toggleNode(node, ($event.target as HTMLInputElement).checked)"
+                    />
+                    <span v-else-if="node.sensitive" class="lock-badge">🔒 Chỉ Admin</span>
+                    <span v-else class="always-badge">Luôn mở</span>
+                    <span class="tree-label">{{ node.label }}</span>
+                  </label>
+                </div>
+                <ul v-if="node.children?.length" class="tree-children">
+                  <li v-for="(child, j) in node.children" :key="j" class="tree-row tree-row-child">
+                    <label class="tree-toggle">
                       <input
-                        v-if="(resourceActions[r] ?? []).includes(a)"
+                        v-if="isTickable(child)"
                         type="checkbox"
-                        :checked="!!localGrants[r]?.[a]"
-                        :disabled="busy"
-                        @change="toggleGrant(r, a, ($event.target as HTMLInputElement).checked)"
+                        :checked="isNodeOn(child)"
+                        :disabled="busy || (isTickable(node) && !isNodeOn(node))"
+                        @change="toggleNode(child, ($event.target as HTMLInputElement).checked)"
                       />
-                      <span v-else class="dash">—</span>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
+                      <span v-else-if="child.sensitive" class="lock-badge">🔒 Chỉ Admin</span>
+                      <span v-else class="always-badge">Luôn mở</span>
+                      <span class="tree-label">{{ child.label }}</span>
+                    </label>
+                  </li>
+                </ul>
+              </li>
+            </ul>
           </section>
 
           <!-- ── Members list ─────────────────────── -->
@@ -150,7 +139,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue';
-import { useRbacStore, type PermissionGroupNode, type RbacUser } from '@/stores/rbac';
+import { useRbacStore, type PermissionGroupNode, type RbacUser, type MenuNode } from '@/stores/rbac';
 import { api } from '@/api/index';
 
 const props = defineProps<{
@@ -175,41 +164,40 @@ const accentColor = computed(() => {
   return ['#181d26', '#aa2d00', '#0a2e0e', '#d9a441', '#1b61c9'][Math.min(depth, 4)];
 });
 
-const resources = computed(() => store.matrixMeta?.resources ?? []);
-const actions = computed(() => store.matrixMeta?.actions ?? []);
-const resourceActions = computed(() => store.matrixMeta?.resourceActions ?? {});
+const menuTree = computed<MenuNode[]>(() => store.matrixMeta?.menuTree ?? []);
 
 const members = computed(() =>
   props.allUsers.filter((u) => u.permissionGroupId === props.node?.id)
 );
 
-const totalSlots = computed(() => {
-  let total = 0;
-  for (const r of resources.value) total += (resourceActions.value[r] ?? []).length;
-  return total;
-});
+// Node "tickable" = có key + không nhạy cảm. Nút nhạy cảm khóa cứng cho admin,
+// nút key=null (Cá nhân) luôn mở → không render checkbox.
+function isTickable(node: MenuNode): boolean {
+  return !!node.key && !node.sensitive;
+}
 
-const totalChecked = computed(() => {
-  let total = 0;
-  for (const r of resources.value) {
-    for (const a of resourceActions.value[r] ?? []) {
-      if (localGrants.value[r]?.[a]) total++;
-    }
+function nodeAction(node: MenuNode): string {
+  return node.action ?? 'access';
+}
+
+function isNodeOn(node: MenuNode): boolean {
+  if (!node.key) return false;
+  return !!localGrants.value[node.key]?.[nodeAction(node)];
+}
+
+// Đếm số node tickable đang bật (thống kê hiển thị).
+function collectTickable(nodes: MenuNode[]): MenuNode[] {
+  const out: MenuNode[] = [];
+  for (const n of nodes) {
+    if (isTickable(n)) out.push(n);
+    if (n.children?.length) out.push(...collectTickable(n.children));
   }
-  return total;
-});
-
-function isRowAllOn(r: string) {
-  const acts = resourceActions.value[r] ?? [];
-  if (acts.length === 0) return false;
-  return acts.every((a) => localGrants.value[r]?.[a]);
+  return out;
 }
 
-function isColumnAllOn(a: string) {
-  const validResources = resources.value.filter((r) => (resourceActions.value[r] ?? []).includes(a));
-  if (validResources.length === 0) return false;
-  return validResources.every((r) => localGrants.value[r]?.[a]);
-}
+const totalChecked = computed(() =>
+  collectTickable(menuTree.value).filter((n) => isNodeOn(n)).length
+);
 
 watch(
   () => [props.open, props.node?.id],
@@ -250,35 +238,31 @@ async function persistGrants() {
   }
 }
 
-async function toggleGrant(resource: string, action: string, value: boolean) {
-  if (!localGrants.value[resource]) localGrants.value[resource] = {};
-  localGrants.value[resource][action] = value;
-  await persistGrants();
-}
-
-async function bulkAll(value: boolean) {
-  for (const r of resources.value) {
-    if (!localGrants.value[r]) localGrants.value[r] = {};
-    for (const a of resourceActions.value[r] ?? []) {
-      localGrants.value[r][a] = value;
+async function toggleNode(node: MenuNode, value: boolean) {
+  if (!node.key) return;
+  const action = nodeAction(node);
+  if (!localGrants.value[node.key]) localGrants.value[node.key] = {};
+  localGrants.value[node.key][action] = value;
+  // Tắt site cha → tắt luôn các tab con (đồng bộ với UI: con bị disable khi cha off).
+  if (!value) {
+    const site = menuTree.value.find((n) => n === node);
+    if (site?.children?.length) {
+      for (const child of site.children) {
+        if (isTickable(child) && child.key) {
+          if (!localGrants.value[child.key]) localGrants.value[child.key] = {};
+          localGrants.value[child.key][nodeAction(child)] = false;
+        }
+      }
     }
   }
   await persistGrants();
 }
 
-async function bulkRow(r: string, value: boolean) {
-  if (!localGrants.value[r]) localGrants.value[r] = {};
-  for (const a of resourceActions.value[r] ?? []) {
-    localGrants.value[r][a] = value;
-  }
-  await persistGrants();
-}
-
-async function bulkColumn(a: string, value: boolean) {
-  for (const r of resources.value) {
-    if (!(resourceActions.value[r] ?? []).includes(a)) continue;
-    if (!localGrants.value[r]) localGrants.value[r] = {};
-    localGrants.value[r][a] = value;
+async function bulkTree(value: boolean) {
+  for (const node of collectTickable(menuTree.value)) {
+    if (!node.key) continue;
+    if (!localGrants.value[node.key]) localGrants.value[node.key] = {};
+    localGrants.value[node.key][nodeAction(node)] = value;
   }
   await persistGrants();
 }
@@ -308,41 +292,6 @@ async function confirmArchive() {
   } finally {
     busy.value = false;
   }
-}
-
-const ACTION_LABELS: Record<string, string> = {
-  access: 'Truy cập',
-  create: 'Thêm',
-  edit: 'Sửa',
-  delete: 'Xóa',
-  view_all: 'Xem all',
-};
-function actionLabel(a: string) {
-  return ACTION_LABELS[a] ?? a;
-}
-
-const RESOURCE_LABELS: Record<string, string> = {
-  department: 'Quản lý phòng ban',
-  user: 'Quản lý người dùng',
-  permission_group: 'Quản lý quyền',
-  conversation: 'Hội thoại',
-  contact: 'Khách hàng',
-  friend: 'Friends Zalo',
-  customer_list: 'Tệp khách hàng',
-  broadcast: 'Chiến dịch',
-  sequence: 'Sequence',
-  trigger: 'Trigger',
-  block: 'Message Block',
-  zalo_account: 'Nick Zalo',
-  webhook: 'Webhook',
-  engagement_score: 'Engagement / Score',
-  audit_log: 'Audit Log',
-  settings: 'Cài đặt',
-  care_session: 'Phiên chăm sóc',
-  media: 'Kho phương tiện',
-};
-function resourceLabel(r: string) {
-  return RESOURCE_LABELS[r] ?? r;
 }
 
 function initials(name: string): string {
@@ -396,105 +345,67 @@ function avatarColor(name: string): string {
 .bulk-sep { color: #d6d8dc; font-size: 11px; }
 .bulk-hint { font-size: 10px; color: #9297a0; font-style: italic; }
 
-.matrix-wrap {
+/* ── Cây hiển thị site / tab ─────────────────────────── */
+.menu-tree {
+  list-style: none;
+  margin: 0;
+  padding: 0;
   border: 1px solid #e0e2e6;
   border-radius: 8px;
   overflow: hidden;
   background: white;
 }
-.matrix {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 12px;
-}
-.matrix th, .matrix td {
-  border-bottom: 1px solid #f0f1f3;
-  border-right: 1px solid #f0f1f3;
-}
-.matrix th:last-child, .matrix td:last-child { border-right: 0; }
-.matrix tr:last-child td { border-bottom: 0; }
-
-.th-resource {
+.tree-site + .tree-site { border-top: 1px solid #f0f1f3; }
+.tree-row { display: flex; align-items: center; }
+.tree-row-site {
+  padding: 8px 12px;
   background: #f8fafc;
-  padding: 8px 10px;
-  text-align: left;
-  font-weight: 600;
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.4px;
-  color: #41454d;
-  position: sticky;
-  left: 0;
-  z-index: 1;
 }
-.th-action {
-  background: #f8fafc;
-  padding: 6px 4px;
-  text-align: center;
-  cursor: pointer;
-  user-select: none;
-  transition: background 0.1s;
+.tree-children { list-style: none; margin: 0; padding: 0; }
+.tree-row-child {
+  padding: 6px 12px 6px 30px;
+  border-top: 1px solid #f4f5f7;
 }
-.th-action:hover { background: #f0f1f3; }
-.th-label {
-  display: block;
-  font-size: 10px;
-  font-weight: 600;
-  color: #41454d;
-  margin-bottom: 2px;
-}
-.th-toggle {
-  display: inline-block;
-  font-size: 11px;
-  font-weight: 700;
-  color: #0a2e0e;
-  width: 14px;
-  height: 14px;
-  line-height: 14px;
-}
-
-.resource-row:hover { background: #fafbfc; }
-.td-resource {
-  padding: 6px 10px;
-  background: white;
-  position: sticky;
-  left: 0;
+.tree-row-child:hover { background: #fafbfc; }
+.tree-toggle {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 8px;
+  cursor: pointer;
+  width: 100%;
 }
-.resource-name {
-  font-size: 12px;
+.tree-toggle input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  cursor: pointer;
+  accent-color: #0a2e0e;
+  flex-shrink: 0;
+}
+.tree-toggle input:disabled { cursor: not-allowed; opacity: 0.4; }
+.tree-label {
+  font-size: 13px;
   color: #181d26;
   font-weight: 500;
 }
-.btn-row-toggle {
-  background: white;
-  border: 1px solid #e0e2e6;
-  width: 20px;
-  height: 20px;
-  border-radius: 4px;
+.tree-row-site .tree-label { font-weight: 600; }
+.lock-badge {
   font-size: 10px;
-  font-weight: 700;
-  cursor: pointer;
-  color: #0a2e0e;
-  line-height: 1;
+  font-weight: 600;
+  color: #7a2000;
+  background: #fbe6dc;
+  border-radius: 4px;
+  padding: 2px 6px;
   flex-shrink: 0;
 }
-.btn-row-toggle:hover { background: #0a2e0e; color: white; border-color: #0a2e0e; }
-.btn-row-toggle:disabled { opacity: 0.4; cursor: not-allowed; }
-.td-check {
-  padding: 6px 4px;
-  text-align: center;
+.always-badge {
+  font-size: 10px;
+  font-weight: 600;
+  color: #0a2e0e;
+  background: #e3ede4;
+  border-radius: 4px;
+  padding: 2px 6px;
+  flex-shrink: 0;
 }
-.td-check input[type="checkbox"] {
-  width: 14px;
-  height: 14px;
-  cursor: pointer;
-  accent-color: #0a2e0e;
-}
-.dash { color: #d6d8dc; font-size: 11px; }
 
 .hint-warning { background: #fbe6dc !important; border-left-color: #aa2d00 !important; color: #7a2000 !important; }
 

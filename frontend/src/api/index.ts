@@ -176,7 +176,9 @@ api.interceptors.response.use(
     } else if (typeof status === 'number' && status >= 500) {
       console.error(`[api] ${status} server error: ${url}`, error.response?.data);
       const now = Date.now();
-      if (now - last5xxToastAt > TOAST_5XX_THROTTLE_MS) {
+      // M?n Pancake t? hi?n l?i nghi?p v? c? th?; b? toast 5xx chung ?? tr?nh hi?n hai l?n.
+      const handledByPancakeScreen = url.includes('/orders/pancake/');
+      if (!handledByPancakeScreen && now - last5xxToastAt > TOAST_5XX_THROTTLE_MS) {
         last5xxToastAt = now;
         try {
           useToast().error('Máy chủ lỗi, vui lòng thử lại');

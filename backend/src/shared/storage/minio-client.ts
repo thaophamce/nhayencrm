@@ -19,16 +19,19 @@ import { localDriver } from './local-driver.js';
 import { r2Driver } from './r2-driver.js';
 import type { StorageDriver } from './types.js';
 
-export type { UploadResult } from './types.js';
+export type { UploadResult, StorageUploadOptions, StorageSendOptions, StorageSendSource } from './types.js';
 
 const driver: StorageDriver = config.storageDriver === 'r2' ? r2Driver : localDriver;
 
-export const uploadBuffer: StorageDriver['uploadBuffer'] = (buffer, mimeType, originalName) =>
-  driver.uploadBuffer(buffer, mimeType, originalName);
+export const uploadBuffer: StorageDriver['uploadBuffer'] = (buffer, mimeType, originalName, options) =>
+  driver.uploadBuffer(buffer, mimeType, originalName, options);
 
 export const getObjectStream: StorageDriver['getObjectStream'] = (key) => driver.getObjectStream(key);
 
 export const getObjectBuffer: StorageDriver['getObjectBuffer'] = (key) => driver.getObjectBuffer(key);
+
+export const materializeForSend: StorageDriver['materializeForSend'] = (key, options) =>
+  driver.materializeForSend(key, options);
 
 export const ensureBucket: StorageDriver['ensureBucket'] = () => driver.ensureBucket();
 

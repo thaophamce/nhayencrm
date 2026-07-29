@@ -3,7 +3,25 @@
 <template>
   <div class="conv-list">
     <!-- ════════ Header: search + label chip + tabs ════════ -->
-    <div class="cl-header">
+    <div v-if="relatedMode" class="cl-related-header">
+      <button class="cl-related-back" title="Quay lại danh sách hội thoại" @click="$emit('exit-related-mode')">
+        <v-icon size="18">mdi-arrow-left</v-icon>
+      </button>
+      <div class="cl-related-title">
+        <strong>Hội thoại của {{ relatedContactName || 'khách' }}</strong>
+        <span>{{ conversations.length }} hội thoại</span>
+      </div>
+      <v-progress-circular v-if="loading" indeterminate size="18" width="2" color="primary" />
+    </div>
+    <div v-if="relatedMode && relatedCoverageState !== 'complete'" class="cl-related-warning">
+      <v-icon size="15">mdi-alert-circle-outline</v-icon>
+      <span>{{ relatedCoverageState === 'scanning' ? 'Đang quét nhóm chung' : 'Danh sách nhóm có thể chưa đầy đủ' }}</span>
+    </div>
+    <div v-else-if="relatedMode" class="cl-related-complete">
+      <v-icon size="14">mdi-check-circle-outline</v-icon>
+      Đã kiểm tra dữ liệu nhóm
+    </div>
+    <div v-if="!relatedMode" class="cl-header">
       <div class="cl-search-row">
         <div class="cl-search-box">
           <input
@@ -13,7 +31,7 @@
             autocomplete="off"
             :value="search"
             :class="{ 'cl-search--flash': searchFlash, 'has-text': !!search }"
-            placeholder="Tìm theo tên, SĐT, nội dung tin nhắn…"
+            placeholder="Tìm kiếm"
             @input="onSearchInput"
             @keydown.esc="clearSearch"
             @keydown.enter.prevent="onSearchEnter"
@@ -29,20 +47,46 @@
             @click="clearSearch"
           ><XIcon :size="14" :stroke-width="2.5" /></button>
         </div>
+
+        <!-- Nút Thêm bạn bè / Tin nhắn mới -->
         <button
-          class="cl-new-msg"
+          class="cl-header-action-btn"
           ref="newMsgBtnEl"
           data-nick-picker-trigger
-          title="Bắt đầu cuộc trò chuyện mới"
+          title="Tìm kiếm & Kết bạn Zalo"
+          :disabled="loadingUserInfo"
           @click="onClickNewMessage"
         >
-          <v-icon size="18">mdi-message-plus</v-icon>
-          <span>Tin nhắn mới</span>
-          <span v-if="newMsgPickerOpen" class="cl-new-msg-caret"><ChevronUpIcon :size="14" :stroke-width="2" /></span>
+          <v-progress-circular v-if="loadingUserInfo" indeterminate size="16" width="1.5" />
+          <v-icon v-else size="18">mdi-account-plus</v-icon>
         </button>
 
-        <!-- Wedge A 2026-05-28: NickPickerPopup xổ từ nút Tin nhắn mới
-             Chỉ mở khi search có SĐT (>= 9 digits) -->
+        <!-- Nút Tạo nhóm chat mới -->
+        <button
+          class="cl-header-action-btn"
+          ref="createGroupBtnEl"
+          title="Tạo nhóm Zalo mới"
+          @click="onClickCreateGroup"
+        >
+          <v-icon size="18">mdi-account-multiple-plus</v-icon>
+        </button>
+
+        <!-- Nút Bộ lọc dropdown -->
+        <button
+          class="cl-header-action-btn cl-advanced-filter-btn"
+          :class="{
+            'cl-filter-expanded': advancedFiltersExpanded,
+            'cl-filter-active': advancedFiltersActive,
+          }"
+          :title="advancedFiltersExpanded ? 'Thu gon bo loc nang cao' : 'Mo bo loc nang cao'"
+          :aria-expanded="advancedFiltersExpanded"
+          @click="toggleAdvancedFilters"
+        >
+          <v-icon size="18">mdi-filter-variant</v-icon>
+          <span v-if="advancedFiltersActive" class="cl-filter-indicator" aria-hidden="true" />
+        </button>
+
+        <!-- NickPickerPopup cho Tin nhắn mới -->
         <NickPickerPopup
           v-model="newMsgPickerOpen"
           :accounts="composeAccounts as any"
@@ -50,31 +94,55 @@
           title="Chọn nick gửi tin nhắn"
           @pick="onPickNickForNewMsg"
         />
+
+        <!-- NickPickerPopup cho Tạo nhóm -->
+        <NickPickerPopup
+          v-model="groupNickPickerOpen"
+          :accounts="composeAccounts as any"
+          :trigger-el="createGroupBtnEl"
+          title="Chọn nick tạo nhóm"
+          @pick="onPickNickForCreateGroup"
+        />
       </div>
 
-      <!-- Label chip bar (filter theo tag CRM) — SINGLE-SELECT.
-           Khi 1 tag active → ẩn tag khác. Click lại để clear (show all). -->
-      <div v-if="visibleTags.length" class="cl-label-bar">
-        <span
-          v-for="tag in visibleTags"
-          :key="tag"
-          class="cl-label-chip"
-          :class="{ active: filters.tags.includes(tag), 'is-zalo': isZaloManaged(tag) }"
-          :style="{ '--tag-color': tagColor(tag) || '#6B7280' }"
-          @click="toggleTag(tag)"
-        >{{ cleanTagName(tag) }}</span>
-
-        <button
-          v-if="filters.tags.length"
-          class="clear-tags"
-          @click="filters.tags = []"
-          title="Bỏ lọc tag · hiển thị lại tất cả"
-        ><XIcon :size="13" :stroke-width="2" /></button>
+      <!-- Bộ lọc trạng thái đơn hàng -->
+      <div class="cl-order-status-bar-wrap">
+        <div class="cl-order-status-bar">
+          <span
+            class="cl-order-chip"
+            :class="{ active: filters.orderStatus === '' }"
+            @click="setOrderStatusFilter('')"
+          >Tất cả</span>
+          <span
+            class="cl-order-chip"
+            :class="{ active: filters.orderStatus === 'demo' }"
+            style="--chip-bg: #FFB74D;"
+            @click="setOrderStatusFilter('demo')"
+          >Chưa demo</span>
+          <span
+            class="cl-order-chip"
+            :class="{ active: filters.orderStatus === 'designing' }"
+            style="--chip-bg: #64B5F6;"
+            @click="setOrderStatusFilter('designing')"
+          >Đang thiết kế</span>
+          <span
+            class="cl-order-chip"
+            :class="{ active: filters.orderStatus === 'approved' }"
+            style="--chip-bg: #81C784;"
+            @click="setOrderStatusFilter('approved')"
+          >Chốt in</span>
+          <span
+            class="cl-order-chip"
+            :class="{ active: filters.orderStatus === 'cancelled' }"
+            style="--chip-bg: #E57373;"
+            @click="setOrderStatusFilter('cancelled')"
+          >Khách huỷ</span>
+        </div>
       </div>
 
       <!-- Phase 6+ Inbox Triage Filter Bar (Pills + 4 tabs + Mini counter) -->
       <!-- Old "Chính/Khác" tabs replaced by 4-tab single-active trong slot này. -->
-      <slot name="filters" />
+      <slot name="filters" :expanded="advancedFiltersExpanded" />
     </div>
 
     <!-- ════════ Conv items ════════ -->
@@ -141,6 +209,19 @@
               <span v-if="conv.threadType === 'group'" class="group-icon">👥</span>
               <span v-if="conv.isVirtual" class="virtual-chip" title="Chat nội bộ — KH chưa có Zalo, tin nhắn KHÔNG gửi đi">🔒</span>
               {{ displayName(conv) }}
+
+              <!-- Status Badge (Nóng / Lạnh / Nguội / v.v.) -->
+              <span
+                v-if="(conv.friendship as any)?.statusName || (conv.contact as any)?.statusRef?.name"
+                class="cl-friend-status-badge"
+                :style="{
+                  backgroundColor: ((conv.friendship as any)?.statusColor || (conv.contact as any)?.statusRef?.color || '#CBD5E1') + '20',
+                  color: (conv.friendship as any)?.statusColor || (conv.contact as any)?.statusRef?.color || '#64748B'
+                }"
+              >
+                {{ (conv.friendship as any)?.statusName || (conv.contact as any)?.statusRef?.name }}
+              </span>
+
               <!-- Theo dõi (anh chốt 2026-06-15): khách đang trong "theo dõi" → chuông ngay sau tên.
                    Icon hệ thống mdi (đồng bộ), không emoji. -->
               <v-icon
@@ -149,6 +230,13 @@
                 class="ci-follow-bell"
                 title="Đang theo dõi khách hàng này"
               >mdi-bell-ring-outline</v-icon>
+              <!-- MVP phân loại hội thoại (2026-07-19): badge ngày im. Emoji CỐ Ý ngược —
+                   🔥=mới im (đuổi gấp), ❄️=im lâu (gần mất). Ngưỡng mirror silence-classification.ts. -->
+              <span
+                v-if="silenceBadge(conv)"
+                class="ci-silence-badge"
+                :title="silenceBadge(conv)!.tip"
+              >{{ silenceBadge(conv)!.emoji }}</span>
             </div>
             <div class="ci-meta-right">
               <div class="ci-time"><ConvTime :at="conv.lastMessageAt" /></div>
@@ -156,16 +244,6 @@
                 v-if="conv.unreadCount > 0 && conv.id !== selectedId"
                 class="ci-unread-count"
               >{{ conv.unreadCount > 5 ? '5+' : conv.unreadCount }}</div>
-              <!-- Phase 8 — Engagement pattern badge (tooltip teleport to body) -->
-              <span
-                v-if="(conv as any).contact?.engagementPattern && (conv as any).contact?.engagementPattern !== 'noise'"
-                class="engagement-badge"
-                :class="`pattern-${(conv as any).contact?.engagementPattern}`"
-                @mouseenter="onPatternHover($event, (conv as any).contact)"
-                @mouseleave="onPatternLeave"
-              >
-                {{ patternIcon((conv as any).contact?.engagementPattern) }}
-              </span>
             </div>
           </div>
 
@@ -279,24 +357,21 @@
       @opened="onComposeOpened"
     />
 
-    <!-- Phase 8 — Engagement pattern tooltip (teleport ra body để escape overflow:hidden) -->
-    <Teleport to="body">
-      <div
-        v-if="patternTipVisible && patternTipData"
-        class="engagement-pattern-tip-portal"
-        :style="patternTipStyle"
-        role="tooltip"
-      >
-        <strong class="ept-title">{{ patternIcon(patternTipData.pattern) }} {{ patternLabel(patternTipData.pattern) }}</strong>
-        <span class="ept-meaning">{{ patternMeaning(patternTipData.pattern) }}</span>
-        <span v-if="patternTipData.score != null" class="ept-detail">
-          Điểm {{ patternTipData.score }}/100
-          <template v-if="patternTipData.trend != null">
-            · trend {{ patternTipData.trend > 0 ? '+' : '' }}{{ patternTipData.trend }}%
-          </template>
-        </span>
-      </div>
-    </Teleport>
+    <!-- Group creation dialog -->
+    <GroupCreateDialog
+      v-model="groupCreateOpen"
+      :account-id="groupCreatePickedAccountId"
+      @create="createZaloGroup" @created="onGroupPancakeCreated"
+    />
+
+    <!-- Zalo User Info Profile Dialog -->
+    <ZaloUserInfoDialog
+      v-model="showUserInfoDialog"
+      :uid="userInfoUid"
+      :zalo-account-id="userInfoAccountId"
+      @synced="onUserInfoSynced"
+    />
+
   </div>
 </template>
 
@@ -305,15 +380,19 @@ import { ref, reactive, watch, onMounted, computed, nextTick } from 'vue';
 import type { Conversation, AiSentiment } from '@/composables/use-chat';
 import { api } from '@/api/index';
 // Icon chrome — Lucide line (anh chốt 2026-06-08, bỏ ký tự thô).
-import { ChevronUp as ChevronUpIcon, X as XIcon } from 'lucide-vue-next';
+import { X as XIcon } from 'lucide-vue-next';
 import AiSentimentBadge from '@/components/ai/ai-sentiment-badge.vue';
 import Avatar from '@/components/ui/Avatar.vue';
 import NewMessageDialog from '@/components/chat/NewMessageDialog.vue';
+import ZaloUserInfoDialog from '@/components/chat/ZaloUserInfoDialog.vue';
+import GroupCreateDialog from '@/components/groups/group-create-dialog.vue';
+import { useGroups } from '@/composables/use-groups';
+import { useToast } from '@/composables/use-toast';
 import ConversationContextMenu from '@/components/chat/conversation-context-menu.vue';
 import ConvTime from '@/components/chat/ConvTime.vue';
 import NickPickerPopup from '@/components/zalo-accounts/NickPickerPopup.vue';
 import ZaloBrandIcon from '@/components/icons/ZaloBrandIcon.vue';
-import { loadTagDefs, isZaloManaged, cleanTagName, tagColor } from '@/composables/use-crm-tag-defs';
+import { loadTagDefs, cleanTagName, tagColor } from '@/composables/use-crm-tag-defs';
 import { loadTagTaxonomy, findTagBySlug, useTagTaxonomy } from '@/composables/use-tag-taxonomy';
 import { getAutoTagDef } from '@/constants/auto-tags';
 import PrivateBlur from '@/components/privacy/PrivateBlur.vue';
@@ -348,6 +427,10 @@ const props = defineProps<{
   /** Theo dõi (anh chốt 2026-06-15) — Set các cặp "contactId|nickId" ĐANG theo dõi.
    *  Row khớp → hiện chuông sau tên. ChatView fetch /care-sessions/listening-pairs. */
   followingPairs?: Set<string>;
+  advancedFiltersActive?: boolean;
+  relatedMode?: boolean;
+  relatedContactName?: string;
+  relatedCoverageState?: 'complete' | 'partial' | 'scanning' | 'unscanned';
 }>();
 
 const emit = defineEmits<{
@@ -359,60 +442,173 @@ const emit = defineEmits<{
   'conversation-moved': [id: string, tab: string];
   'conversation-deleted': [id: string];
   'compose-opened': [conversationId: string];
+  'group-created': [conversationId: string];
   /** Theo dõi (anh chốt 2026-06-15) — toggle follow từ menu → cập nhật chuông cột 2 ngay. */
   'follow-changed': [contactId: string, nickId: string, following: boolean];
+  'exit-related-mode': [];
 }>();
 
-// ── Compose new message ─────────────────────────────────────────────────────
-// Wedge A 2026-05-28 (anh chốt): nút "Tin nhắn mới" hành xử theo 2 state.
-//  - Search empty → flash đỏ cam viền search + focus, KHÔNG mở dialog.
-//  - Search có nội dung → mở NickPickerPopup xổ từ nút này (Teleport + anchored).
-//  - Pick nick từ popup → đóng popup + mở NewMessageDialog với
-//    defaultAccountId + initialQuery=search box.
+// ── Compose new message / Add Friend (Find by phone) ────────────────────────
 const newMsgOpen = ref(false);
 const newMsgPickerOpen = ref(false);
 const newMsgBtnEl = ref<HTMLElement | null>(null);
 const searchInputEl = ref<HTMLInputElement | null>(null);
 const searchFlash = ref(false);
+const ADVANCED_FILTERS_STORAGE_KEY = 'chat.advanced-filters-expanded.v1';
+const advancedFiltersExpanded = ref(localStorage.getItem(ADVANCED_FILTERS_STORAGE_KEY) === '1');
+
+function toggleAdvancedFilters() {
+  advancedFiltersExpanded.value = !advancedFiltersExpanded.value;
+  localStorage.setItem(ADVANCED_FILTERS_STORAGE_KEY, advancedFiltersExpanded.value ? '1' : '0');
+}
 const newMsgInitialQuery = ref('');
 const newMsgPickedAccountId = ref<string | null>(null);
 
+// Zalo Profile dialog state
+const showUserInfoDialog = ref(false);
+const userInfoUid = ref('');
+const userInfoAccountId = ref('');
+const loadingUserInfo = ref(false);
+
+function onUserInfoSynced() {
+  // Đồng bộ thông tin nếu cần
+}
+
+// ── Zalo group creation variables & logic ──────────────────────────────────
+const { createGroup } = useGroups();
+const toast = useToast();
+
+const groupCreateOpen = ref(false);
+const groupNickPickerOpen = ref(false);
+const groupCreatePickedAccountId = ref<string | null>(null);
+const createGroupBtnEl = ref<HTMLElement | null>(null);
+
+const activeAccountId = computed<string | null>(() => {
+  const ids = props.selectedAccountIds || [];
+  if (ids.length === 1 && ids[0]) return ids[0];
+  if (composeAccounts.value.length === 1) return composeAccounts.value[0].id;
+  if (props.selectedId) {
+    const activeConv = props.conversations.find(c => c.id === props.selectedId);
+    if (activeConv?.zaloAccount?.id) return activeConv.zaloAccount.id;
+  }
+  return null;
+});
+
+function onClickCreateGroup() {
+  if (composeAccounts.value.length === 0) {
+    toast.error('Không có tài khoản Zalo nào đang hoạt động.');
+    return;
+  }
+  // Nếu chỉ có 1 nick Zalo, chọn luôn và mở popup tạo nhóm
+  if (composeAccounts.value.length === 1) {
+    groupCreatePickedAccountId.value = composeAccounts.value[0].id;
+    groupCreateOpen.value = true;
+    return;
+  }
+  // Nếu nhiều nick, mở NickPickerPopup
+  groupNickPickerOpen.value = !groupNickPickerOpen.value;
+}
+
+function onPickNickForCreateGroup(nick: { id: string }) {
+  groupCreatePickedAccountId.value = nick.id;
+  groupNickPickerOpen.value = false;
+  groupCreateOpen.value = true;
+}
+
+function onGroupPancakeCreated(payload: { conversationId: string }) {
+  if (payload.conversationId) emit('group-created', payload.conversationId);
+}
+async function createZaloGroup(payload: { name: string; memberIds: string[]; createPancakeOrder?: boolean }) {
+  if (!groupCreatePickedAccountId.value) return;
+  try {
+    const result = await createGroup(groupCreatePickedAccountId.value, { name: payload.name, memberIds: payload.memberIds });
+    if (!result) {
+      toast.error('Tạo nhóm Zalo thất bại. Chưa tạo đơn Pancake.');
+      return;
+    }
+    if (!result.conversationId) {
+      toast.error('Đã tạo nhóm Zalo nhưng chưa tạo được hội thoại CRM');
+      return;
+    }
+    if (payload.createPancakeOrder) {
+      try {
+        const { data } = await api.post(`/orders/pancake/from-conversation/${result.conversationId}`, {});
+        const code = data?.link?.orderCode || data?.link?.pancakeOrderId || '';
+        if (data?.renameSucceeded || data?.link?.syncStatus === 'complete') toast.success(`Đã tạo nhóm và đơn Pancake ${code}`.trim());
+        else toast.warning(`Đã tạo đơn Pancake ${code}, nhưng chưa đổi được tên nhóm. Mở tab Quản lý đơn để thử lại.`.trim());
+      } catch (err: any) {
+        toast.error(err?.response?.data?.error || 'Đã tạo nhóm Zalo nhưng chưa tạo được đơn Pancake');
+      }
+    } else toast.success('Đã tạo nhóm Zalo thành công');
+    emit('group-created', result.conversationId);
+  } catch (err) {
+    console.error('Failed to create group:', err);
+    toast.error('Lỗi khi tạo nhóm Zalo');
+  }
+}
 const composeAccounts = computed(() => props.accounts || []);
 const composeDefaultAccountId = computed<string | null>(() => {
-  // Sau khi chọn nick từ popup → ưu tiên dùng cái đó
   if (newMsgPickedAccountId.value) return newMsgPickedAccountId.value;
   const ids = props.selectedAccountIds || [];
-  if (ids.length === 1) return ids[0];
+  if (ids.length === 1 && ids[0]) return ids[0];
   if (composeAccounts.value.length === 1) return composeAccounts.value[0].id;
   return null;
 });
 
-function onClickNewMessage() {
+async function handleFindUserByPhone(phone: string, accountId: string) {
+  loadingUserInfo.value = true;
+  try {
+    const res = await api.post('/zalo-user-info/find-by-phone', {
+      phone,
+      accountId
+    });
+    if (res.data && res.data.found && res.data.uid) {
+      userInfoUid.value = res.data.uid;
+      userInfoAccountId.value = accountId;
+      showUserInfoDialog.value = true;
+    } else {
+      toast.error('Không tìm thấy tài khoản Zalo liên kết với số điện thoại này.');
+    }
+  } catch (err: any) {
+    console.error('[findUser] failed:', err);
+    toast.error(err.response?.data?.detail || 'Không thể tìm kiếm tài khoản Zalo');
+  } finally {
+    loadingUserInfo.value = false;
+  }
+}
+
+async function onClickNewMessage() {
   const q = (props.search || '').trim();
   if (!q) {
-    // State A: hint sale nhập SĐT vào search trước
     searchFlash.value = true;
     nextTick(() => searchInputEl.value?.focus());
     return;
   }
-  // State B: mở NickPickerPopup xổ từ button "Tin nhắn mới"
-  newMsgPickerOpen.value = !newMsgPickerOpen.value;
+  const accountId = activeAccountId.value;
+  if (accountId) {
+    await handleFindUserByPhone(q, accountId);
+  } else {
+    newMsgPickerOpen.value = !newMsgPickerOpen.value;
+  }
 }
 
-// 2026-06-20 (anh báo: nhập SĐT vào ô tìm kiếm + Enter phải mở "Tin nhắn mới", đỡ phải click):
-// Enter trong ô search → mở picker "Tin nhắn mới" (giống bấm nút) khi có nội dung. Enter LUÔN
-// mở (không toggle như click) để bấm Enter không vô tình đóng lại.
-function onSearchEnter() {
+async function onSearchEnter() {
   const q = (props.search || '').trim();
-  if (!q) return; // rỗng → không làm gì (khỏi flash phiền khi Enter)
-  newMsgPickerOpen.value = true;
+  if (!q) return;
+  const accountId = activeAccountId.value;
+  if (accountId) {
+    await handleFindUserByPhone(q, accountId);
+  } else {
+    newMsgPickerOpen.value = true;
+  }
 }
 
-function onPickNickForNewMsg(nick: { id: string }) {
-  newMsgPickedAccountId.value = nick.id;
-  newMsgInitialQuery.value = (props.search || '').trim();
+async function onPickNickForNewMsg(nick: { id: string }) {
   newMsgPickerOpen.value = false;
-  newMsgOpen.value = true;
+  const q = (props.search || '').trim();
+  if (q) {
+    await handleFindUserByPhone(q, nick.id);
+  }
 }
 
 function onComposeOpened(conversationId: string) {
@@ -462,12 +658,31 @@ const delConfirmBtn = ref<HTMLButtonElement | null>(null);
 // ── Filter state ────────────────────────────────────────────────────────────
 const filters = reactive({
   tags: [] as string[],
+  orderStatus: '',
+  unread: '',
+  customerWaitingReply: '',
+  threadType: '',
+  tab: '',
 });
+function setOrderStatusFilter(status: string) {
+  filters.orderStatus = status;
+}
 
 const counts = reactive({ unread: 0, unreplied: 0, total: 0 });
 const availableTags = ref<string[]>([]);
 
-// ── Helpers ────────────────────────────────────────────────────────────────
+// ── Tag bar scroll (nút mũi tên trái/phải) ────────────────────────────────
+const tagBarEl = ref<HTMLElement | null>(null);
+const tagBarCanScrollLeft = ref(false);
+const tagBarCanScrollRight = ref(false);
+
+function updateTagScrollState() {
+  const el = tagBarEl.value;
+  if (!el) return;
+  tagBarCanScrollLeft.value = el.scrollLeft > 4;
+  tagBarCanScrollRight.value = el.scrollLeft + el.clientWidth < el.scrollWidth - 4;
+}
+
 function onSearchInput(e: Event) {
   emit('update:search', (e.target as HTMLInputElement).value);
 }
@@ -479,33 +694,19 @@ function clearSearch() {
   nextTick(() => searchInputEl.value?.focus());
 }
 
-// Single-select: click tag → set ONLY tag đó. Click tag đang active → clear.
-// Khi đã có 1 tag active → tag khác ẩn (visibleTags computed).
-function toggleTag(tag: string) {
-  if (filters.tags.includes(tag)) {
-    filters.tags = [];          // deselect → clear filter, show all tags lại
-  } else {
-    filters.tags = [tag];        // single-select chỉ giữ 1 tag
-  }
-}
-
-// visibleTags: nếu có tag active → chỉ hiện tag đó. Còn lại → show all.
-const visibleTags = computed(() => {
-  if (filters.tags.length > 0) {
-    return availableTags.value.filter((t: string) => filters.tags.includes(t));
-  }
-  return availableTags.value;
-});
-
 function buildFilterParams(): Record<string, string> {
   // LUÔN include key 'tags' (empty string khi không có tag).
   // Lý do: ChatView onFiltersUpdate merge với extraFilters cũ — nếu không
   // gửi 'tags' key, giá trị cũ vẫn tồn tại → list không clear filter khi
   // user bấm × hoặc click tag để untag. Empty string → backend skip filter.
   const params: Record<string, string> = {
-    tab: activeTab.value,
+    tab: filters.tab || activeTab.value,
     tags: filters.tags.length > 0 ? filters.tags.join(',') : '',
+    orderStatus: filters.orderStatus,
   };
+  if (filters.unread) params.unread = filters.unread;
+  if (filters.customerWaitingReply) params.customerWaitingReply = filters.customerWaitingReply;
+  if (filters.threadType) params.threadType = filters.threadType;
   return params;
 }
 
@@ -560,9 +761,8 @@ function computeDisplayTags(conv: Conversation): DisplayTag[] {
       out.push({ name: z.name, color: z.color || '#0068FF', isZalo: true, key: 'z:' + (z.id ?? z.name) });
     }
   }
-  // 2. Auto-tags (Friend.autoTags) — slug cố định. Nhóm Detect (active/cold/ready/…)
-  //    dùng AUTO_TAG_DISPLAY (nhãn Việt + icon). Nhóm Engagement (engagement-hot/…) là
-  //    Tag v2 thật → resolve qua taxonomy. Ưu tiên taxonomy, fallback AUTO_TAG_DISPLAY.
+  // 2. Auto-tags (Friend.autoTags) — slug cố định, resolve qua taxonomy.
+  //    Ưu tiên taxonomy, fallback AUTO_TAG_DISPLAY.
   const autoTagsRaw = (conv.friendship as { autoTags?: string[] } | null | undefined)?.autoTags;
   if (Array.isArray(autoTagsRaw)) {
     for (const key of autoTagsRaw) {
@@ -636,6 +836,21 @@ function isFollowingConv(conv: Conversation): boolean {
   const contactId = conv.contact?.id;
   if (contactId && pairs.has(`c|${nickId}|${contactId}`)) return true;
   return false;
+}
+
+// MVP phân loại hội thoại (2026-07-19) — nhãn ngày im → emoji + tooltip khoảng ngày.
+// Emoji CỐ Ý ngược trực giác (🔥 mới im = đuổi gấp; ❄️ im lâu = gần mất). Ngưỡng
+// mirror backend silence-classification.ts (4/7/15/30). Không tự tính lại số ngày ở FE
+// vì FriendshipInfo không có lastInboundAt (outbound đẩy lastMessageAt nhưng KHÔNG đẩy
+// lastInboundAt) → sẽ lệch nhãn server; dùng khoảng ngày theo nhãn cho trung thực.
+const SILENCE_BADGE: Record<string, { emoji: string; tip: string }> = {
+  hot: { emoji: '🔥', tip: 'Im 4–6 ngày — đuổi gấp kẻo nguội' },
+  warm: { emoji: '☀️', tip: 'Im 7–14 ngày' },
+  cool: { emoji: '🌤', tip: 'Im 15–29 ngày' },
+  cold: { emoji: '❄️', tip: 'Im từ 30 ngày — gần mất, cần cứu' },
+};
+function silenceBadge(conv: Conversation): { emoji: string; tip: string } | null {
+  return conv.silenceLabel ? SILENCE_BADGE[conv.silenceLabel] ?? null : null;
 }
 
 function displayName(conv: Conversation): string {
@@ -841,6 +1056,7 @@ onMounted(async () => {
   // Load CrmTag defs (color + managedBy) cho TagIcon render — share cache toàn app
   // loadTagTaxonomy: slug→{name,color,emoji} cho tag v2 (crmTagsPerNick/contact.tags lưu slug).
   await Promise.all([fetchCounts(), fetchAvailableTags(), loadTagDefs(), loadTagTaxonomy()]);
+  nextTick(updateTagScrollState);
 });
 
 /* ── Auto-scroll selected row vào viewport ──────────────────────────────────
@@ -929,7 +1145,7 @@ function computeLastMessagePreview(conv: Conversation): PreviewResult {
   if (action.includes('calltime') || action.includes('misscall')) {
     const isVideo = params?.calltype === 1;
     const isMissed = action.includes('misscall');
-    // isCaller=1 nghĩa là bên SDK đang dùng là CALLER. Map sang sender ZaloCRM:
+    // isCaller=1 nghĩa là bên SDK đang dùng là CALLER. Map sang sender Nhà Yến CRM:
     // senderType='self' (sale gửi) đồng nghĩa sale là caller.
     const icon = isVideo ? '📹' : '📞';
     const kind = isVideo ? 'video' : 'gọi';
@@ -1065,99 +1281,6 @@ function parseSentiment(conv: Conversation): AiSentiment | null {
 // formatTime đã chuyển sang composable use-relative-time (formatConvTime) + render
 // qua component con ConvTime (2026-06-11 perf). Không còn định nghĩa ở đây.
 
-// ─── Phase 8 — Engagement pattern badge ──────────────────
-function patternIcon(pattern: string | null | undefined): string {
-  switch (pattern) {
-    case 'hot': return '🔥';
-    case 'champion': return '💎';
-    case 'stable': return '📈';
-    case 'cooling': return '⚠';
-    case 'cold': return '😴';
-    default: return '';
-  }
-}
-
-function patternLabel(pattern: string | null | undefined): string {
-  const labels: Record<string, string> = {
-    hot: 'Đang nóng lên',
-    champion: 'Champion',
-    stable: 'Ổn định',
-    cooling: 'Đang nguội',
-    cold: 'Lạnh',
-  };
-  return pattern ? (labels[pattern] || pattern) : '';
-}
-
-function patternMeaning(pattern: string | null | undefined): string {
-  const meanings: Record<string, string> = {
-    hot: 'Tương tác tăng mạnh tuần này — ưu tiên gọi/chốt sớm.',
-    champion: 'Tương tác đều cao 4 tuần qua — KH chất lượng cao.',
-    stable: 'Tương tác đều ở mức trung bình — nuôi lâu dài.',
-    cooling: 'Tương tác giảm tuần này — cần ping để giữ KH.',
-    cold: 'Gần như không tương tác 4 tuần qua — cân nhắc bỏ qua.',
-  };
-  return pattern ? (meanings[pattern] || '') : '';
-}
-
-// ─── Phase 8 — Teleport tooltip for pattern badge ─────────
-interface PatternTipData {
-  pattern: string;
-  score: number | null;
-  trend: number | null;
-}
-const patternTipVisible = ref(false);
-const patternTipData = ref<PatternTipData | null>(null);
-const patternTipStyle = ref<Record<string, string>>({});
-let patternTipTimer: ReturnType<typeof setTimeout> | null = null;
-
-function onPatternHover(event: MouseEvent, contact: any) {
-  if (!contact?.engagementPattern) return;
-  const target = event.currentTarget as HTMLElement;
-  const rect = target.getBoundingClientRect();
-
-  // Position tooltip ABOVE badge, right-aligned to badge right edge.
-  // 200px wide tooltip; if too close to viewport edge, flip to below.
-  const tipWidth = 220;
-  const tipEstimatedHeight = 80;
-  const margin = 8;
-
-  let top = rect.top - tipEstimatedHeight - margin;
-  // Flip below if too close to top
-  if (top < 8) top = rect.bottom + margin;
-
-  let left = rect.right - tipWidth;
-  // Don't go off left edge
-  if (left < 8) left = 8;
-  // Don't go off right edge
-  if (left + tipWidth > window.innerWidth - 8) {
-    left = window.innerWidth - tipWidth - 8;
-  }
-
-  patternTipStyle.value = {
-    top: `${top}px`,
-    left: `${left}px`,
-    width: `${tipWidth}px`,
-  };
-  patternTipData.value = {
-    pattern: contact.engagementPattern,
-    score: contact.engagementScore ?? null,
-    trend: contact.engagementTrend ?? null,
-  };
-
-  // Slight delay to avoid flashing on quick mouseovers when scrolling list
-  if (patternTipTimer) clearTimeout(patternTipTimer);
-  patternTipTimer = setTimeout(() => {
-    patternTipVisible.value = true;
-  }, 180);
-}
-
-function onPatternLeave() {
-  if (patternTipTimer) {
-    clearTimeout(patternTipTimer);
-    patternTipTimer = null;
-  }
-  patternTipVisible.value = false;
-}
 </script>
 
 <style scoped>
@@ -1237,55 +1360,184 @@ function onPatternLeave() {
 }
 .cl-new-msg-caret svg, .clear-tags svg { display: block; }
 .clear-tags { display: inline-flex; align-items: center; justify-content: center; }
-.cl-new-msg {
-  display: inline-flex; align-items: center; gap: 4px;
-  padding: 8px 10px;
-  border: 1.5px solid var(--smax-primary);
-  background: var(--smax-primary-soft);
-  color: var(--smax-primary);
-  border-radius: 9px;
-  font-size: 12px; font-weight: 600;
+.cl-header-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1.5px solid var(--smax-grey-300, #E5E7EB);
+  background: var(--smax-bg, #fff);
+  color: var(--smax-grey-600, #4B5563);
   cursor: pointer;
-  font-family: inherit;
-  white-space: nowrap;
+  transition: all 0.2s ease;
   flex-shrink: 0;
 }
-.cl-new-msg:hover {
-  background: var(--smax-primary);
-  color: white;
+.cl-header-action-btn:hover {
+  background: var(--smax-primary-soft, #EBF3FF);
+  border-color: var(--smax-primary, #0068FF);
+  color: var(--smax-primary, #0068FF);
 }
 
-.cl-label-bar {
-  display: flex; gap: 4px; margin-top: 7px;
-  overflow-x: auto;
-  padding-bottom: 3px;
+.cl-related-header {
+  min-height: 58px;
+  padding: 10px 12px;
+  display: flex;
   align-items: center;
+  gap: 9px;
+  border-bottom: 1px solid #e5e7eb;
+  background: #fff;
 }
-.cl-label-bar::-webkit-scrollbar { height: 4px; }
-/* Chip tag CRM — dùng --tag-color từ tagColor() lookup (sync system color).
-   Text + border ăn theo --tag-color, active state fill background. */
-.cl-label-chip {
-  display: inline-flex; align-items: center; gap: 3px;
-  padding: 3px 9px;
-  border-radius: 11px;
-  font-size: 11px; font-weight: 500;
-  border: 1px solid var(--tag-color, #D1D5DB);
-  color: var(--tag-color, #4B5563);
+.cl-related-back {
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  color: #334155;
+  background: #f1f5f9;
+}
+.cl-related-back:hover { background: #e2e8f0; }
+.cl-related-title { min-width: 0; flex: 1; display: flex; flex-direction: column; }
+.cl-related-title strong { color: #0f172a; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cl-related-title span { color: #64748b; font-size: 11px; }
+.cl-related-warning,
+.cl-related-complete {
+  min-height: 31px;
+  padding: 6px 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  border-bottom: 1px solid #e5e7eb;
+}
+.cl-related-warning { color: #92400e; background: #fffbeb; }
+.cl-related-complete { color: #166534; background: #f0fdf4; }
+.cl-advanced-filter-btn {
+  position: relative;
+}
+.cl-advanced-filter-btn.cl-filter-expanded {
+  background: var(--smax-primary-soft, #EBF3FF);
+  border-color: var(--smax-primary, #0068FF);
+  color: var(--smax-primary, #0068FF);
+}
+.cl-filter-indicator {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 7px;
+  height: 7px;
+  border: 1.5px solid white;
+  border-radius: 50%;
+  background: #EF4444;
+}
+
+/* ── Order status filter bar styles ── */
+.cl-order-status-bar-wrap {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-top: 8px;
+  position: relative;
+}
+.cl-order-status-bar {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding: 4px 2px;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+}
+.cl-order-status-bar::-webkit-scrollbar {
+  height: 0;
+}
+.cl-order-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 11.5px;
+  font-weight: 600;
+  border: 1.5px solid var(--smax-grey-200, #E5E7EB);
+  background: var(--smax-grey-50, #F9FAFB);
+  color: var(--smax-grey-600, #4B5563);
   cursor: pointer;
   white-space: nowrap;
   flex-shrink: 0;
   user-select: none;
-  background: var(--smax-bg);
+  transition: all 0.15s ease-in-out;
+}
+.cl-order-chip:hover {
+  background: var(--smax-grey-100, #F3F4F6);
+  border-color: var(--smax-grey-300, #D1D5DB);
+}
+.cl-order-chip.active {
+  background: var(--chip-bg, var(--smax-primary, #0068FF));
+  color: #fff;
+  border-color: var(--chip-bg, var(--smax-primary, #0068FF));
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+}
+
+/* ── Tag bar wrapper với nút mũi tên scroll ── */
+.cl-label-bar-wrap {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-top: 7px;
+  position: relative;
+}
+.cl-label-bar {
+  display: flex; gap: 4px;
+  overflow-x: auto;
+  padding-bottom: 3px;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+  scroll-behavior: smooth;
+}
+.cl-label-bar::-webkit-scrollbar { height: 0; }
+.cl-label-scroll-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--smax-primary, #2F80ED) 12%, white);
+  color: var(--smax-primary, #2F80ED);
+  border: 1px solid color-mix(in srgb, var(--smax-primary, #2F80ED) 30%, white);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.cl-label-scroll-btn:hover {
+  background: color-mix(in srgb, var(--smax-primary, #2F80ED) 22%, white);
+}
+/* Chip tag CRM — nền màu theo --tag-color; text đủ tương phản */
+.cl-label-chip {
+  display: inline-flex; align-items: center; gap: 3px;
+  padding: 3px 9px;
+  border-radius: 11px;
+  font-size: 11px; font-weight: 600;
+  border: 1.5px solid color-mix(in srgb, var(--tag-color, #2F80ED) 60%, white);
+  background: color-mix(in srgb, var(--tag-color, #2F80ED) 15%, white);
+  color: color-mix(in srgb, var(--tag-color, #2F80ED) 80%, black);
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  user-select: none;
   transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
 }
 .cl-label-chip:hover {
-  background: color-mix(in srgb, var(--tag-color, #6B7280) 12%, transparent);
+  background: color-mix(in srgb, var(--tag-color, #2F80ED) 25%, white);
 }
 .cl-label-chip.active {
-  background: var(--tag-color, #6B7280);
+  background: var(--tag-color, #2F80ED);
   color: white;
-  border-color: var(--tag-color, #6B7280);
-  font-weight: 600;
+  border-color: var(--tag-color, #2F80ED);
 }
 /* Nút × clear tag filter — to hơn + có border để dễ click */
 .clear-tags {
@@ -1426,18 +1678,25 @@ function onPatternLeave() {
 .conv-item.active .ci-nick-mini { border-color: var(--smax-primary-soft, #e3f2fd); }
 .conv-item:hover { background: var(--smax-grey-50); }
 .conv-item.unread .ci-name { font-weight: 700; }
-/* Active: nền xanh nhạt đồng nhất + bo góc + viền xanh nhẹ */
+/* Tô màu xanh dương nhạt cho hội thoại chưa đọc hoặc có tin nhắn mới */
+.conv-item.unread {
+  background: #EBF3FF !important;
+}
+.conv-item.unread:hover {
+  background: #dbe9fe !important;
+}
+/* Active: nền tím đậm đồng nhất, kéo ngang sát mép, không có viền xanh, không bo góc */
 .conv-item.active,
 .conv-item.is-group.active {
-  background: var(--smax-primary-soft) !important;
-  border-radius: 12px;
-  margin: 2px 6px;
+  background: #93c5fd !important; /* xanh nhạt đậm */
+  border-radius: 0px !important;
+  margin: 0px !important;
   border-bottom-color: transparent !important;
-  box-shadow: inset 0 0 0 1.5px #64b5f6 !important;
+  box-shadow: none !important;
 }
 .conv-item.active:hover,
 .conv-item.is-group.active:hover {
-  background: var(--smax-primary-soft) !important;
+  background: #60a5fa !important;
 }
 
 /* M53 2026-05-30: Virtual conversation — nền cam nhạt + chip 🔒 */
@@ -1466,43 +1725,23 @@ function onPatternLeave() {
   height: 16px;
 }
 
-/* Unread count badge — pill xám mờ dưới timestamp */
+/* Unread count badge — Ô tròn đỏ số trắng */
 .ci-meta-right {
   display: flex; flex-direction: column;
   align-items: flex-end; gap: 4px;
   flex-shrink: 0;
 }
 .ci-unread-count {
-  min-width: 20px; height: 18px;
-  padding: 0 6px;
-  background: #b8bfc9;
-  color: white;
+  min-width: 18px; height: 18px;
+  padding: 0 5px;
+  background: #ef4444; /* Đỏ */
+  color: white; /* Trắng */
   font-size: 10px; font-weight: 700;
-  border-radius: 9px;
+  border-radius: 50%; /* Tròn */
   display: inline-flex; align-items: center; justify-content: center;
   line-height: 1;
 }
 
-/* Phase 8 — Engagement pattern badge */
-.engagement-badge {
-  font-size: 14px;
-  line-height: 1;
-  width: 22px; height: 22px;
-  display: inline-flex; align-items: center; justify-content: center;
-  border-radius: 50%;
-  cursor: help;
-  position: relative;
-  /* Re-enable pointer events (parent .ci-meta-right có pointer-events:none để
-     click vùng meta vẫn bubble lên conv-item). Badge cần nhận hover cho tooltip. */
-  pointer-events: auto;
-}
-.engagement-badge.pattern-hot { background: #FEF2F2; }
-.engagement-badge.pattern-champion { background: #FFFBEB; }
-.engagement-badge.pattern-stable { background: #EFF6FF; }
-.engagement-badge.pattern-cooling { background: #FFF7ED; }
-.engagement-badge.pattern-cold { background: #F4F4F7; }
-
-/* Teleport tooltip lives in body — use :global to escape scoped CSS */
 
 .ci-avatar {
   width: 41px; height: 41px;
@@ -1538,6 +1777,7 @@ function onPatternLeave() {
 }
 .ci-name {
   font-size: 14px;
+  font-weight: 700; /* In đậm tên khách hàng */
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   display: inline-flex; align-items: center; gap: 4px;
   min-width: 0; flex: 1;
@@ -1550,6 +1790,8 @@ function onPatternLeave() {
 .group-icon { font-size: 11px; }
 /* Theo dõi (anh chốt 2026-06-15) — chuông sau tên cho khách đang theo dõi */
 .ci-follow-bell { color: #f59e0b; flex-shrink: 0; }
+/* MVP phân loại hội thoại (2026-07-19) — badge emoji ngày im, cạnh tên KH */
+.ci-silence-badge { flex-shrink: 0; font-size: 12px; line-height: 1; cursor: default; }
 /* Meta-right float ra góc phải, không nằm trong flex flow → badge không phá height */
 .ci-meta-right {
   position: absolute; top: 0; right: 0;
@@ -1564,6 +1806,7 @@ function onPatternLeave() {
 }
 .ci-preview {
   font-size: 12px; color: var(--smax-grey-700);
+  font-weight: 700; /* In đậm tin nhắn xem trước */
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   margin-top: 2px;
   height: 16px; line-height: 16px;
@@ -1801,44 +2044,18 @@ function onPatternLeave() {
   font-size: 10.5px;
   font-family: inherit;
 }
-
-.engagement-pattern-tip-portal {
-  position: fixed;
-  background: #1F2D3D;
-  color: white;
-  padding: 9px 11px;
-  border-radius: 6px;
-  font-size: 11px;
-  line-height: 1.5;
-  text-align: left;
-  z-index: 9999;
-  pointer-events: none;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.22), 0 0 0 1px rgba(255,255,255,0.04);
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  letter-spacing: -0.005em;
-  font-family: 'Inter', -apple-system, 'Segoe UI', sans-serif;
-  animation: ept-fade 0.15s ease;
-}
-@keyframes ept-fade {
-  from { opacity: 0; transform: translateY(-3px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-.engagement-pattern-tip-portal .ept-title {
-  font-size: 12px;
-  font-weight: 700;
-  color: white;
-}
-.engagement-pattern-tip-portal .ept-meaning {
-  font-size: 11px;
-  color: rgba(255, 255, 255, 0.86);
-  line-height: 1.45;
-}
-.engagement-pattern-tip-portal .ept-detail {
+.cl-friend-status-badge {
   font-size: 10px;
-  color: #FBBF24;
-  font-weight: 600;
-  margin-top: 2px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 6px;
+  margin-left: 6px;
+  display: inline-flex;
+  align-items: center;
+  line-height: 1.2;
+}
+.cl-filter-active {
+  background-color: rgba(37, 99, 235, 0.1) !important;
+  color: #2563EB !important;
 }
 </style>

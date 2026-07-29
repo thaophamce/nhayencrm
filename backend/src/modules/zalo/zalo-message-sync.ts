@@ -13,7 +13,7 @@ import { handleIncomingMessage } from '../chat/message-handler.js';
 import { detectContentType, extractAlbumInfo } from './zalo-message-helpers.js';
 import { withTenant, runSystemQuery } from '../../shared/tenant/tenant-context.js';
 
-const SYNC_INTERVAL_MS = 5 * 60_000; // 5 minutes
+const SYNC_INTERVAL_MS = 15 * 60_000; // 15 minutes
 const MAX_GROUPS_PER_SYNC = 20;
 const MESSAGES_PER_GROUP = 50;
 

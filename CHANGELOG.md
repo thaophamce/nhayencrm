@@ -1,9 +1,31 @@
 # Changelog
 
-Các thay đổi đáng chú ý của ZCRM. Theo [Semantic Versioning](https://semver.org/lang/vi/).
+Các thay đổi đáng chú ý của Nhà Yến CRM. Theo [Semantic Versioning](https://semver.org/lang/vi/).
 
 > Các tag `v1.x`–`v3.3.x` là **lịch sử upstream** (locphamnguyen/ZaloCRM) — xem đầy đủ ở cuối file.
-> `v3.4.x` là dòng release hiện tại.
+> `v3.5.x` là dòng release hiện tại.
+
+## [3.5.0] - 2026-07-29
+
+### Added
+- Quản lý đơn hàng, liên kết đơn Pancake, báo cáo và cảnh báo vận hành.
+- Module giao vận, báo cáo kinh doanh/sản phẩm và nhập dữ liệu giao vận.
+- Chấm công, nghỉ phép, bảng lương và phân quyền Nhân sự.
+- Khối nội dung, broadcast, gửi hàng loạt bạn bè/nhóm và bộ lọc marketing.
+- Trải nghiệm chat mới: chọn tài khoản, ghi chú, trích dẫn, media picker, AI follow-up và tối ưu mobile.
+- Cơ chế backup/khôi phục cùng các script vận hành Windows.
+
+### Changed
+- Cập nhật nhận diện Nhà Yến CRM và dashboard điều hành.
+- Build production dùng lockfile cố định (`npm ci`) để image có thể tái tạo.
+- Chuẩn hóa quyền cho Đơn hàng/Giao vận và loại bỏ module Engagement cũ.
+
+### Security
+- Nâng `fast-jwt` lên `6.3.0`, bổ sung regression test cho JWT rỗng, `alg=none` và header `crit`.
+- Loại file runtime, upload, backup, credential Firebase và artefact hotfix khỏi Git/Docker build context.
+
+### Deployment
+- 12 migration nghiệp vụ đã được đối chiếu byte-for-byte với production; release bổ sung 1 migration hardening tenant/RLS và unique key có thể chạy lặp an toàn.
 
 ## [3.4.0] - 2026-06-20
 

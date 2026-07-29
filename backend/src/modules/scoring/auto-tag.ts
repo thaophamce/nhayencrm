@@ -210,7 +210,7 @@ export async function updateFriendAutoTags(friendId: string): Promise<boolean> {
     // vỡ junction cũ. Nhưng NAME hiển thị = tiếng Việt (AUTO_TAG_LABELS) + icon. Nếu dùng
     // addFriendTag({tagName:'Đã nguội', autoCreate}) thì slugifyTag('Đã nguội')='da-nguoi'
     // → tạo tag MỚI lệch slug. → Phải resolve/seed tag def theo slug=key + name Việt, rồi
-    // add bằng tagId (KHÔNG autoCreate). Giống cách engagement-tag-service làm.
+    // add bằng tagId (KHÔNG autoCreate).
     const { addFriendTag, removeFriendTag } = await import('../tags/tag-service.js');
 
     // Helper: resolve tag def theo slug=key (auto_detect), tạo với name Việt nếu chưa có.

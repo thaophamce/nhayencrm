@@ -94,10 +94,10 @@ export function useGroups() {
     try {
       const res = await api.post(base(accountId), payload);
       await fetchGroups(accountId);
-      return res.data.group;
-    } catch (err) {
+      return { ...res.data.group, conversationId: res.data.conversationId as string | undefined };
+    } catch (err: any) {
       console.error('Failed to create group:', err);
-      return null;
+      throw new Error(err?.response?.data?.error || 'Tạo nhóm Zalo thất bại');
     } finally {
       actionLoading.value = false;
     }
@@ -378,6 +378,28 @@ export function useGroups() {
     }
   }
 
+  /** Export scanned (friend-only) members into an existing or new Customer List. */
+  async function exportScanMembersToList(
+    accountId: string,
+    scanId: string,
+    payload: { memberUids?: string[]; targetListId?: string; newListName?: string },
+  ): Promise<{
+    listId: string;
+    listName: string;
+    totalRequested: number;
+    added: number;
+    skippedStranger: number;
+    skippedNoPhone: number;
+  } | null> {
+    try {
+      const res = await api.post(`${scanBase(accountId)}/${scanId}/members/export-to-list`, payload);
+      return res.data;
+    } catch (err: any) {
+      console.error('Failed to export scan members to list:', err);
+      throw err;
+    }
+  }
+
   return {
     groups, selectedGroup, members, blocked, pending,
     loading, actionLoading,
@@ -391,6 +413,6 @@ export function useGroups() {
     leaveGroup, disperseGroup,
     // Group scan (feature E1)
     scan, scanMembers, scanLoading, scanMembersLoading,
-    createScan, fetchScanStatus, fetchScanMembers,
+    createScan, fetchScanStatus, fetchScanMembers, exportScanMembersToList,
   };
 }

@@ -335,9 +335,10 @@ const { accounts, fetchAccounts } = useZaloAccounts();
 // ─── Nút nhanh per-nick (port main 2026-06-11) ──────────────────────────────
 async function onSyncContacts(id: string) {
   try {
-    await api.post(`/zalo-accounts/${id}/sync-contacts`);
-    toast.push('Đồng bộ danh bạ thành công', 'success');
+    const res = await api.post(`/zalo-accounts/${id}/sync-contacts`);
+    const stats = res.data || {};
     await fetchAccounts();
+    toast.push(`Đồng bộ danh bạ thành công: Thêm mới ${stats.created || 0}, cập nhật ${stats.updated || 0}, liên kết ${stats.linked || 0}/${stats.total || 0} liên hệ.`, 'success');
   } catch (e: any) {
     const m = e.response?.data?.error || e.message;
     toast.push(/429|giới hạn/i.test(m) ? m : 'Đồng bộ danh bạ thất bại: ' + m, 'error');
@@ -345,8 +346,9 @@ async function onSyncContacts(id: string) {
 }
 async function onSyncHistory(id: string) {
   try {
-    await api.post(`/zalo-accounts/${id}/sync-history`);
-    toast.push('Đồng bộ lịch sử chat thành công', 'success');
+    const res = await api.post(`/zalo-accounts/${id}/sync-history`, {}, { timeout: 300000 });
+    const stats = res.data || {};
+    toast.push(`Đồng bộ lịch sử chat thành công: ${stats.friendsSynced || 0} bạn bè, ${stats.groupsSynced || 0} nhóm, ${stats.messagesBackfilled || 0} tin nhắn.`, 'success');
   } catch (e: any) {
     toast.push('Đồng bộ lịch sử chat thất bại: ' + (e.response?.data?.error || e.message), 'error');
   }

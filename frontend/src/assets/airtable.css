@@ -267,8 +267,8 @@
   --at-atlas-warning-soft: var(--warning-soft, #fdf3e2);
   --at-atlas-danger: var(--error, #f04438);
   --at-atlas-danger-soft: #fdeceb;
-  --at-atlas-purple: #6554c0;
-  --at-atlas-purple-soft: #eae6ff;
+  --at-atlas-purple: #2F80ED;
+  --at-atlas-purple-soft: #EBF3FF;
 
   /* Atlas surfaces extension */
   --at-hint: var(--ink-4, #97a0b3);
@@ -390,7 +390,7 @@
   color: var(--at-ink);
   margin-top: 4px;
   line-height: 1;
-  /* 2026-06-06 — số liệu KPI dùng mono (Roboto Mono) khớp HS Holding. */
+  /* 2026-06-06 — số liệu KPI dùng mono (Roboto Mono) khớp Nhà Yến. */
   font-family: var(--mono, "Roboto Mono", ui-monospace, monospace);
   font-variant-numeric: tabular-nums;
 }

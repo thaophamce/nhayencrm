@@ -44,7 +44,7 @@ import {
 
 // Tập source hợp lệ — guard cho filter ?source= (tránh enum lạ ném 500). 2026-06-17.
 const SOURCE_VALUES = new Set<TagSource>([
-  'zalo_real', 'manual_per_nick', 'auto_detect', 'auto_score', 'auto_engagement',
+  'zalo_real', 'manual_per_nick', 'auto_detect', 'auto_score',
   'manual_crm', 'ai_suggest', 'segment_rule', 'status', 'import',
 ]);
 
@@ -57,6 +57,40 @@ export async function registerTagRoutes(app: FastifyInstance): Promise<void> {
 
   app.get('/', async (req: FastifyRequest<{ Querystring: { scope?: string; source?: string; q?: string; cursor?: string; limit?: string; recount?: string; zaloAccountId?: string } }>, reply: FastifyReply) => {
     const user = req.user!;
+
+    // Tự động sửa đổi tất cả nhãn cũ (bất kể source/slug) sang tên và màu mới
+    try {
+      const oldNames = [
+        { old: '✅ Đều đặn', new: 'Mới nhận đơn', color: '#2196F3' },
+        { old: '❄️ Đang giảm', new: 'Đang thiết kế', color: '#FF9800' },
+        { old: '🏆 Tương tác đỉnh', new: 'Gửi duyệt demo', color: '#F77BA5' },
+        { old: '🔇 Chưa rõ', new: 'Khách chốt in', color: '#4CAF50' },
+        { old: '🔥 Rất tích cực', new: 'Đã giao hàng', color: '#009688' },
+        { old: '🧊 Ít tương tác', new: 'Khách hủy', color: '#F44336' },
+        { old: 'Đều đặn', new: 'Mới nhận đơn', color: '#2196F3' },
+        { old: 'Đang giảm', new: 'Đang thiết kế', color: '#FF9800' },
+        { old: 'Tương tác đỉnh', new: 'Gửi duyệt demo', color: '#F77BA5' },
+        { old: 'Chưa rõ', new: 'Khách chốt in', color: '#4CAF50' },
+        { old: 'Rất tích cực', new: 'Đã giao hàng', color: '#009688' },
+        { old: 'Ít tương tác', new: 'Khách hủy', color: '#F44336' },
+      ];
+
+      for (const item of oldNames) {
+        await prisma.tag.updateMany({
+          where: {
+            orgId: user.orgId,
+            name: item.old,
+          },
+          data: {
+            name: item.new,
+            color: item.color,
+          }
+        });
+      }
+    } catch (err) {
+      console.warn('[TagRoutes] forceUpdateOldTags error:', err);
+    }
+
     const scope = (req.query.scope ?? 'friend') as TagScope;
     if (scope !== 'friend' && scope !== 'crm') {
       return reply.code(400).send({ error: 'INVALID_SCOPE' });

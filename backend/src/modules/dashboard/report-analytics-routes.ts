@@ -2,8 +2,8 @@
 // Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * report-analytics-routes.ts — Analytics report endpoints for the Reports module.
- * 8 GET endpoints: overview, nick-fleet, sales-performance, pipeline, lead-pool,
- * automation, engagement, audit. All JWT-auth + gated by gateReportAccess, scoped
+ * 7 GET endpoints: overview, nick-fleet, sales-performance, pipeline, lead-pool,
+ * automation, audit. All JWT-auth + gated by gateReportAccess, scoped
  * to request.user!.orgId, accept ?from=&to= (defaultDateRange fallback).
  * Follows _API_CONTRACT.md response shapes. Numbers always JS numbers (bigint→Number).
  */
@@ -704,166 +704,6 @@ export async function reportAnalyticsRoutes(app: FastifyInstance): Promise<void>
   });
 
   // ─────────────────────────────────────────────────────────────────────────
-  // 7. GET /api/v1/reports/engagement
-  // ─────────────────────────────────────────────────────────────────────────
-  app.get('/api/v1/reports/engagement', async (request: FastifyRequest, reply: FastifyReply) => {
-    try {
-      if (!(await gateReportAccess(request, reply))) return;
-      const { orgId } = request.user!;
-      const query = request.query as QueryParams;
-      const { from: dF, to: dT } = defaultDateRange();
-      const from = query.from || dF;
-      const to = query.to || dT;
-      const { start, end } = dateBounds(from, to);
-
-      const now = new Date();
-      const days28Start = new Date(now.getTime() - 27 * 86400000);
-      days28Start.setUTCHours(0, 0, 0, 0);
-
-      // pattern distribution
-      const patternGroups = await prisma.contact.groupBy({
-        by: ['engagementPattern'],
-        where: { orgId, mergedInto: null, engagementPattern: { not: null } },
-        _count: true,
-      });
-      const patternDist = patternGroups.map((g) => ({ pattern: g.engagementPattern || 'unknown', count: g._count }));
-
-      const patternCount = (names: string[]) =>
-        patternGroups.filter((g) => names.includes((g.engagementPattern || '').toLowerCase())).reduce((a, g) => a + g._count, 0);
-      const hotCount = patternCount(['hot', 'champion']);
-      const coolingCount = patternCount(['cooling', 'cold']);
-
-      // customerInitiatedPct = % ngày KH nhắn trước (Boolean → count true / total).
-      const [ciTrue, ciTotal] = await Promise.all([
-        prisma.contactEngagementDaily.count({ where: { orgId, date: { gte: start, lt: end }, customerInitiated: true } }),
-        prisma.contactEngagementDaily.count({ where: { orgId, date: { gte: start, lt: end } } }),
-      ]);
-      const customerInitiatedPct = ciTotal ? Math.round((ciTrue / ciTotal) * 1000) / 10 : 0;
-
-      // heatmap: top 15 contacts by recent sum(dailyIntensity)
-      const intensityGroups = await prisma.contactEngagementDaily.groupBy({
-        by: ['contactId'],
-        where: { orgId, date: { gte: days28Start } },
-        _sum: { dailyIntensity: true },
-        orderBy: { _sum: { dailyIntensity: 'desc' } },
-        take: 15,
-      });
-      const topContactIds = intensityGroups.map((g) => g.contactId);
-      const heatContacts = await prisma.contact.findMany({
-        where: { id: { in: topContactIds.length ? topContactIds : ['__none__'] } },
-        select: { id: true, fullName: true },
-      });
-      const heatNameMap = new Map(heatContacts.map((c) => [c.id, c.fullName]));
-      const dailyRows = await prisma.contactEngagementDaily.findMany({
-        where: { orgId, contactId: { in: topContactIds.length ? topContactIds : ['__none__'] }, date: { gte: days28Start } },
-        select: { contactId: true, date: true, dailyIntensity: true },
-      });
-      const bucket = (v: number) => {
-        if (v <= 0) return 0;
-        if (v <= 20) return 1;
-        if (v <= 40) return 2;
-        if (v <= 60) return 3;
-        if (v <= 80) return 4;
-        return 5;
-      };
-      // build day index list (28 days)
-      const dayKeys: string[] = [];
-      for (let i = 0; i < 28; i++) {
-        dayKeys.push(new Date(days28Start.getTime() + i * 86400000).toISOString().split('T')[0]);
-      }
-      const dayIndex = new Map(dayKeys.map((k, i) => [k, i]));
-      const cellsByContact = new Map<string, number[]>();
-      for (const cid of topContactIds) cellsByContact.set(cid, new Array(28).fill(0));
-      for (const r of dailyRows) {
-        const key = new Date(r.date).toISOString().split('T')[0];
-        const idx = dayIndex.get(key);
-        if (idx === undefined) continue;
-        const arr = cellsByContact.get(r.contactId);
-        if (arr) arr[idx] = bucket(N(r.dailyIntensity));
-      }
-      const heatmap = topContactIds.map((cid) => ({
-        contactId: cid,
-        name: heatNameMap.get(cid) || '',
-        cells: cellsByContact.get(cid) || new Array(28).fill(0),
-      }));
-
-      // interactionTypes — sum over range
-      const interAgg = await prisma.contactEngagementDaily.aggregate({
-        where: { orgId, date: { gte: start, lt: end } },
-        _sum: {
-          inboundMsgCount: true,
-          outboundMsgCount: true,
-          reactionCount: true,
-          voiceMsgCount: true,
-          callCount: true,
-        },
-      });
-      const interactionTypes = {
-        inbound: N(interAgg._sum.inboundMsgCount),
-        outbound: N(interAgg._sum.outboundMsgCount),
-        reaction: N(interAgg._sum.reactionCount),
-        voiceCall: N(interAgg._sum.voiceMsgCount) + N(interAgg._sum.callCount),
-      };
-
-      // avgInteractionsPerDay
-      const totalInter = interactionTypes.inbound + interactionTypes.outbound;
-      const dayCount = Math.max(1, Math.ceil((end.getTime() - start.getTime()) / 86400000));
-      const avgInteractionsPerDay = Math.round((totalInter / dayCount) * 10) / 10;
-
-      // cooling: top 5 contacts pattern cooling/cold
-      const coolingContacts = await prisma.contact.findMany({
-        where: { orgId, mergedInto: null, engagementPattern: { in: ['cooling', 'cold'] } },
-        orderBy: { stuckSinceAggregate: 'asc' },
-        take: 5,
-        select: { id: true, fullName: true, leadScore: true, stuckSinceAggregate: true, assignedUser: { select: { fullName: true } } },
-      });
-      const cooling = coolingContacts.map((c) => ({
-        contactId: c.id,
-        name: c.fullName,
-        saleName: c.assignedUser?.fullName || '',
-        silentDays: c.stuckSinceAggregate
-          ? Math.floor((now.getTime() - new Date(c.stuckSinceAggregate).getTime()) / 86400000)
-          : 0,
-        score: N(c.leadScore),
-      }));
-
-      // hot: top 5 contacts pattern hot/champion
-      const hotContacts = await prisma.contact.findMany({
-        where: { orgId, mergedInto: null, engagementPattern: { in: ['hot', 'champion'] } },
-        orderBy: { leadScore: 'desc' },
-        take: 5,
-        select: { id: true, fullName: true, leadScore: true, engagementPattern: true, assignedUser: { select: { fullName: true } } },
-      });
-      const hot = hotContacts.map((c) => ({
-        contactId: c.id,
-        name: c.fullName,
-        saleName: c.assignedUser?.fullName || '',
-        signal: c.engagementPattern || '',
-        score: N(c.leadScore),
-      }));
-
-      return {
-        from,
-        to,
-        kpis: {
-          hotCount,
-          coolingCount,
-          customerInitiatedPct,
-          avgInteractionsPerDay,
-        },
-        heatmap,
-        patternDist,
-        cooling,
-        hot,
-        interactionTypes,
-      };
-    } catch (err) {
-      logger.error('[reports] Engagement error:', err);
-      return reply.status(500).send({ error: 'Failed to fetch engagement report' });
-    }
-  });
-
-  // ─────────────────────────────────────────────────────────────────────────
   // 8. GET /api/v1/reports/audit
   // ─────────────────────────────────────────────────────────────────────────
   app.get('/api/v1/reports/audit', async (request: FastifyRequest, reply: FastifyReply) => {
@@ -890,7 +730,6 @@ export async function reportAnalyticsRoutes(app: FastifyInstance): Promise<void>
       // systemHealth.cronJobs — 6 known job names (TODO real registry)
       const cronJobs = [
         { name: 'lead-pool-auto-return', ok: true, lastRunMinAgo: null as number | null },
-        { name: 'engagement-daily-rollup', ok: true, lastRunMinAgo: null },
         { name: 'contact-aggregate-refresh', ok: true, lastRunMinAgo: null },
         { name: 'nick-uptime-monitor', ok: true, lastRunMinAgo: null },
         { name: 'automation-scheduler', ok: true, lastRunMinAgo: null },

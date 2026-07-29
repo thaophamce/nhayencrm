@@ -2,26 +2,31 @@
 <!-- Copyright (C) 2026 Nguyễn Tiến Lộc -->
 <template>
   <v-app class="smax-app">
-    <!-- ════════ TOP NAV — HS Holding teal-navy shell (redesign 2026-06-05, đảo lock Variant A) ════════ -->
+    <!-- ════════ TOP NAV — Nhà Yến teal-navy shell (redesign 2026-06-05, đảo lock Variant A) ════════ -->
     <!-- Gradient teal-navy + monogram HS + wordmark · 7 tab + Báo cáo + Cài đặt · MDI line icon · active HS -->
     <header class="smax-topnav">
-      <!-- Brand — logo + tên lấy theo hồ sơ tổ chức (đồng bộ /login, /setup-password) -->
-      <RouterLink to="/" class="hs-brand" :title="`${brandName} CRM`">
-        <span class="hs-bbox"><img :src="brandLogo" :alt="brandName" @error="onLogoError" /></span>
-        <span class="hs-bwm"><span class="hs-b1">{{ brandName }}</span><span class="hs-b2">CRM</span></span>
+      <RouterLink to="/" class="header-wordmark" title="Nhà Yến CRM">
+        <img src="/brand/brand-lockup-horizontal.png" alt="Nhà Yến CRM" />
       </RouterLink>
+      <!-- If on Chat route, show back button and Zalo account name instead of brand logo and title -->
+      <div v-if="route.path.startsWith('/chat')" class="chat-header-back-section">
+        <button class="back-to-select-btn" @click="router.push('/select-account')" title="Trở về trang chọn tài khoản">
+          <v-icon size="20" class="mr-1">mdi-chevron-left</v-icon>
+          <span class="back-account-name">{{ activeAccountName }}</span>
+        </button>
+      </div>
 
-      <!-- Primary nav tabs -->
+<!-- Primary nav tabs -->
       <nav class="nav-tabs">
-        <RouterLink
-          v-for="tab in visiblePrimaryTabs"
-          :key="tab.path"
-          :to="tab.path"
-          class="nav-tab"
-          :class="{ active: isActive(tab) }"
-        >
-          <v-icon :icon="tab.icon" size="16" class="ic-svg" />{{ tab.label }}
-        </RouterLink>
+        <template v-for="tab in visiblePrimaryTabs" :key="tab.path">
+          <RouterLink
+            :to="tab.path"
+            class="nav-tab"
+            :class="{ active: isActive(tab) }"
+          >
+            <v-icon :icon="tab.icon" size="16" class="ic-svg" />{{ tab.label }}
+          </RouterLink>
+        </template>
 
         <!-- Báo cáo dropdown — gộp Phân tích + Báo cáo (anh chốt 2026-05-28).
              RBAC: chỉ hiện cho ai có engagement_score (Sale Senior trở lên).
@@ -45,7 +50,6 @@
                  Ẩn ở Community (route /reports/automation do EE inject → CE không có). -->
             <v-list-item v-if="isExtension" to="/reports/pipeline"    title="Pipeline & Lead Pool"  prepend-icon="mdi-filter-variant" />
             <v-list-item v-if="isExtension" to="/reports/automation"  title="Automation & Chăm sóc" prepend-icon="mdi-cog-sync-outline" />
-            <v-list-item to="/reports/engagement"  title="Engagement KH"         prepend-icon="mdi-fire" />
             <v-list-item to="/reports/audit"       title="Audit & Sức khỏe HT"   prepend-icon="mdi-shield-check-outline" />
             <v-divider />
             <v-list-item to="/analytics" title="Phân tích nâng cao" prepend-icon="mdi-chart-line" />
@@ -70,6 +74,7 @@
             <v-divider />
             <v-list-item v-if="authStore.canAccess('zalo_account')" to="/settings/channels/zalo" title="Tài khoản Zalo" prepend-icon="mdi-cellphone-link" />
             <v-list-item v-if="authStore.canAccess('settings')" to="/settings/crm/tags-v2" title="Nhãn KH" prepend-icon="mdi-tag-multiple-outline" />
+            <v-list-item v-if="authStore.canAccess('settings')" to="/settings/crm/quick-replies" title="Hỗ trợ trả lời" prepend-icon="mdi-message-flash-outline" />
             <v-list-item v-if="authStore.canAccess('settings')" to="/settings/org/system-notifications" title="Thông báo hệ thống" prepend-icon="mdi-bell-cog-outline" />
             <!-- Open-core: extension top-nav shortcuts (empty in Community edition). -->
             <template v-for="sc in eeTopNavShortcuts" :key="sc.to">
@@ -81,6 +86,49 @@
         </v-menu>
       </nav>
 
+      <!-- Trình chọn sử dụng Zalo riêng biệt (đổi scope xem Zalo) -->
+      <v-menu v-model="zaloMenu" :close-on-content-click="true">
+        <template #activator="{ props: act }">
+          <button class="zalo-scope-picker" v-bind="act" title="Chọn tài khoản Zalo đang làm việc">
+            <v-avatar size="24" class="mr-2 rounded border" color="#F3F4F6">
+              <v-img v-if="activeAccountAvatar" :src="activeAccountAvatar || undefined" cover />
+              <v-icon v-else size="14" color="#6B7280">mdi-cellphone-link</v-icon>
+            </v-avatar>
+            <span class="zalo-scope-name">{{ activeAccountName }}</span>
+            <span class="caret">▾</span>
+          </button>
+        </template>
+        <v-list density="compact" min-width="260">
+          <v-list-item
+            title="Bảng điều khiển"
+            prepend-icon="mdi-apps"
+            to="/select-account"
+          />
+          <v-divider />
+          <v-list-item
+            title="Tất cả tài khoản"
+            prepend-icon="mdi-earth"
+            :class="{ 'zalo-item-active': !currentScopeId }"
+            @click="selectZaloAccount(null)"
+          />
+          <v-divider />
+          <v-list-item
+            v-for="acc in zaloAccounts"
+            :key="acc.id"
+            :title="acc.displayName || ''"
+            :subtitle="acc.phone || acc.id"
+            :class="{ 'zalo-item-active': currentScopeId === acc.id }"
+            @click="selectZaloAccount(acc.id)"
+          >
+            <template #prepend>
+              <v-avatar size="24" class="mr-2 rounded border">
+                <v-img :src="acc.avatarUrl || undefined" cover />
+              </v-avatar>
+            </template>
+          </v-list-item>
+        </v-list>
+      </v-menu>
+
       <!-- Flexible spacer pushes everything after it to the right edge. -->
       <div class="topnav-spacer" />
 
@@ -90,8 +138,7 @@
         see src/views/DashboardView.vue and src/composables/use-attribution.ts.
       -->
 
-      <!-- Global search trigger -->
-      <GlobalSearch class="topnav-search" />
+      <!-- Global search trigger — Đã ẩn theo yêu cầu -->
 
       <!-- Right icon buttons -->
       <!-- 2026-06-13 (anh chốt): nút này trỏ về trang quản lý nick Zalo (trước trỏ /groups). -->
@@ -153,10 +200,8 @@ import { useAuthStore } from '@/stores/auth';
 import { isExtension } from '@ee/edition';
 import { useRouter } from 'vue-router';
 import NotificationBell from '@/components/NotificationBell.vue';
-import GlobalSearch from '@/components/GlobalSearch.vue';
 import ToastContainer from '@/components/ui/ToastContainer.vue';
 import Avatar from '@/components/ui/Avatar.vue';
-import { fetchPublicBranding } from '@/api/public-branding';
 // Open-core: extension top-nav shortcuts (empty in Community edition via @ee stub).
 import { eeTopNavShortcuts } from '@ee/nav';
 // 2026-06-04: gỡ MiniOnboardingIndicator (Anh chốt code lại setup 4 bước sau)
@@ -177,6 +222,27 @@ function closeAllNavMenus() {
   reportsMenu.value = false;
   settingsMenu.value = false;
   userMenu.value = false;
+}
+
+// Trình chọn tài khoản Zalo đang làm việc (đa kênh)
+import { useZaloAccounts } from '@/composables/use-zalo-accounts';
+import { useWorkScope } from '@/composables/use-work-scope';
+const { accounts: zaloAccounts, fetchAccounts: fetchZaloAccounts } = useZaloAccounts();
+const workScope = useWorkScope();
+const zaloMenu = ref(false);
+const currentScopeId = computed(() => workScope.accountIds.value[0] ?? null);
+const activeAccountName = computed(() => {
+  if (!currentScopeId.value) return 'Tất cả tài khoản';
+  const acc = (zaloAccounts.value || []).find(a => a.id === currentScopeId.value);
+  return acc ? acc.displayName : 'Tất cả tài khoản';
+});
+const activeAccountAvatar = computed(() => {
+  if (!currentScopeId.value) return null;
+  const acc = (zaloAccounts.value || []).find(a => a.id === currentScopeId.value);
+  return acc ? acc.avatarUrl : null;
+});
+function selectZaloAccount(id: string | null) {
+  workScope.lockToNick(id);
 }
 
 // 2026-06-23 (anh báo: thao tác 1 lúc ở MỌI module rồi click nav không chuyển được, phải
@@ -244,29 +310,12 @@ function dismissInternalContactBanner() {
   localStorage.setItem(IC_BANNER_DISMISS_KEY, String(Date.now() + 24 * 60 * 60 * 1000));
 }
 
-// Brand lockup trên menu — logo + tên tổ chức (đồng bộ /login, /setup-password).
-const DEFAULT_LOGO = '/brand/hs-monogram.png';
-const brandLogo = ref(DEFAULT_LOGO);
-const brandName = ref('HS Holding');
-function onLogoError() {
-  if (brandLogo.value !== DEFAULT_LOGO) brandLogo.value = DEFAULT_LOGO;
-}
-
 onMounted(() => {
-  // 2026-06-13 (anh chốt): app LUÔN theme sáng 'hsLight', bỏ chọn theme tối. Ép cứng +
-  // dọn giá trị 'legacy-dark'/'smax-light' cũ trong localStorage để user nào đang kẹt
-  // dark cũng về sáng.
   theme.global.name.value = 'hsLight';
   localStorage.setItem('theme', 'hsLight');
   void checkInternalContactSetup();
+  void fetchZaloAccounts();
 
-  fetchPublicBranding()
-    .then((b) => {
-      if (!b) return;
-      brandLogo.value = b.logoUrl || DEFAULT_LOGO;
-      brandName.value = b.name || 'HS Holding';
-    })
-    .catch(() => {});
 });
 
 interface NavTab {
@@ -283,12 +332,11 @@ interface NavTab {
 //     "Báo cáo" tab riêng (gộp dropdown), Automation legacy dropdown (Marketing thay).
 // Icons MDI line stroke-2 (mdi-*-outline) thay emoji để nhất quán + đổi màu theo theme.
 const primaryTabs: NavTab[] = [
-  { path: '/',                       label: 'Dashboard',   icon: 'mdi-view-dashboard-outline', matchPrefix: '/$' },
+  { path: '/',                       label: 'Dashboard',   icon: 'mdi-view-dashboard-outline', matchPrefix: '/$', resource: 'dashboard' },
   { path: '/chat',                   label: 'Tin nhắn',    icon: 'mdi-message-text-outline', resource: 'conversation' },
-  { path: '/friends',                label: 'Bạn bè',      icon: 'mdi-account-multiple-outline', resource: 'friend' },
-  { path: '/contacts',               label: 'Khách hàng',  icon: 'mdi-account-outline', resource: 'contact' },
-  { path: '/appointments',           label: 'Lịch hẹn',    icon: 'mdi-calendar-outline' },
-  { path: '/media',                  label: 'Kho ảnh',     icon: 'mdi-image-multiple-outline', resource: 'media' },
+  { path: '/pancake-orders',         label: 'Giao vận', icon: 'mdi-truck-delivery-outline', resource: 'delivery' },
+  { path: '/orders',                 label: 'Đơn thiết kế', icon: 'mdi-palette-outline', resource: 'orders' },
+  { path: '/salary',                 label: 'Nhân sự', icon: 'mdi-calendar-account-outline' },
 ];
 
 // RBAC 2026-06-09 — tab Marketing là module gồm nhiều chức năng. Hiện nếu user có
@@ -308,7 +356,10 @@ const marketingEntry = computed(() =>
 
 // RBAC 2026-06-08 — chỉ hiện tab user có quyền (Dashboard + Lịch hẹn luôn hiện).
 const visiblePrimaryTabs = computed(() => {
-  const tabs = primaryTabs.filter((t) => !t.resource || authStore.canAccess(t.resource));
+  const tabs = primaryTabs.filter((t) => {
+    if (t.path === '/salary') return authStore.canAccess('attendance') || authStore.canAccess('payroll');
+    return !t.resource || authStore.canAccess(t.resource);
+  });
   // Tab Marketing — edition-aware (open-core):
   //  - EE: menu Marketing đầy đủ (triggers/sequences/…); hiện khi có quyền ≥1 chức năng.
   //  - Community: menu Marketing RIÊNG, chỉ Quét nhóm + Tệp khách hàng (route /marketing
@@ -322,7 +373,7 @@ const visiblePrimaryTabs = computed(() => {
     });
   } else if (!isExtension) {
     tabs.push({
-      path: '/marketing/group-scan',
+      path: '/marketing/friend-blast',
       label: 'Marketing',
       icon: 'mdi-bullhorn-outline',
       matchPrefix: '/marketing',
@@ -388,68 +439,113 @@ function logout() {
 }
 .ic-banner-dismiss:hover { color: #78350F; }
 
-/* HS Holding shell — teal-navy gradient nav (redesign 2026-06-05, đảo lock Variant A sáng) */
+/* Nhà Yến shell — teal-navy gradient nav (redesign 2026-06-05, đảo lock Variant A sáng) */
+.header-wordmark {
+  width: 220px;
+  height: 34px;
+  padding: 4px 0;
+  margin-right: 0;
+  flex: 0 0 220px;
+  justify-content: center;
+  display: flex;
+  align-items: center;
+  text-decoration: none;
+}
+.header-wordmark img {
+  width: 132px;
+  height: 100%;
+  display: block;
+  object-fit: contain;
+}
+
 .smax-topnav {
-  background: linear-gradient(180deg, var(--nav-grad-a, #0e445a) 0%, var(--nav-grad-b, #06222f) 100%);
-  color: rgba(255, 255, 255, 0.85);
-  height: 48px;
+  background: #1A6FD4;
+  color: #FFFFFF;
+  height: 52px;
   display: flex; align-items: center;
-  padding: 0 14px; gap: 4px;
+  padding: 0 16px 0 0; gap: 4px;
   flex-shrink: 0;
   position: sticky; top: 0; z-index: 100;
-  box-shadow: 0 1px 0 rgba(255,255,255,.06), 0 2px 8px rgba(0,0,0,.18);
+  border-bottom: 0;
 }
 
-/* Brand lockup — monogram HS + wordmark "HS Holding / CRM" */
-.hs-brand {
-  display: flex; align-items: center; gap: 10px;
-  margin-right: 14px; flex: none; text-decoration: none;
-}
-.hs-bbox {
-  width: 34px; height: 34px; border-radius: 9px;
-  display: flex; align-items: center; justify-content: center;
-  background: linear-gradient(135deg, #1786be 0%, #0b5880 100%);
-  box-shadow: inset 0 1px 1px rgba(255,255,255,.18), 0 1px 2px rgba(0,0,0,.25);
+.chat-header-back-section {
+  display: flex;
+  align-items: center;
+  margin-right: 14px;
   flex: none;
 }
-.hs-bbox img { width: 24px; height: auto; display: block; filter: drop-shadow(0 1px 1px rgba(0,0,0,.3)); }
-.hs-bwm { display: flex; flex-direction: column; line-height: 1.08; white-space: nowrap; }
-.hs-b1 { font-size: 13.5px; font-weight: 800; color: #fff; letter-spacing: .01em; }
-.hs-b2 { font-size: 9.5px; font-weight: 700; letter-spacing: .26em; color: var(--nav-accent, #5bb8e5); text-transform: uppercase; }
+.back-to-select-btn {
+  display: flex;
+  align-items: center;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+  transition: all 0.2s;
+  color: #FFFFFF;
+}
+.back-to-select-btn:hover {
+  background-color: rgba(255, 255, 255, 0.14);
+  color: #FFFFFF;
+}
+.back-account-name {
+  font-size: 15px;
+  font-weight: 700;
+}
 
 .nav-tabs {
-  display: flex; align-items: center; gap: 2px;
-  flex-wrap: nowrap;
-  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  background: transparent;
+  padding: 3px;
+  border-radius: 12px;
+  gap: 2px;
+  height: 42px;
+  margin-left: 0;
 }
 .nav-tab {
-  display: inline-flex; align-items: center; gap: 6px;
-  padding: 0 12px; border-radius: var(--r-sm, 8px);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 14px;
+  border-radius: 10px;
   cursor: pointer;
-  color: var(--shell-ink, #cfe2ec);
-  font-size: 13px; font-weight: 600;
-  background: transparent; border: none;
+  color: #FFFFFF;
+  font-size: 16px;
+  font-weight: 700;
+  background: transparent;
+  border: none;
   white-space: nowrap;
   text-decoration: none;
   height: 36px;
   line-height: 1.2;
   position: relative;
+  transition: background-color 150ms cubic-bezier(0.4, 0, 0.2, 1), color 150ms cubic-bezier(0.4, 0, 0.2, 1);
 }
-.nav-tab .ic-svg { color: var(--shell-ink-2, #7fa6b8); transition: color .14s; }
+.nav-tab .ic-svg { color: #FFFFFF; transition: color 150ms; }
 .nav-tab .caret { font-size: 9px; opacity: 0.55; margin-left: -2px; }
-.nav-tab:hover { background: rgba(255, 255, 255, 0.08); color: #fff; }
-.nav-tab:hover .ic-svg { color: var(--shell-ink, #cfe2ec); }
-.nav-tab.active {
-  background: rgba(91, 184, 229, 0.16);
-  color: #fff;
-  font-weight: 700;
-  box-shadow: inset 0 -2px 0 var(--nav-accent, #5bb8e5);
+.nav-tab:hover {
+  background: rgba(255, 255, 255, 0.14);
+  color: #FFFFFF;
 }
-.nav-tab.active .ic-svg { color: var(--nav-accent, #5bb8e5); }
+.nav-tab:hover .ic-svg { color: #FFFFFF; }
+.nav-tab.active {
+  background: rgba(255, 255, 255, 0.22) !important;
+  color: #FFFFFF !important;
+  font-weight: 700;
+  box-shadow: none;
+}
+.nav-tab.active .ic-svg { color: #FFFFFF; }
 
 /* HD compact — chỉ kick in khi viewport < 1280 (rất hiếm với HD-first target) */
+@media (max-width: 1500px) {
+  .nav-tab { padding-inline: 9px; }
+}
 @media (max-width: 1280px) {
-  .nav-tab { padding: 7px 9px; font-size: 12px; gap: 5px; }
+  .header-wordmark { display: none; }
+  .nav-tab { padding: 7px 8px; font-size: 14px; gap: 5px; }
 }
 @media (max-width: 1100px) {
   .nav-tab { padding: 6px 7px; gap: 4px; }
@@ -557,5 +653,42 @@ function logout() {
 :deep(.v-overlay__content > .v-list) {
   background: var(--smax-bg);
   color: var(--smax-text);
+}
+.zalo-scope-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+  border-radius: 10px;
+  cursor: pointer;
+  color: #FFFFFF;
+  font-size: 13px;
+  font-weight: 600;
+  background: rgba(255, 255, 255, 0.14);
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  height: 38px;
+  line-height: 1.2;
+  margin-left: 10px;
+  transition: all 150ms ease;
+}
+.zalo-scope-picker:hover {
+  background: #E5E7EB;
+  border-color: #D1D5DB;
+}
+.zalo-scope-name {
+  max-width: 140px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.zalo-scope-picker .caret {
+  font-size: 9px;
+  opacity: 0.55;
+  margin-left: 2px;
+}
+:deep(.zalo-item-active) {
+  background-color: #EBF3FF !important;
+  color: #2F80ED !important;
+  font-weight: 700;
 }
 </style>

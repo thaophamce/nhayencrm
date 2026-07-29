@@ -217,6 +217,15 @@
           </div>
           <v-spacer />
           <v-btn variant="text" prepend-icon="mdi-refresh" @click="backToPick">Quét lại</v-btn>
+          <v-btn
+            color="primary"
+            variant="tonal"
+            prepend-icon="mdi-folder-arrow-right-outline"
+            :disabled="!friendCount"
+            @click="openExportDialog"
+          >
+            Đưa thành viên đã quét vào Tệp KH
+          </v-btn>
         </div>
 
         <!-- partial warning (state 4) -->
@@ -320,6 +329,64 @@
     <v-snackbar v-model="snack.show" :color="snack.color" timeout="3000" location="bottom end">
       {{ snack.message }}
     </v-snackbar>
+
+    <!-- ════════ Export to Customer List dialog ════════ -->
+    <v-dialog v-model="exportDialog" max-width="480">
+      <v-card>
+        <v-card-title class="d-flex align-center gap-2">
+          <v-icon color="primary">mdi-folder-arrow-right-outline</v-icon>
+          Đưa thành viên vào Tệp KH
+        </v-card-title>
+        <v-card-text>
+          <v-alert type="info" variant="tonal" density="compact" class="mb-4" icon="mdi-information">
+            Chỉ đưa được thành viên <b>"Là bạn"</b> của nick ({{ friendCount }} người) —
+            người lạ chưa có SĐT để lưu vào tệp.
+          </v-alert>
+
+          <v-radio-group v-model="exportTarget" hide-details density="comfortable">
+            <v-radio label="Thêm vào tệp có sẵn" value="existing" />
+            <v-radio label="Tạo tệp mới" value="new" />
+          </v-radio-group>
+
+          <v-select
+            v-if="exportTarget === 'existing'"
+            v-model="exportTargetListId"
+            :items="lists"
+            item-title="name"
+            item-value="id"
+            label="Chọn Tệp KH"
+            variant="outlined"
+            density="compact"
+            class="mt-4"
+            :loading="loadingLists"
+            hide-details
+          />
+          <v-text-field
+            v-else
+            v-model="exportNewListName"
+            label="Tên tệp mới"
+            :placeholder="defaultNewListName"
+            variant="outlined"
+            density="compact"
+            class="mt-4"
+            hide-details
+          />
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="exportDialog = false">Huỷ</v-btn>
+          <v-btn
+            color="primary"
+            variant="flat"
+            :loading="exportLoading"
+            :disabled="exportTarget === 'existing' && !exportTargetListId"
+            @click="submitExport"
+          >
+            Đưa vào tệp
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
   </div>
 </template>
 
@@ -327,8 +394,10 @@
 import { ref, reactive, computed, onMounted, onBeforeUnmount } from 'vue';
 import { useSelectedAccount } from '@/composables/use-selected-account';
 import { useGroups, type GroupScanMember } from '@/composables/use-groups';
+import { useCustomerLists } from '@/composables/use-customer-lists';
 
 const { accounts, selectedAccountId, selectAccount, loading: accountLoading } = useSelectedAccount();
+const { lists, loadingLists, fetchLists } = useCustomerLists();
 
 // Online = ưu tiên liveStatus (pool sống), fallback status (DB) — khớp logic chuẩn
 // app (NickGridCards / ZaloAccountsView). Dùng status DB đơn lẻ sai sau restart.
@@ -339,7 +408,7 @@ function acctOnline(item: any): boolean {
 const {
   groups, loading,
   scan, scanMembers, scanLoading, scanMembersLoading,
-  fetchGroups, createScan, fetchScanStatus, fetchScanMembers,
+  fetchGroups, createScan, fetchScanStatus, fetchScanMembers, exportScanMembersToList,
 } = useGroups();
 
 type Phase = 'pick' | 'scanning' | 'roster';
@@ -357,6 +426,50 @@ function notify(message: string, color = 'success') {
   snack.message = message;
   snack.color = color;
   snack.show = true;
+}
+
+/* ── export scanned members → Tệp KH ── */
+const exportDialog = ref(false);
+const exportTarget = ref<'existing' | 'new'>('existing');
+const exportTargetListId = ref<string | null>(null);
+const exportNewListName = ref('');
+const exportLoading = ref(false);
+const defaultNewListName = computed(
+  () => `Quét nhóm ${new Date().toLocaleString('vi-VN', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}`,
+);
+
+function openExportDialog() {
+  exportTarget.value = 'existing';
+  exportTargetListId.value = null;
+  exportNewListName.value = '';
+  exportDialog.value = true;
+  fetchLists();
+}
+
+async function submitExport() {
+  const acct = selectedAccountId.value;
+  const scanId = scan.value?.id;
+  if (!acct || !scanId) return;
+  exportLoading.value = true;
+  try {
+    const payload: { targetListId?: string; newListName?: string } =
+      exportTarget.value === 'existing'
+        ? { targetListId: exportTargetListId.value! }
+        : { newListName: exportNewListName.value.trim() || defaultNewListName.value };
+    const result = await exportScanMembersToList(acct, scanId, payload);
+    if (result) {
+      exportDialog.value = false;
+      const skipped = result.skippedStranger + result.skippedNoPhone;
+      notify(
+        `Đã đưa ${result.added} người vào "${result.listName}"` +
+          (skipped ? ` · bỏ qua ${skipped} người lạ/không có SĐT` : ''),
+      );
+    }
+  } catch (err: any) {
+    notify(err?.response?.data?.hint || 'Không đưa được vào tệp', 'error');
+  } finally {
+    exportLoading.value = false;
+  }
 }
 
 let pollTimer: ReturnType<typeof setTimeout> | null = null;

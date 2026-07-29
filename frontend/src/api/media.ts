@@ -4,6 +4,7 @@
  * media.ts — API client cho Kho phương tiện (Phase Media Library 2026-06-11).
  */
 import { api } from './index';
+import { optimizeImageForUpload } from './media-image-processing';
 
 export interface MediaAssetItem {
   id: string;
@@ -76,15 +77,54 @@ export async function listMediaUploaders(
 /** Tải tệp lên kho (multipart). */
 export async function uploadMedia(
   files: File[],
-  opts: { visibility?: 'private' | 'public'; folderId?: string; tagIds?: string[] } = {},
-): Promise<{ assets: Array<{ id: string; name: string; deduped: boolean }> }> {
-  const form = new FormData();
-  for (const f of files) form.append('files', f);
-  if (opts.visibility) form.append('visibility', opts.visibility);
-  if (opts.folderId) form.append('folderId', opts.folderId);
-  if (opts.tagIds) form.append('tagIds', JSON.stringify(opts.tagIds));
-  const { data } = await api.post('/media/upload', form);
-  return data;
+  opts: {
+    visibility?: 'private' | 'public'; folderId?: string; tagIds?: string[];
+    onProgress?: (progress: { completed: number; total: number; filename: string; state: 'optimizing' | 'uploading' | 'done' | 'error' }) => void;
+  } = {},
+): Promise<{
+  assets: Array<{ id: string; name: string; deduped: boolean }>;
+  failed: Array<{ filename: string; error: unknown }>;
+}> {
+  let completed = 0;
+  async function uploadOne(index: number, original: File, upload: File) {
+    opts.onProgress?.({ completed, total: files.length, filename: original.name, state: 'uploading' });
+    const form = new FormData();
+    form.append('files', upload, upload.name);
+    form.append('originalFilenames', JSON.stringify([original.name]));
+    if (opts.visibility) form.append('visibility', opts.visibility);
+    if (opts.folderId) form.append('folderId', opts.folderId);
+    if (opts.tagIds) form.append('tagIds', JSON.stringify(opts.tagIds));
+    try {
+      const { data } = await api.post('/media/upload', form, { timeout: 5 * 60_000 });
+      completed += 1;
+      opts.onProgress?.({ completed, total: files.length, filename: original.name, state: 'done' });
+      return { ok: true as const, originalIndex: index, assets: data.assets as Array<{ id: string; name: string; deduped: boolean }> };
+    } catch (error) {
+      completed += 1;
+      opts.onProgress?.({ completed, total: files.length, filename: original.name, state: 'error' });
+      return { ok: false as const, originalIndex: index, filename: original.name, error };
+    }
+  }
+
+  // Decode one large photo at a time. Keep at most three uploads active; memory cannot grow with batch size.
+  const jobs: Array<ReturnType<typeof uploadOne>> = [];
+  const active = new Set<ReturnType<typeof uploadOne>>();
+  async function enqueue(index: number, file: File) {
+    opts.onProgress?.({ completed, total: files.length, filename: file.name, state: 'optimizing' });
+    const upload = await optimizeImageForUpload(file);
+    if (active.size >= 3) await Promise.race(active);
+    const job = uploadOne(index, file, upload);
+    jobs.push(job);
+    active.add(job);
+    void job.then(() => active.delete(job), () => active.delete(job));
+  }
+
+  for (const [index, file] of files.entries()) await enqueue(index, file);
+  const results = (await Promise.all(jobs)).sort((a, b) => a.originalIndex - b.originalIndex);
+  const assets = results.flatMap((result) => result.ok ? result.assets : []);
+  const failed = results.flatMap((result) => result.ok ? [] : [{ filename: result.filename, error: result.error }]);
+  if (!assets.length && failed.length) throw failed[0].error;
+  return { assets, failed };
 }
 
 /** Lưu 1 tin nhắn (ảnh/file khách hoặc mình gửi) vào kho. */
@@ -111,8 +151,9 @@ export async function sendMediaToConversation(
   conversationId: string,
   caption?: string,
   addTags?: string[],
+  url?: string,
 ): Promise<{ message: unknown }> {
-  const { data } = await api.post(`/media/${assetId}/send`, { conversationId, caption, addTags });
+  const { data } = await api.post(`/media/${assetId}/send`, { conversationId, caption, addTags, url });
   return data;
 }
 
@@ -217,9 +258,9 @@ export async function listFavorites(): Promise<MediaAssetItem[]> {
 
 /** Gửi nhiều ảnh (album) vào 1 hội thoại 1 lần. */
 export async function sendAlbumToConversation(
-  assetIds: string[], conversationId: string, caption?: string,
+  assetIds: string[], conversationId: string, caption?: string, urls?: string[],
 ): Promise<{ sent: number }> {
-  const { data } = await api.post('/media/album/send', { assetIds, conversationId, caption });
+  const { data } = await api.post('/media/album/send', { assetIds, conversationId, caption, urls });
   return data;
 }
 
@@ -256,5 +297,22 @@ export async function createMediaFolder(
   visibility: 'private' | 'public' = 'private',
 ): Promise<{ folder: { id: string; name: string } }> {
   const { data } = await api.post('/media/folders', { name, visibility });
+  return data;
+}
+
+/** Sửa tên thư mục. */
+export async function updateMediaFolder(
+  id: string,
+  name: string,
+): Promise<{ folder: { id: string; name: string } }> {
+  const { data } = await api.patch(`/media/folders/${id}`, { name });
+  return data;
+}
+
+/** Xoá thư mục. */
+export async function deleteMediaFolder(
+  id: string,
+): Promise<{ success: boolean }> {
+  const { data } = await api.delete(`/media/folders/${id}`);
   return data;
 }

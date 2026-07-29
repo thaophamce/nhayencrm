@@ -1,55 +1,79 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 <!-- Copyright (C) 2026 Nguyễn Tiến Lộc -->
+<!--
+  QuickTemplatePopup — popup gợi ý mẫu tin nhắn nhanh nổi trên ô nhập liệu.
+  Thiết kế theo dạng bảng chuyên nghiệp y hệt Pancake (Ảnh 2):
+    - Dạng bảng gồm các cột: STT, Ký tự tắt, Tin nhắn (gồm icon thumbnail ảnh đính kèm nhỏ).
+    - Đã loại bỏ hoàn toàn các bộ lọc dự án/chủ đề rườm rà không cần thiết.
+    - Hỗ trợ phím tắt điều hướng lên xuống, Enter để chọn và Esc để đóng.
+-->
 <template>
   <Teleport to="body">
     <div v-if="visible" class="quick-template-popup" :style="popupStyle" @keydown="onKey">
-    <div class="qtp-card">
-      <!-- Header: tiêu đề + filter chip dự án -->
-      <div class="qtp-head">
-        <div class="qtp-title">
-          <v-icon size="14">mdi-message-flash-outline</v-icon>
-          Mẫu tin nhắn <span class="qtp-count">{{ filtered.length }}</span>
+      <div class="qtp-card">
+        <!-- Header: Tiêu đề danh mục gọn gàng -->
+        <div class="qtp-head">
+          <div class="qtp-title">
+            <v-icon size="16" class="mr-1">mdi-message-flash-outline</v-icon>
+            Mẫu trả lời nhanh <span class="qtp-count ml-2">{{ filtered.length }}</span>
+          </div>
         </div>
-        <div class="qtp-tagbar">
-          <button class="qtp-tag" :class="{ active: !tagFilter }" @click="tagFilter = ''">Tất cả</button>
-          <button v-for="tag in PROJECT_TAGS" :key="tag" class="qtp-tag"
-            :class="{ active: tagFilter === tag }" @click="tagFilter = tagFilter === tag ? '' : tag">
-            {{ shortTag(tag) }}
-          </button>
+
+        <!-- Table view cho danh sách mẫu tin nhắn nhanh (giống Ảnh 2) -->
+        <div class="qtp-table-container">
+          <table class="qtp-table">
+            <thead>
+              <tr>
+                <th style="width: 40px; text-align: center;">STT</th>
+                <th style="width: 100px;">Ký tự tắt</th>
+                <th>Tin nhắn</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                v-for="(tpl, i) in filtered"
+                :key="tpl.id"
+                class="qtp-row"
+                :class="{ active: i === selectedIndex }"
+                @click="selectTemplate(tpl)"
+                @mouseenter="selectedIndex = i"
+              >
+                <td class="text-center font-weight-bold text-grey-darken-1">{{ i + 1 }}.</td>
+                <td class="shortcut-cell">
+                  <span class="qtp-shortcut-tag">{{ tpl.shortcut }}</span>
+                </td>
+                <td class="message-cell">
+                  <div class="d-flex align-center gap-2">
+                    <!-- Ảnh đính kèm nhỏ cạnh tin nhắn nếu có -->
+                    <v-avatar v-if="getPhotoUrl(tpl)" size="20" class="rounded border flex-shrink-0">
+                      <v-img :src="getPhotoUrl(tpl) || undefined" cover />
+                    </v-avatar>
+                    <!-- Text preview -->
+                    <span class="message-preview-text">{{ plainOf(tpl) }}</span>
+                  </div>
+                </td>
+              </tr>
+              <tr v-if="!filtered.length">
+                <td colspan="3" class="qtp-empty">Không tìm thấy mẫu nào</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Hướng dẫn sử dụng + công tắc Gửi ngay -->
+        <div class="qtp-foot">
+          <span>↑↓ chọn · Enter {{ sendImmediately ? 'gửi' : 'chèn' }} · Esc đóng</span>
+          <label class="qtp-toggle" @click.stop>
+            <input
+              type="checkbox"
+              :checked="sendImmediately"
+              @change="emit('update:sendImmediately', ($event.target as HTMLInputElement).checked)"
+            />
+            <span class="qtp-toggle-track"><span class="qtp-toggle-thumb" /></span>
+            <span class="qtp-toggle-label">Gửi ngay</span>
+          </label>
         </div>
       </div>
-
-      <!-- Xem trước (gọn, ở TRÊN danh sách — sát mép trên popup) -->
-      <div v-if="previewText" class="qtp-preview">
-        <span class="qtp-preview-lbl">Xem trước:</span> {{ previewText }}
-      </div>
-
-      <!-- Danh sách mẫu (ở DƯỚI — sát ô nhập, dễ thấy + chọn nhất) -->
-      <div class="qtp-list">
-        <button
-          v-for="(tpl, i) in filtered"
-          :key="tpl.id"
-          class="qtp-item"
-          :class="{ active: i === selectedIndex }"
-          @click="selectTemplate(tpl)"
-          @mouseenter="selectedIndex = i"
-        >
-          <v-icon :icon="tpl.isPersonal ? 'mdi-account' : 'mdi-account-group'" size="15"
-            :color="tpl.isPersonal ? '#1786be' : '#9ca3af'" class="qtp-item-icon" />
-          <span class="qtp-item-body">
-            <span class="qtp-item-name">
-              {{ tpl.name }}
-              <span v-if="tpl.shortcut" class="qtp-item-sc">/{{ tpl.shortcut }}</span>
-            </span>
-            <span class="qtp-item-sub">{{ plainOf(tpl) }}</span>
-          </span>
-          <span v-if="(tpl.tagIds || []).length" class="qtp-item-tag">{{ shortTag(tpl.tagIds![0]) }}</span>
-        </button>
-        <div v-if="!filtered.length" class="qtp-empty">Không tìm thấy mẫu nào</div>
-      </div>
-
-      <div class="qtp-foot">↑↓ chọn · Enter chèn · Esc đóng</div>
-    </div>
     </div>
   </Teleport>
 </template>
@@ -68,11 +92,7 @@ interface Template {
   tagIds?: string[];
   isPersonal: boolean;
 }
-// crmAlias = tên gợi nhớ PER-NICK (Friend.aliasInNick của cặp KH × nick đang chat).
-// Dùng cho {crm_*}. Trống → fallback fullName (khớp BE render-template.ts).
 interface ContactCtx { fullName?: string | null; gender?: string | null; crmAlias?: string | null }
-
-const PROJECT_TAGS = ['Emerald Garden View', 'Emerald Boulevard', 'Emerald River Park', 'Monrei Sài Gòn'];
 
 const props = defineProps<{
   visible: boolean;
@@ -80,37 +100,33 @@ const props = defineProps<{
   templates: Template[];
   contact?: ContactCtx | null;
   saleFullName?: string | null;
-  anchorEl?: HTMLElement | null; // ô nhập — popup neo ngay trên, Teleport ra body để không bị cha cắt
+  anchorEl?: HTMLElement | null; // ô nhập để tính tọa độ fixed
+  sendImmediately?: boolean; // bật: chọn mẫu gửi luôn; tắt: chỉ chèn vào ô soạn
 }>();
 
 const emit = defineEmits<{
-  // Trả rich payload {text, styles} (giữ đậm/màu) + id để track-use.
   select: [payload: RichPayload, templateId: string];
   close: [];
+  'update:sendImmediately': [value: boolean];
 }>();
 
 const selectedIndex = ref(0);
-const tagFilter = ref('');
 
-// ── Định vị popup (fixed) ngay TRÊN ô nhập. Teleport ra body nên tự tính toạ độ
-// từ anchor (.editor-wrap) để thoát overflow:hidden của .input-area. ──
 const popupStyle = ref<Record<string, string>>({});
 function recalcPosition() {
   const el = props.anchorEl;
   if (!el) return;
   const r = el.getBoundingClientRect();
-  const width = Math.min(480, Math.max(320, r.width));
+  const width = Math.min(520, Math.max(420, r.width));
   let left = r.left;
-  // không tràn mép phải
   if (left + width > window.innerWidth - 8) left = window.innerWidth - width - 8;
   if (left < 8) left = 8;
   popupStyle.value = {
     position: 'fixed',
     left: `${left}px`,
-    // mọc LÊN TRÊN ô nhập: bottom neo theo mép trên của anchor.
     bottom: `${window.innerHeight - r.top + 6}px`,
     width: `${width}px`,
-    maxHeight: `${Math.min(420, r.top - 16)}px`, // không vượt quá khoảng trống phía trên
+    maxHeight: `${Math.min(380, r.top - 16)}px`,
   };
 }
 
@@ -136,9 +152,6 @@ onBeforeUnmount(() => {
   }
 });
 
-function shortTag(tag: string): string { return tag.replace(/^Emerald\s+/, '').replace('Sài Gòn', 'SG'); }
-
-// Chuẩn hóa query gõ tắt (giống normalizeShortcut backend) để so prefix với shortcut.
 function normQuery(q: string): string {
   return q.trim().replace(/^\/+/, '')
     .replace(/đ/g, 'd').replace(/Đ/g, 'D')
@@ -148,18 +161,16 @@ function normQuery(q: string): string {
 
 const filtered = computed(() => {
   let list = props.templates;
-  if (tagFilter.value) list = list.filter((t) => (t.tagIds || []).includes(tagFilter.value));
   const q = (props.query || '').toLowerCase().trim();
   if (q) {
     const qs = normQuery(props.query);
-    // Cho điểm: shortcut khớp prefix = ưu tiên cao nhất → gõ "/giaegv" nhảy đúng mẫu.
     const scored = list
       .map((t) => {
         const sc = (t.shortcut || '').toLowerCase();
         let score = -1;
         if (qs && sc) {
-          if (sc === qs) score = 100;          // khớp hệt
-          else if (sc.startsWith(qs)) score = 80; // gõ tắt prefix
+          if (sc === qs) score = 100;
+          else if (sc.startsWith(qs)) score = 80;
           else if (sc.includes(qs)) score = 40;
         }
         if (score < 0) {
@@ -182,23 +193,28 @@ function plainOf(tpl: Template): string {
   return tpl.contentRich?.text ?? tpl.content ?? '';
 }
 
-// ── Render biến {gender}/{name}/{sale} ĐỒNG THỜI trên text + styles (re-anchor offset).
-// Quét tuần tự text, thay token bằng giá trị, dịch các style start/len theo độ lệch độ dài.
-// Tránh lệch đậm/màu khi biến đổi độ dài (cảnh báo workflow zalo-html-send).
+function getPhotoUrl(tpl: any): string | null {
+  if (tpl.tagIds && Array.isArray(tpl.tagIds) && tpl.tagIds.length > 0) {
+    return tpl.tagIds[0];
+  }
+  if (tpl.contentRich?.attachments && Array.isArray(tpl.contentRich.attachments) && tpl.contentRich.attachments.length > 0) {
+    return tpl.contentRich.attachments[0];
+  }
+  return null;
+}
+
 function renderRich(tpl: Template): RichPayload {
   const src: RichPayload = tpl.contentRich?.text
     ? { text: tpl.contentRich.text, styles: tpl.contentRich.styles ?? [] }
     : { text: tpl.content ?? '', styles: [] };
 
-  // 8 biến (anh chốt 2026-06-15) — KHỚP backend render-template.ts. crm_* = tên gợi nhớ
-  // per-nick (crmAlias) → fallback fullName.
   const gender = props.contact?.gender;
   const genderStr = gender === 'female' ? 'Chị' : gender === 'male' ? 'Anh' : 'Anh/Chị';
   const nameRaw = (props.contact?.fullName ?? '').trim();
   const nameLast = nameRaw ? (nameRaw.split(/\s+/).pop() ?? '') : '';
   const saleRaw = (props.saleFullName ?? '').trim();
   const saleLast = saleRaw ? (saleRaw.split(/\s+/).pop() ?? 'em') : 'em';
-  const crmFull = ((props.contact?.crmAlias ?? '').trim()) || nameRaw; // trống → fallback fullName
+  const crmFull = ((props.contact?.crmAlias ?? '').trim()) || nameRaw;
   const crmWords = crmFull ? crmFull.split(/\s+/) : [];
 
   const repl: Record<string, string> = {
@@ -215,8 +231,6 @@ function renderRich(tpl: Template): RichPayload {
   const styles = (src.styles ?? []).map((s) => ({ ...s }));
   let text = src.text;
 
-  // Tìm tất cả vị trí token, xử lý từ TRÁI sang PHẢI, mỗi lần thay 1 token + dịch styles sau nó.
-  // token DÀI trước token NGẮN ({name_full} trước {name}) để regex không khớp nhầm phần đầu.
   const tokenRe = /\{(gender|name_full|name|crm_full|crm_first|crm_last|sale_full|sale)\}/;
   let guard = 0;
   while (guard++ < 200) {
@@ -231,35 +245,60 @@ function renderRich(tpl: Template): RichPayload {
       for (const s of styles) {
         const end = s.start + s.len;
         if (s.start >= at + tokenLen) {
-          s.start += delta;                 // style nằm hoàn toàn sau token → dịch cả
+          s.start += delta;
         } else if (end > at && s.start <= at) {
-          s.len += delta;                   // token nằm trong vùng style → co/giãn độ dài
+          s.len += delta;
         } else if (s.start > at && s.start < at + tokenLen) {
-          s.start = at + value.length;      // style bắt đầu giữa token (hiếm) → neo về cuối value
+          s.start = at + value.length;
         }
       }
     }
   }
-  // dọn style rỗng/âm
   const clean = styles.filter((s) => s.len > 0 && s.start >= 0);
   return { text, styles: clean };
 }
-
-const previewText = computed(() => {
-  const tpl = filtered.value[selectedIndex.value];
-  if (!tpl) return '';
-  return renderRich(tpl).text;
-});
 
 function selectTemplate(tpl: Template) {
   emit('select', renderRich(tpl), tpl.id);
 }
 
 function onKey(e: KeyboardEvent) {
-  if (e.key === 'ArrowDown') { e.preventDefault(); selectedIndex.value = Math.min(selectedIndex.value + 1, filtered.value.length - 1); }
-  else if (e.key === 'ArrowUp') { e.preventDefault(); selectedIndex.value = Math.max(selectedIndex.value - 1, 0); }
-  else if (e.key === 'Enter') { e.preventDefault(); const tpl = filtered.value[selectedIndex.value]; if (tpl) selectTemplate(tpl); }
-  else if (e.key === 'Escape') { emit('close'); }
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    selectedIndex.value = Math.min(selectedIndex.value + 1, filtered.value.length - 1);
+    scrollToSelected();
+  }
+  else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    selectedIndex.value = Math.max(selectedIndex.value - 1, 0);
+    scrollToSelected();
+  }
+  else if (e.key === 'Enter') {
+    e.preventDefault();
+    const tpl = filtered.value[selectedIndex.value];
+    if (tpl) selectTemplate(tpl);
+  }
+  else if (e.key === 'Escape') {
+    emit('close');
+  }
+}
+
+function scrollToSelected() {
+  nextTick(() => {
+    const container = document.querySelector('.qtp-table-container');
+    const activeRow = document.querySelector('.qtp-row.active') as HTMLElement;
+    if (container && activeRow) {
+      const containerTop = container.scrollTop;
+      const containerBottom = containerTop + container.clientHeight;
+      const elemTop = activeRow.offsetTop;
+      const elemBottom = elemTop + activeRow.clientHeight;
+      if (elemTop < containerTop) {
+        container.scrollTop = elemTop;
+      } else if (elemBottom > containerBottom) {
+        container.scrollTop = elemBottom - container.clientHeight;
+      }
+    }
+  });
 }
 
 defineExpose({ onKey });
@@ -267,7 +306,6 @@ defineExpose({ onKey });
 
 <style scoped>
 .quick-template-popup {
-  /* Toạ độ fixed set qua :style (popupStyle) — Teleport ra body. */
   z-index: 3000;
 }
 .qtp-card {
@@ -281,47 +319,128 @@ defineExpose({ onKey });
   flex-direction: column;
   overflow: hidden;
 }
-
-/* Header */
-.qtp-head { padding: 8px 10px 6px; border-bottom: 1px solid #eef0f3; }
-.qtp-title { display: flex; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 700; color: #6b7280; text-transform: uppercase; letter-spacing: .3px; margin-bottom: 6px; }
-.qtp-count { background: #e6f3fb; color: #0f6ea3; font-size: 10.5px; font-weight: 700; padding: 0 6px; border-radius: 999px; }
-.qtp-tagbar { display: flex; gap: 5px; flex-wrap: wrap; }
-.qtp-tag { font-size: 11px; padding: 3px 9px; border: 1px solid #e3e6eb; background: #fff; border-radius: 999px; color: #4b5563; cursor: pointer; white-space: nowrap; }
-.qtp-tag:hover { border-color: #1786be; }
-.qtp-tag.active { background: #e6f3fb; border-color: #1786be; color: #0f6ea3; font-weight: 600; }
-
-/* Xem trước — gọn 2 dòng */
-.qtp-preview {
-  padding: 7px 11px;
-  background: #f7f9fc;
+.qtp-head {
+  padding: 10px 14px;
   border-bottom: 1px solid #eef0f3;
-  font-size: 12.5px;
-  color: #374151;
-  line-height: 1.45;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
+}
+.qtp-title {
+  display: flex;
+  align-items: center;
+  font-size: 13px;
+  font-weight: 700;
+  color: #1e293b;
+}
+.qtp-count {
+  background: #eff6ff;
+  color: #2563eb;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 1px 8px;
+  border-radius: 999px;
+}
+.qtp-table-container {
+  flex: 1;
+  min-height: 0;
+  max-height: 280px;
+  overflow-y: auto;
+}
+.qtp-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.qtp-table th {
+  position: sticky;
+  top: 0;
+  background: #f8fafc;
+  z-index: 2;
+  font-weight: 600;
+  color: #475569;
+  padding: 8px 10px;
+  border-bottom: 1px solid #e2e8f0;
+  text-align: left;
+}
+.qtp-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid #f1f5f9;
+  vertical-align: middle;
+}
+.qtp-row {
+  cursor: pointer;
+  transition: background-color 100ms;
+}
+.qtp-row:hover, .qtp-row.active {
+  background-color: #f1f5f9;
+}
+.qtp-shortcut-tag {
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+  font-weight: 600;
+  color: #0f6ea3;
+  background: #e6f3fb;
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid #d0e4f2;
+}
+.message-cell {
+  max-width: 0;
+}
+.message-preview-text {
+  white-space: nowrap;
   overflow: hidden;
+  text-overflow: ellipsis;
+  color: #334155;
 }
-.qtp-preview-lbl { color: #9ca3af; font-size: 11px; font-weight: 600; }
-
-/* Danh sách — chiếm phần còn lại, cuộn riêng, luôn thấy đủ */
-.qtp-list { flex: 1; min-height: 0; max-height: 280px; overflow-y: auto; padding: 4px; }
-.qtp-item {
-  display: flex; align-items: center; gap: 9px; width: 100%;
-  padding: 7px 9px; border: none; background: none; border-radius: 8px;
-  cursor: pointer; text-align: left;
+.qtp-empty {
+  padding: 24px;
+  text-align: center;
+  color: #94a3b8;
+  font-style: italic;
 }
-.qtp-item:hover, .qtp-item.active { background: #e6f3fb; }
-.qtp-item-icon { flex-shrink: 0; }
-.qtp-item-body { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-.qtp-item-name { font-size: 13px; font-weight: 600; color: #141a24; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.qtp-item-sc { font-size: 11px; font-weight: 600; color: #0f6ea3; background: #eef6fb; padding: 1px 5px; border-radius: 5px; margin-left: 5px; font-family: ui-monospace, monospace; }
-.qtp-item-sub { font-size: 11.5px; color: #6b7280; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.qtp-item-tag { flex-shrink: 0; font-size: 10px; padding: 2px 7px; border-radius: 6px; background: #eef2f7; color: #4b5563; font-weight: 500; white-space: nowrap; }
-.qtp-empty { padding: 18px; text-align: center; color: #9ca3af; font-size: 12.5px; font-style: italic; }
-
-/* Footer hint */
-.qtp-foot { padding: 5px 11px; border-top: 1px solid #eef0f3; font-size: 10.5px; color: #9ca3af; text-align: center; }
+.qtp-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 14px;
+  border-top: 1px solid #eef0f3;
+  font-size: 11px;
+  color: #64748b;
+  background-color: #f8fafc;
+}
+.qtp-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  user-select: none;
+}
+.qtp-toggle input { display: none; }
+.qtp-toggle-track {
+  position: relative;
+  width: 30px;
+  height: 16px;
+  background: #cbd5e1;
+  border-radius: 999px;
+  transition: background 120ms;
+}
+.qtp-toggle-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  background: #fff;
+  border-radius: 50%;
+  transition: transform 120ms;
+}
+.qtp-toggle input:checked + .qtp-toggle-track {
+  background: #2563eb;
+}
+.qtp-toggle input:checked + .qtp-toggle-track .qtp-toggle-thumb {
+  transform: translateX(14px);
+}
+.qtp-toggle-label {
+  font-weight: 600;
+  color: #334155;
+}
 </style>

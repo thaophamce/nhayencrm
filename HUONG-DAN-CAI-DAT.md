@@ -1,4 +1,4 @@
-# Hướng dẫn cài đặt ZaloCRM
+# Hướng dẫn cài đặt Nhà Yến CRM
 
 ## Bước 1: Chuẩn bị VPS
 

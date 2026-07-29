@@ -18,7 +18,7 @@
       </div>
       <p class="t2-subtitle">
         <b>Friend Tag</b> (per-pair sale × KH) + <b>CRM Tag</b> (cấp KH chung).
-        Sync 2 chiều với Zalo Real (edit ở zalocrm sẽ push ngược lên Zalo App).
+        Sync 2 chiều với Zalo Real (edit ở Nhà Yến CRM sẽ push ngược lên Zalo App).
       </p>
     </header>
 
@@ -143,7 +143,7 @@
           <ZaloBrandIcon class="t2-zalo-icon-small" />
           <div>
             <b>Tag Zalo Real</b> — đổi Tên/Màu/Emoji sẽ <b>push ngược lên Zalo App</b> qua nick
-            "{{ editTag.zaloAccount?.displayName }}". Ưu tiên + Group chỉ áp dụng zalocrm.
+            "{{ editTag.zaloAccount?.displayName }}". Ưu tiên + Group chỉ áp dụng Nhà Yến CRM.
           </div>
         </div>
 
@@ -265,7 +265,7 @@ const mergeTargetId = ref<string>('');
 // Bảng màu Zalo Real chính thức — verify từ DB production (8 màu unique từ
 // zalo_labels) + Zalo Web UI palette. SDK accept hex bất kỳ, nhưng Zalo App
 // chỉ render đúng 8 màu này; màu non-palette sẽ fallback sang grey hoặc gần
-// nhất. Để zalocrm + Zalo App đồng bộ visual, lock 8 màu cố định.
+// nhất. Để Nhà Yến CRM + Zalo App đồng bộ visual, lock 8 màu cố định.
 const ZALO_PALETTE: Array<{ hex: string; name: string }> = [
   { hex: '#D91B1B', name: 'Đỏ' },
   { hex: '#0068FF', name: 'Xanh dương' },
@@ -284,7 +284,6 @@ const SOURCE_META: Record<string, { label: string; color: string; scope: 'friend
   // auto_score (Tier A-D) ĐÃ GỠ HẲN /office-hours 2026-06-06 — xoá khỏi hệ tag + DB
   // (4784 junction + 3 def). Điểm Lead vẫn ở ScoreBanner. Bỏ entry khỏi SOURCE_META để
   // chip bộ lọc "Auto Score" biến mất khỏi /settings/crm/tags-v2.
-  auto_engagement: { label: 'Auto Engagement', color: '#EF5350', scope: 'friend' },
   manual_crm: { label: 'Manual CRM', color: '#FFA726', scope: 'crm' },
   ai_suggest: { label: 'AI Suggest', color: '#5C6BC0', scope: 'crm' },
   segment_rule: { label: 'Segment Rule', color: '#26A69A', scope: 'crm' },
@@ -406,7 +405,7 @@ async function saveTag() {
       };
       const res = await api.patch(`/tags/${editTag.value.id}`, body);
       if (res.data.pushedZalo) {
-        alert('Đã lưu zalocrm + push ngược lên Zalo Real qua nick "' + editTag.value.zaloAccount?.displayName + '"');
+        alert('Đã lưu Nhà Yến CRM + push ngược lên Zalo Real qua nick "' + editTag.value.zaloAccount?.displayName + '"');
       }
     } else {
       // Create

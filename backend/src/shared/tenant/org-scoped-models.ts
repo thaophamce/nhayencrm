@@ -24,9 +24,12 @@ export const ORG_SCOPED_MODELS: ReadonlySet<string> = new Set([
   'StageTransitionRule', 'StuckThreshold', 'NbaTemplate', 'AccountFolder',
   'SavedFilterPreset', 'BlockFolder', 'Block', 'AutomationSequence',
   'AutomationTrigger', 'AutomationBroadcast', 'AutomationCampaign',
-  'AutomationEventLog', 'ContactEngagementDaily', 'CustomerList',
+  'AutomationEventLog', 'CustomerList',
   'TriggerQueueEntry', 'Department', 'PermissionGroup', 'LeadRequest',
   'LeadPoolConfig', 'LeadPoolBonusQuota', 'FacebookPageAccount',
   'FacebookLeadgenForm', 'WebhookLog', 'MetaCampaignCache', 'NotifyDedupState',
   'ZaloOaAppConfig', 'ZaloOaConnection', 'ZaloFormMapping', 'ZaloLeadEvent',
+  'AttendanceRecord', 'LeaveRequest', 'SalaryRecord', 'PancakeOrderLink',
+  'Order', 'FriendBlastCampaign', 'FriendBlacklist', 'PinnedMessage',
+  'DeliveryOrder',
 ]);

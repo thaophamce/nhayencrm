@@ -1,9 +1,9 @@
-# ☁️ Hướng dẫn cấu hình Cloudflare R2 cho ZCRM
+# ☁️ Hướng dẫn cấu hình Cloudflare R2 cho Nhà Yến CRM
 
 > Hướng dẫn từng bước chuyển nơi lưu ảnh/file (chat attachments, Kho media) sang **Cloudflare R2**.
 > Viết cho người không chuyên kỹ thuật làm theo cũng được. Mọi thao tác dashboard + dòng lệnh đều có mẫu.
 >
-> **Cập nhật:** 2026-06-20 — ZCRM hỗ trợ 2 nơi lưu (`STORAGE_DRIVER`): `local` (ổ đĩa VPS, mặc định)
+> **Cập nhật:** 2026-06-20 — Nhà Yến CRM hỗ trợ 2 nơi lưu (`STORAGE_DRIVER`): `local` (ổ đĩa VPS, mặc định)
 > và `r2` (Cloudflare R2). Tài liệu này hướng dẫn bật `r2`.
 
 ---

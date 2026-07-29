@@ -4,7 +4,10 @@
 backend/dist
 frontend/dist
 backend/static
+backend/uploads
 **/*.log
+**/.tmp-*
+**/.tmp_*
 # Secrets / local env never go into the image (provided at runtime via env_file)
 .env
 .env.*
@@ -15,3 +18,11 @@ backend/static
 .vscode
 # Docs & local tooling not needed at runtime
 .claude
+backups
+output
+mockups
+docker/hotfix-context
+docker-compose.hotfix.yml
+docker-compose.rollback.yml
+*.zip
+*.patch

@@ -2,259 +2,132 @@
 <!-- Copyright (C) 2026 Nguyễn Tiến Lộc -->
 <template>
   <aside class="info-panel">
-    <!-- ════════ HEADER: Phase 8.C Score Banner (3 stat cards + avatar below) ════════ -->
-    <header class="ip-header">
+    <!-- ════════ HEADER: Zalo-style "Thông tin hội thoại" ════════ -->
+    <header v-if="mainTab === 'profile'" class="ip-header-zalo">
+      <div class="ip-header-title">Thông tin hội thoại</div>
       <button class="ip-close" title="Đóng" @click="$emit('close')">×</button>
-      <ScoreBanner :scores="scoreData">
-        <template #avatar>
-          <Avatar
-            :src="props.contact?.avatarUrl"
-            :name="headerFullName"
-            :size="56"
-            :gradient-seed="props.contact?.id || headerFullName"
-            class="ip-avatar-big"
-          />
-        </template>
-        <template #name>
-          <div class="ip-name-line" :title="headerFullName">{{ headerFullName }}</div>
-          <div v-if="props.contact?.zaloUid" class="ip-id">UID: {{ props.contact.zaloUid }}</div>
-          <!-- 2026-06-06 (Anh chốt): trạng thái cột 4 cạnh UID dùng CÙNG ContactDealStageSelector
-               (statusId dynamic) như cột 3 → đổi 1 chỗ sync ngay 2 chỗ (cùng trường statusId). -->
-          <div class="ip-care-row-inline">
-            <ContactDealStageSelector
-              v-if="props.contact?.id"
-              :contact-id="props.contact.id"
-              :current-status-id="(props.contact as { statusId?: string | null }).statusId ?? null"
-              :org-id="orgId"
-              @updated="onDealStageUpdatedPanel"
-            />
-          </div>
-        </template>
-      </ScoreBanner>
-    </header>
 
-    <!-- 2026-06-01: Wrapper conditional cho mainTab='profile' — content cũ giữ nguyên -->
-    <template v-if="mainTab === 'profile'">
-    <!-- ════════ Tab bar ════════ -->
-    <nav class="ip-tabs">
-      <button
-        class="ip-tab"
-        :class="{ active: activeTab === 'profile' }"
-        @click="activeTab = 'profile'"
-      >
-        <span class="ic"><UserIcon :size="15" :stroke-width="2" /></span> Hồ sơ
-      </button>
-      <button
-        class="ip-tab"
-        :class="{ active: activeTab === 'crm' }"
-        @click="activeTab = 'crm'"
-      >
-        <span class="ic"><TargetIcon :size="15" :stroke-width="2" /></span> CRM
-        <span v-if="crmBadgeCount" class="tab-badge">{{ crmBadgeCount }}</span>
-      </button>
-      <button
-        class="ip-tab"
-        :class="{ active: activeTab === 'activity', 'badge-bump': badgeBump }"
-        data-fly-target="activity-tab"
-        @click="activeTab = 'activity'"
-      >
-        <span class="ic"><CalendarClockIcon :size="15" :stroke-width="2" /></span> Lịch hẹn
-        <span v-if="activityBadgeCount || pendingAptBump" class="tab-badge">{{ (activityBadgeCount ?? 0) + pendingAptBump }}</span>
-      </button>
-      <button
-        v-if="props.friendId"
-        class="ip-tab"
-        :class="{ active: activeTab === 'score' }"
-        :title="`Điểm KH: ${props.contact?.leadScore ?? 0}`"
-        @click="activeTab = 'score'"
-      >
-        <span class="ic"><StarIcon :size="15" :stroke-width="2" /></span> Điểm
-        <span v-if="(props.contact?.leadScore ?? 0) > 0" class="tab-badge tab-badge-score">
-          {{ props.contact?.leadScore }}
-        </span>
-      </button>
-    </nav>
-
-    <!-- ════════ Tab content (scroll) ════════ -->
-    <div class="ip-tab-content">
-
-      <!-- ══════ TAB 1: HỒ SƠ ══════ -->
-      <div v-show="activeTab === 'profile'" class="tab-pane">
-        <!-- Inline form: collapsed (Tên Zalo + SĐT) hoặc expanded (full 9 rows). Auto-collapse sau 5s. -->
-        <section class="ip-form" :class="{ collapsed: !infoExpanded }">
-          <!-- Always visible: Tên Zalo -->
-          <div class="ip-form-row">
-            <span class="ip-icon">👤</span>
-            <span class="ip-label">Tên Zalo</span>
-            <input v-model="form.fullName" placeholder="Tên Zalo cung cấp" @blur="saveContact" />
-          </div>
-
-          <!-- Always visible: SĐT chính. Hiển thị '0359 944 488' (+tooltip +84) khi không focus,
-               raw khi focus để sửa. Giá trị lưu giữ raw → backend normalizePhone tự chuẩn hoá. -->
-          <div class="ip-form-row">
-            <span class="ip-icon">📞</span>
-            <span class="ip-label">SĐT</span>
-            <div class="phone-cell">
-              <input
-                :value="phoneFocused ? form.phone : displayPhone(form.phone)"
-                :title="form.phone ? displayPhoneIntl(form.phone) : ''"
-                placeholder="SĐT chính"
-                @focus="phoneFocused = true"
-                @input="form.phone = ($event.target as HTMLInputElement).value"
-                @blur="phoneFocused = false; saveContact()"
-              />
-              <button
-                v-if="form.phone && infoExpanded"
-                class="show-extra-phones"
-                :title="showExtraPhones ? 'Ẩn SĐT phụ' : 'Hiện SĐT phụ'"
-                @click="showExtraPhones = !showExtraPhones"
-              >
-                {{ showExtraPhones ? '−' : '+' }} {{ form.phonesExtra.length }}
-              </button>
-            </div>
-          </div>
-
-          <!--
-            Toggle 1 nút, 3-state cycle:
-              hidden → click → auto (countdown 5s)
-              auto → click → sticky (ghim 📌, cancel countdown)
-              sticky → click → hidden
-          -->
-          <button class="info-expand-toggle" :class="{ 'is-sticky': isSticky }" @click="toggleInfoExpand">
-            <span v-if="!infoExpanded">▾ Xem đầy đủ</span>
-            <span v-else-if="isSticky">▴ Thu gọn <span class="sticky-badge" title="Đã ghim — không tự thu">📌</span></span>
-            <span v-else>📌 Ghim mở (tự thu sau {{ collapseRemain }}s)</span>
+      <!-- Avatar + Name + Edit Nickname -->
+      <div class="ip-profile-hero">
+        <Avatar
+          :src="props.threadType === 'group' ? (props.groupAvatarUrl ?? props.contact?.avatarUrl) : props.contact?.avatarUrl"
+          :name="headerFullName"
+          :size="64"
+          :is-group="props.threadType === 'group'"
+          :gradient-seed="props.contact?.id || headerFullName"
+          class="ip-avatar-big-zalo"
+        />
+        <div class="ip-name-wrapper">
+          <div class="ip-name-line-zalo" :title="headerFullName">{{ headerFullName }}</div>
+          <button class="ip-edit-btn" title="Đổi tên gợi nhớ" @click="toggleInfoExpand">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
           </button>
-
-          <!-- Expanded fields -->
-          <template v-if="infoExpanded">
-            <div class="ip-form-row">
-              <span class="ip-icon">✏</span>
-              <span class="ip-label" title="Tên gợi nhớ Zalo per-pair — sync 2-way với Zalo Real">Tên gợi nhớ</span>
-              <input
-                :value="aliasDraft"
-                placeholder="Sync với Zalo Real"
-                @input="aliasDraft = ($event.target as HTMLInputElement).value"
-                @blur="saveAlias"
-                @keydown.enter.prevent="saveAlias"
-              />
-            </div>
-            <div class="ip-form-row">
-              <span class="ip-icon">📅</span>
-              <span class="ip-label">Ngày sinh</span>
-              <input type="date" v-model="form.birthDate" @blur="saveContact" />
-            </div>
-            <div class="ip-form-row">
-              <span class="ip-icon">⚧</span>
-              <span class="ip-label">Giới tính</span>
-              <select v-model="form.gender" @change="saveContact">
-                <option :value="null">Không rõ</option>
-                <option value="female">Nữ</option>
-                <option value="male">Nam</option>
-                <option value="other">Khác</option>
-              </select>
-            </div>
-            <!-- SĐT phụ — list động nhãn tự nhập (phụ/vợ/viber...) + số. Anh chốt 2026-06-06.
-                 Thay 2 ô cố định SĐT 2/3 (vỡ UI). Lưu vào contacts.phonesExtra (JSON). -->
-            <template v-if="showExtraPhones">
-              <div
-                v-for="(p, idx) in form.phonesExtra"
-                :key="'pex-' + idx"
-                class="ip-form-row sub phone-extra-row"
-              >
-                <input
-                  v-model="p.label"
-                  class="pex-label"
-                  placeholder="nhãn (phụ, vợ, viber...)"
-                  @blur="saveContact"
-                />
-                <input
-                  v-model="p.phone"
-                  class="pex-phone"
-                  placeholder="Số điện thoại"
-                  @blur="saveContact"
-                />
-                <button class="pex-remove" title="Xoá số này" @click="removeExtraPhone(idx)">×</button>
-              </div>
-              <button class="pex-add" type="button" @click="addExtraPhone">+ Thêm SĐT</button>
-            </template>
-            <!-- 3 field Email · Địa chỉ · Nghề: ẨN khỏi cột 4 (quick view chat panel).
-                 Schema giữ nguyên — data vẫn lưu/edit qua tab "Hồ sơ KH tổng hợp" (phase sau).
-                 Xem ContactProfileView.vue stub + use-contact-profile.ts composable. -->
-            <button
-              v-if="contact?.id"
-              class="info-fullprofile-link"
-              type="button"
-              :title="'Xem hồ sơ KH tổng hợp (email, địa chỉ, nghề, ...)'"
-              @click="openFullProfile"
-            >
-              <span>✨ Xem hồ sơ KH tổng hợp →</span>
-            </button>
-          </template>
-        </section>
-
-        <v-alert v-if="saveSuccess" type="success" density="compact" class="mx-3 my-2" closable
-          @click:close="saveSuccess = false">
-          Đã lưu thành công!
-        </v-alert>
-        <v-alert v-if="saveError" type="error" density="compact" class="mx-3 my-2" closable
-          @click:close="saveError = false">
-          Lưu thất bại, thử lại.
-        </v-alert>
-
-        <!-- Tag CRM section moved to MessageThread chat input bar (Smax-style) -->
-
-        <!-- ──── Customer Timeline (Notes + Activity unified) ──── -->
-        <section class="ip-section ip-notes-section">
-          <CustomerTimelineSection
-            :contact-id="props.contactId"
-            :contact-name="headerFullName"
-            @appointment-created="onAppointmentCreated"
-          />
-        </section>
-
-        <!-- Phase 8 — Engagement Heatmap Timeline -->
-        <section v-if="props.contactId" class="ip-section">
-          <EngagementHeatmap :contact-id="props.contactId" />
-        </section>
+        </div>
       </div>
 
-      <!-- ══════ TAB 2: QUAN HỆ (per-nick) ══════ -->
-      <div v-show="activeTab === 'crm'" class="tab-pane crm-tab">
-        <!-- Widget 1: Liên kết CRM (placeholder) -->
-        <section class="crm-widget crm-w-getfly">
-          <div class="crm-w-row">
-            <span class="crm-w-icon">🔗</span>
-            <span class="crm-w-title">Liên kết CRM</span>
+      <!-- Quick Action Buttons -->
+      <div class="ip-quick-actions">
+        <button class="qa-btn" title="Đánh dấu chưa đọc" :disabled="isMarkingUnread" @click="markUnread">
+          <div class="qa-icon-wrap">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+              <polyline points="22,6 12,13 2,6"/>
+            </svg>
+            <span class="qa-unread-dot"></span>
           </div>
-          <div class="crm-w-row crm-w-row-status">
-            <span v-if="cockpit?.getflyLink?.linked" class="getfly-pill ok">
-              ✅ GF-{{ cockpit.getflyLink.getflyId }}
-            </span>
-            <span v-else class="getfly-pill off">⚪ Chưa liên kết</span>
-            <button class="crm-btn-ghost" disabled title="Sẽ phát triển sau">Liên kết →</button>
-          </div>
-        </section>
+          <span>Chưa đọc</span>
+        </button>
+        <button class="qa-btn" :class="{ active: notificationMuted }" :disabled="quickActionLoading === 'mute'" :title="notificationMuted ? 'Bật thông báo' : 'Tắt thông báo'" @click="toggleMute">
+          <div class="qa-icon-wrap"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg></div>
+          <span>{{ notificationMuted ? 'Bật thông báo' : 'Tắt thông báo' }}</span>
+        </button>
+        <button class="qa-btn" :class="{ active: pinned }" :disabled="quickActionLoading === 'pin'" :title="pinned ? 'Bỏ ghim hội thoại' : 'Ghim hội thoại'" @click="togglePin">
+          <div class="qa-icon-wrap"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="17" x2="12" y2="22"/><path d="M5 17h14v-1.76a2 2 0 0 0-.44-1.24l-2.78-3.55A2 2 0 0 1 15 9.24V5a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v4.24c0 .43-.14.85-.4 1.21L5.8 14a2 2 0 0 0-.8 1.58Z"/></svg></div>
+          <span>{{ pinned ? 'Bỏ ghim hội thoại' : 'Ghim hội thoại' }}</span>
+        </button>
+        <button class="qa-btn" title="Tạo nhóm Zalo" :disabled="!canCreateGroup" v-if="props.threadType !== 'group'" @click="showCreateGroup = true">
+          <div class="qa-icon-wrap"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></div>
+          <span>Tạo nhóm Zalo</span>
+        </button>
+        <!-- Nút quản lý nhóm — chỉ hiện khi đang ở hội thoại nhóm -->
+        <template v-if="props.threadType === 'group'">
+          <button class="qa-btn" title="Thêm thành viên vào nhóm" :disabled="groupActionLoading" @click="showAddMemberDialog = true">
+            <div class="qa-icon-wrap"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg></div>
+            <span>Thêm thành viên</span>
+          </button>
+          <button class="qa-btn qa-btn-danger" title="Rời khỏi nhóm này" :disabled="groupActionLoading" @click="confirmLeaveGroup">
+            <div class="qa-icon-wrap"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg></div>
+            <span>Rời nhóm</span>
+          </button>
+        </template>
+      </div>
 
-        <!-- Widget 2: Next Action — AI suggestion -->
-        <section class="crm-widget crm-w-suggest">
-          <div class="crm-w-row">
-            <span class="crm-w-icon">⚡</span>
-            <span class="crm-w-title">Hành động đề xuất</span>
-            <button class="crm-w-refresh" :disabled="suggestLoading" title="Đổi gợi ý" @click="onRefreshSuggest">↻</button>
+      <!-- Dialog xác nhận rời nhóm -->
+      <div v-if="showLeaveConfirm" class="ip-confirm-overlay" @click.self="showLeaveConfirm = false">
+        <div class="ip-confirm-dialog">
+          <div class="ip-confirm-title">Rời khỏi nhóm?</div>
+          <div class="ip-confirm-body">Bạn sẽ không nhận được tin nhắn mới từ nhóm này nữa. Bạn có thể được mời lại sau.</div>
+          <div class="ip-confirm-actions">
+            <button class="ip-confirm-cancel" @click="showLeaveConfirm = false">Hủy</button>
+            <button class="ip-confirm-ok danger" :disabled="groupActionLoading" @click="doLeaveGroup">
+              {{ groupActionLoading ? 'Đang rời...' : 'Rời nhóm' }}
+            </button>
           </div>
-          <div v-if="suggestLoading" class="crm-w-loading">
-            <div class="crm-spinner" /><span>AI đang gợi ý...</span>
-          </div>
-          <div v-else-if="suggestText" class="crm-suggest-box">
-            <div class="crm-suggest-text">{{ suggestText }}</div>
-            <button class="crm-btn-primary" @click="onInsertSuggest">💬 Gửi ngay</button>
-          </div>
-          <div v-else class="crm-w-empty">Chưa có gợi ý. Nhấn ↻ để AI soạn.</div>
-        </section>
+        </div>
+      </div>
 
-        <!-- Widget 3: Nhiệt KH -->
-        <section class="crm-widget crm-w-heat">
+      <!-- Dialog thêm thành viên -->
+      <AddMemberDialog
+        v-if="showAddMemberDialog"
+        v-model="showAddMemberDialog"
+        :account-id="props.activeZaloAccountId"
+        @add="onAddMembers"
+      />
+    </header>
+
+    <template v-if="mainTab === 'profile'">
+      <!-- Zalo-style Accordions List -->
+      <div class="ip-tab-content-zalo">
+
+      <!-- Edit Nickname inline (khi bấm vào nút bút chì) -->
+      <div v-if="infoExpanded" class="zalo-alias-edit-box">
+        <div class="alias-title">Đổi tên gợi nhớ</div>
+        <div class="alias-input-row">
+          <input
+            :value="aliasDraft"
+            placeholder="Tên gợi nhớ mới..."
+            @input="aliasDraft = ($event.target as HTMLInputElement).value"
+            @keydown.enter.prevent="saveAlias"
+          />
+          <button class="save-alias-btn" @click="saveAlias">Lưu</button>
+        </div>
+
+      </div>
+
+      <!-- Chỉ hiển thị khi thực sự có nhóm chung; click để mở hội thoại nhóm. -->
+      <div v-if="commonGroups.length" class="zalo-common-groups">
+        <button class="zalo-list-item common-group-toggle" @click="commonGroupsExpanded = !commonGroupsExpanded">
+          <div class="item-left"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" class="item-icon"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/></svg><span>{{ commonGroups.length }} nhóm chung</span></div>
+          <div class="item-right"><svg :class="{ expanded: commonGroupsExpanded }" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg></div>
+        </button>
+        <div v-if="commonGroupsExpanded" class="common-group-list">
+          <button v-for="group in commonGroups" :key="group.id" class="common-group-row" @click="openCommonGroup(group)">
+            <span class="common-group-avatar">{{ group.name.slice(0, 1).toUpperCase() }}</span>
+            <span class="common-group-info"><strong>{{ group.name }}</strong><small>{{ group.totalMember }} thành viên</small></span><span>›</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- B?o gi? lu?n m?; thay Tin nh?n nhanh cho c? c? nh?n v? nh?m. -->
+      <section class="profile-quote-block">
+        <div class="profile-quote-title">BÁO GIÁ THIỆP CƯỚI</div>
+        <QuotePanel :key="props.conversationId || 'no-conversation'" compact />
+      </section>
+
+    </div>
+
+    <div v-show="activeTab === 'crm'" class="tab-pane crm-tab">
+    <section class="crm-widget crm-w-heat">
           <div class="crm-w-row">
             <span class="crm-w-icon">📊</span>
             <span class="crm-w-title">Nhiệt KH</span>
@@ -268,13 +141,6 @@
                 />
               </div>
               <span class="heat-bar-num">{{ cockpit.priorityScore }}/100</span>
-            </div>
-            <div class="heat-meta">
-              <span class="heat-pattern">{{ patternIcon }} {{ patternLabel }}</span>
-              <span v-if="cockpit.engagementTrend != null" :class="['heat-trend', cockpit.engagementTrend > 0 ? 'up' : cockpit.engagementTrend < 0 ? 'down' : '']">
-                {{ cockpit.engagementTrend > 0 ? '↑' : cockpit.engagementTrend < 0 ? '↓' : '→' }}
-                {{ cockpit.engagementTrend > 0 ? '+' : '' }}{{ cockpit.engagementTrend }}% tuần
-              </span>
             </div>
             <div v-if="cockpit.stuckSinceAggregate" class="heat-stuck">
               ⚠ Stuck {{ daysFrom(cockpit.stuckSinceAggregate) }} ngày qua mọi nick
@@ -463,7 +329,6 @@
           <p>Tab Điểm chỉ áp dụng cho hội thoại 1-1 (có Friend).</p>
         </div>
       </div>
-    </div>
 
     <!-- Score history modal (overlay full screen, Teleport to body) -->
     <ScoreHistoryModal
@@ -472,45 +337,85 @@
       :contact-name="headerFullName"
     />
     </template>
-    <!-- /v-if mainTab=profile -->
 
-    <!-- ════════ TAB AUTOMATION — danh sách Khối Marketing để gửi (2026-06-07) ════════ -->
-    <div v-if="mainTab === 'media'" class="main-tab-body main-tab-body--no-padding">
-      <MediaTabPanel
+    <!-- ════════ TAB QUẢN LÝ ĐƠN — chỉ hội thoại nhóm (thay Media, 2026-07-14) ════════ -->
+    <div v-if="mainTab === 'orders'" class="main-tab-body main-tab-body--no-padding">
+      <header class="main-panel-head">
+        <v-icon size="20">mdi-cart-check</v-icon>
+        <div><b>Qu&#7843;n l&#253; &#273;&#417;n</b><small>T&#7841;o v&#224; qu&#7843;n l&#253; &#273;&#417;n h&#224;ng Pancake</small></div>
+      </header>
+      <OrderTabPanel
         v-if="props.conversationId"
         :conversation-id="props.conversationId"
+        :group-name="props.groupName"
+        :thread-type="props.threadType"
         :contact="props.contact"
-        :owner-nick-id="props.activeZaloAccountId"
-        :nick-name="props.activeZaloAccountName"
       />
       <div v-else class="main-tab-placeholder">
-        <div class="mtp-icon">🗂️</div>
-        <h3>Media</h3>
-        <p>Chưa chọn hội thoại để gửi ảnh/video/tệp/khối cho khách.</p>
+        <div class="mtp-icon">📋</div>
+        <h3>Quản lý đơn</h3>
+        <p>Chưa chọn hội thoại nhóm để gắn đơn hàng.</p>
       </div>
     </div>
 
-    <!-- ════════ TAB AI (placeholder) ════════ -->
-    <div v-if="mainTab === 'ai'" class="main-tab-body">
-      <div class="main-tab-placeholder">
-        <div class="mtp-icon">✨</div>
-        <h3>Trợ lý AI Bất động sản</h3>
-        <p>Hỏi đáp về sản phẩm, dự án BĐS, giá, ưu đãi để tư vấn KH.</p>
-        <div class="mtp-coming">🚧 Đang phát triển — kết nối knowledge base BĐS HS Holding</div>
-      </div>
+    <!-- ════════ TAB AI — Trợ lý CSKH Thiệp Cưới (KB gộp) ════════ -->
+    <div v-if="mainTab === 'design-orders'" class="main-tab-body main-tab-body--no-padding">
+      <DesignOrderTabPanel
+        v-if="props.conversationId"
+        :conversation-id="props.conversationId"
+        :group-name="props.groupName"
+      />
+      <div v-else class="main-tab-placeholder"><h3>??n thi?t k?</h3><p>Ch?a ch?n h?i tho?i.</p></div>
+    </div>
+
+    <div v-if="mainTab === 'ai'" class="main-tab-body main-tab-body--no-padding">
+      <header class="main-panel-head">
+        <v-icon size="20">mdi-creation-outline</v-icon>
+        <div><b>Tr&#7907; l&#253; AI</b><small>H&#7895; tr&#7907; t&#432; v&#7845;n v&#224; so&#7841;n tin ch&#259;m s&#243;c kh&#225;ch h&#224;ng</small></div>
+      </header>
+      <AiAssistantPanel />
     </div>
 
     <!-- ════════ TAB FOLLOW-UP — Luồng Mục Tiêu M9 wire 2026-06-02 ════════ -->
     <div v-if="mainTab === 'followup'" class="main-tab-body main-tab-body--no-padding">
+      <header class="main-panel-head">
+        <v-icon size="20">mdi-bullseye-arrow</v-icon>
+        <div><b>Follow-up</b><small>Theo d&#245;i v&#224; qu&#7843;n l&#253; lu&#7891;ng b&#225;m &#273;u&#7893;i kh&#225;ch h&#224;ng</small></div>
+      </header>
+      <div class="follow-up-subtabs" role="tablist" aria-label="Lo&#7841;i follow-up">
+        <button
+          type="button"
+          role="tab"
+          :aria-selected="followUpSubTab === 'automation'"
+          :class="{ active: followUpSubTab === 'automation' }"
+          @click="followUpSubTab = 'automation'"
+        >Lu&#7891;ng t&#7921; &#273;&#7897;ng</button>
+        <button
+          type="button"
+          role="tab"
+          :aria-selected="followUpSubTab === 'ai'"
+          :class="{ active: followUpSubTab === 'ai' }"
+          @click="followUpSubTab = 'ai'"
+        >AI &#273;&#7873; xu&#7845;t</button>
+      </div>
       <AutomationCardList
-        v-if="contact?.id"
+        v-if="contact?.id && followUpSubTab === 'automation'"
         ref="automationCardListRef"
         :contact-id="contact.id"
         :nick-id="props.activeZaloAccountId || null"
         :nick-name="props.activeZaloAccountName || null"
         @add-flow="openAddFlowModal"
       />
-      <div v-else class="main-tab-placeholder">
+      <AiFollowUpPanel
+        v-else-if="contact?.id && props.conversationId && followUpSubTab === 'ai'"
+        :conversation-id="props.conversationId"
+        :contact-id="contact.id"
+        :contact-name="contact.fullName || contact.crmName"
+        :last-inbound-at="contact.lastInboundAt"
+        :last-inbound-preview="contact.lastInboundPreview"
+        @send="(content, onSuccess, onError) => emit('send-ai-follow-up', content, onSuccess, onError)"
+      />
+      <div v-else-if="!contact?.id" class="main-tab-placeholder">
         <div class="mtp-icon">🎯</div>
         <h3>Luồng bám đuổi</h3>
         <p>Chưa chọn khách hàng để xem các luồng đang chạy.</p>
@@ -531,6 +436,7 @@
     <!-- ════════ Bottom 4-tab strip (Profile / Automation / AI / Follow-up) ════════ -->
     <nav class="bottom-tabs" role="tablist" aria-label="Chuyển tab chính">
       <button
+        v-if="!props.hideProfile"
         class="bottom-tab"
         :class="{ active: mainTab === 'profile' }"
         role="tab"
@@ -543,14 +449,25 @@
       </button>
       <button
         class="bottom-tab"
-        :class="{ active: mainTab === 'media' }"
+        :class="{ active: mainTab === 'orders' }"
         role="tab"
-        :aria-selected="mainTab === 'media'"
-        title="Media — Gửi ảnh/video/tệp/khối cho KH"
-        @click="mainTab = 'media'"
+        :aria-selected="mainTab === 'orders'"
+        title="Quản lý đơn — Gắn trạng thái đơn hàng cho nhóm"
+        @click="mainTab = 'orders'"
       >
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>
-        <span class="bt-label">MEDIA</span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+        <span class="bt-label">QUẢN LÝ ĐƠN</span>
+      </button>
+      <button
+        class="bottom-tab"
+        :class="{ active: mainTab === 'design-orders' }"
+        role="tab"
+        :aria-selected="mainTab === 'design-orders'"
+        title="Đơn thiết kế — Designer, deadline, trạng thái và KPI"
+        @click="mainTab = 'design-orders'"
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22a10 10 0 1 0 0-20 7 7 0 0 0 0 14h1.5a1.5 1.5 0 0 1 0 3H12"/><circle cx="7.5" cy="10.5" r="1"/><circle cx="10" cy="6.5" r="1"/><circle cx="15" cy="7.5" r="1"/></svg>
+        <span class="bt-label">ĐƠN THIẾT KẾ</span>
       </button>
       <button
         class="bottom-tab"
@@ -575,41 +492,105 @@
         <span class="bt-label">FOLLOW-UP</span>
       </button>
     </nav>
+    <GroupCreateDialog v-model="showCreateGroup" :account-id="props.activeZaloAccountId" :initial-member-ids="currentMemberUid ? [currentMemberUid] : []" @create="createZaloGroup" @created="onGroupPancakeCreated" />
+
+    <!-- ════════ Lightbox ảnh/video nội bộ ════════ -->
+    <Teleport to="body">
+      <div v-if="lightboxOpen" class="ip-lightbox-overlay" @click.self="lightboxClose">
+        <!-- Header -->
+        <div class="ip-lb-header">
+          <div class="ip-lb-title">
+            {{ lightboxItems[lightboxIndex]?.name || 'Ảnh' }}
+          </div>
+          <div class="ip-lb-actions">
+            <a :href="lightboxItems[lightboxIndex]?.url" target="_blank" rel="noopener noreferrer" class="ip-lb-btn" title="Mở trong tab mới">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+            </a>
+            <button class="ip-lb-btn" :title="lightboxZoomed ? 'Thu nhỏ' : 'Phóng to x2'" @click="lightboxToggleZoom">
+              <svg v-if="lightboxZoomed" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
+              <svg v-else viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
+            </button>
+            <button class="ip-lb-btn ip-lb-close" title="Đóng (Esc)" @click="lightboxClose">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- Body: ảnh -->
+        <div class="ip-lb-body" :class="{ zoomed: lightboxZoomed }">
+          <button v-if="lightboxItems.length > 1" class="ip-lb-nav ip-lb-nav-prev" @click="lightboxPrev">
+            <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>
+          </button>
+
+          <div class="ip-lb-img-wrap" :class="{ zoomed: lightboxZoomed }">
+            <template v-if="lightboxItems[lightboxIndex]?.kind === 'video'">
+              <video
+                :src="lightboxItems[lightboxIndex]?.url"
+                controls
+                class="ip-lb-media"
+                :class="{ zoomed: lightboxZoomed }"
+              />
+            </template>
+            <template v-else>
+              <img
+                :src="lightboxItems[lightboxIndex]?.url || lightboxItems[lightboxIndex]?.thumbnailUrl"
+                :alt="lightboxItems[lightboxIndex]?.name || 'Ảnh'"
+                class="ip-lb-media"
+                :class="{ zoomed: lightboxZoomed }"
+                @click="lightboxToggleZoom"
+              />
+            </template>
+          </div>
+
+          <button v-if="lightboxItems.length > 1" class="ip-lb-nav ip-lb-nav-next" @click="lightboxNext">
+            <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+          </button>
+        </div>
+
+        <!-- Footer: thumbnail strip -->
+        <div v-if="lightboxItems.length > 1" class="ip-lb-thumbs">
+          <button
+            v-for="(item, i) in lightboxItems"
+            :key="item.id"
+            class="ip-lb-thumb"
+            :class="{ active: i === lightboxIndex }"
+            @click="lightboxIndex = i; lightboxZoomed = false"
+          >
+            <img v-if="item.thumbnailUrl || item.kind === 'image'" :src="item.thumbnailUrl || item.url" alt="" />
+            <span v-else class="ip-lb-thumb-vid">▶</span>
+          </button>
+        </div>
+      </div>
+    </Teleport>
   </aside>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, watch, onBeforeUnmount, onMounted } from 'vue';
+import { ref, reactive, computed, watch, onBeforeUnmount, onMounted, onUnmounted } from 'vue';
 import { useRouter } from 'vue-router';
 import type { Contact } from '@/composables/use-contacts';
 import type { AiSentiment } from '@/composables/use-chat';
 import { useChatContactPanel } from '@/composables/use-chat-contact-panel';
-import { displayPhone, displayPhoneIntl } from '@/composables/use-phone-format';
+import Avatar from '@/components/ui/Avatar.vue';
+import { useToast } from '@/composables/use-toast';
+import { api } from '@/api';
+import { useContactCockpit, type Teammate } from '@/composables/use-contact-cockpit';
+import { useAuthStore } from '@/stores/auth';
+import GroupCreateDialog from '@/components/groups/group-create-dialog.vue';
+import AddMemberDialog from '@/components/chat/AddMemberDialog.vue';
+import { useGroups } from '@/composables/use-groups';
 import ChatAppointments from './ChatAppointments.vue';
 import AiSummaryCard from '@/components/ai/ai-summary-card.vue';
 import AiSentimentBadge from '@/components/ai/ai-sentiment-badge.vue';
-import AutomationCardList from './AutomationCardList.vue';
 import AddFlowModal from './AddFlowModal.vue';
-import MediaTabPanel from './MediaTabPanel.vue';
-import Avatar from '@/components/ui/Avatar.vue';
-import ContactDealStageSelector from '@/components/chat/ContactDealStageSelector.vue';
-import { useAuthStore } from '@/stores/auth';
-import { useToast } from '@/composables/use-toast';
-import { api } from '@/api';
-// Icon top-tab — Lucide line (anh chốt 2026-06-08, đồng bộ bottom-tab SVG).
-import {
-  User as UserIcon,
-  Target as TargetIcon,
-  CalendarClock as CalendarClockIcon,
-  Star as StarIcon,
-} from 'lucide-vue-next';
-import CustomerTimelineSection from './CustomerTimelineSection.vue';
-import EngagementHeatmap from './EngagementHeatmap.vue';
-import ScoreBanner from './ScoreBanner.vue';
+import QuotePanel from './QuotePanel.vue';
+import AiAssistantPanel from './AiAssistantPanel.vue';
+import OrderTabPanel from './OrderTabPanel.vue';
+import DesignOrderTabPanel from './DesignOrderTabPanel.vue';
 import ScoreInlinePanel from '@/components/scoring/ScoreInlinePanel.vue';
 import ScoreHistoryModal from '@/components/scoring/ScoreHistoryModal.vue';
 import SalesHandoffModal from './SalesHandoffModal.vue';
-import { useContactCockpit, type Teammate } from '@/composables/use-contact-cockpit';
+import AiFollowUpPanel from './AiFollowUpPanel.vue';
 
 const props = defineProps<{
   contactId: string | null;
@@ -620,14 +601,21 @@ const props = defineProps<{
   activeZaloAccountName?: string | null;
   // Conversation hiện tại — dùng cho /ai/suggest (gợi ý next action widget 2 tab CRM)
   conversationId?: string | null;
+  // Thông tin nhóm Zalo (chỉ dùng khi threadType=group)
+  threadType?: 'user' | 'group' | null;
+  groupName?: string | null;
+  groupAvatarUrl?: string | null;
   // Friend.id của cặp (contact × activeZaloAccount). Cần để fetch score breakdown per-pair.
   friendId?: string | null;
   // Friendship per-pair (nick × KH) — chứa aliasInNick để sync 2-way với Zalo Real.
   friendship?: { id?: string; aliasInNick?: string | null } | null;
+  externalThreadId?: string | null;
+  isPinned?: boolean;
   aiSummary: string;
   aiSummaryLoading: boolean;
   aiSentiment: AiSentiment | null;
   aiSentimentLoading: boolean;
+  hideProfile?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -636,8 +624,266 @@ const emit = defineEmits<{
   'refresh-ai-summary': [];
   'refresh-ai-sentiment': [];
   'insert-suggestion': [text: string];
+  'send-ai-follow-up': [content: string, onSuccess: () => void, onError: () => void];
   'status-changed': [statusId: string | null];
+  'group-created': [conversationId: string];
+  'mark-unread': [conversationId: string];
+  'show-related-conversations': [];
 }>();
+
+type CommonGroup = { id: string; name: string; totalMember: number };
+type SharedMediaItem = { id: string; kind: 'image' | 'video'; name: string; url: string; thumbnailUrl: string };
+type SharedFileItem = { id: string; name: string; url: string; sizeLabel: string; extension: string };
+type SharedLinkItem = { url: string; host: string };
+
+const notificationMuted = ref(false);
+const pinned = ref(false);
+const quickActionLoading = ref<null | 'mute' | 'pin'>(null);
+const showCreateGroup = ref(false);
+const commonGroups = ref<CommonGroup[]>([]);
+const commonGroupsExpanded = ref(false);
+const sharedMedia = ref<SharedMediaItem[]>([]);
+const sharedFiles = ref<SharedFileItem[]>([]);
+const sharedLinks = ref<SharedLinkItem[]>([]);
+const currentMemberUid = computed(() => props.externalThreadId || '');
+const canCreateGroup = computed(() => !!props.activeZaloAccountId && !!currentMemberUid.value);
+const { createGroup, addMembers, leaveGroup } = useGroups();
+
+function apiError(err: unknown, fallback: string): string {
+  return (err as { response?: { data?: { error?: string } } })?.response?.data?.error || fallback;
+}
+
+async function toggleMute() {
+  if (!props.conversationId || quickActionLoading.value) return;
+  quickActionLoading.value = 'mute';
+  const next = !notificationMuted.value;
+  try {
+    await api.post(`/conversations/${props.conversationId}/${next ? 'mute' : 'unmute'}`);
+    notificationMuted.value = next;
+    toast.success(next ? 'Đã tắt thông báo hội thoại' : 'Đã bật thông báo hội thoại');
+  } catch (err) { toast.error(apiError(err, 'Không đổi được cài đặt thông báo')); }
+  finally { quickActionLoading.value = null; }
+}
+
+async function togglePin() {
+  if (!props.conversationId || quickActionLoading.value) return;
+  quickActionLoading.value = 'pin';
+  const next = !pinned.value;
+  try {
+    await api.post(`/conversations/${props.conversationId}/${next ? 'pin' : 'unpin'}`);
+    pinned.value = next;
+    emit('saved');
+    toast.success(next ? 'Đã ghim hội thoại lên đầu' : 'Đã bỏ ghim hội thoại');
+  } catch (err) { toast.error(apiError(err, 'Không ghim được hội thoại')); }
+  finally { quickActionLoading.value = null; }
+}
+
+const isMarkingUnread = ref(false);
+async function markUnread() {
+  if (!props.conversationId || isMarkingUnread.value) return;
+  isMarkingUnread.value = true;
+  try {
+    await api.post(`/conversations/${props.conversationId}/mark-unread`);
+    emit('mark-unread', props.conversationId);
+    toast.success('Đã đánh dấu cuộc hội thoại là chưa đọc');
+  } catch (err) {
+    toast.error(apiError(err, 'Không thể đánh dấu chưa đọc'));
+  } finally {
+    isMarkingUnread.value = false;
+  }
+}
+
+function onGroupPancakeCreated(payload: { conversationId: string }) {
+  if (payload.conversationId) emit('group-created', payload.conversationId);
+  void loadCommonGroups();
+}
+async function createZaloGroup(payload: { name: string; memberIds: string[]; createPancakeOrder?: boolean }) {
+  if (!props.activeZaloAccountId) return;
+  const memberIds = [...new Set([currentMemberUid.value, ...payload.memberIds].filter(Boolean))];
+  const result = await createGroup(props.activeZaloAccountId, { name: payload.name, memberIds });
+  if (!result?.conversationId) {
+    toast.error('Tạo nhóm Zalo thất bại. Chưa tạo đơn Pancake.');
+    return;
+  }
+  if (payload.createPancakeOrder) {
+    try {
+      const { data } = await api.post(`/orders/pancake/from-conversation/${result.conversationId}`, {});
+      const code = data?.link?.orderCode || data?.link?.pancakeOrderId || '';
+      if (data?.renameSucceeded || data?.link?.syncStatus === 'complete') toast.success(`Đã tạo nhóm và đơn Pancake ${code}`.trim());
+      else toast.warning(`Đã tạo đơn Pancake ${code}, nhưng chưa đổi được tên nhóm. Mở tab Quản lý đơn để thử lại.`.trim());
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error || 'Đã tạo nhóm Zalo nhưng chưa tạo được đơn Pancake');
+    }
+  } else toast.success('Đã tạo nhóm Zalo');
+  void loadCommonGroups();
+}
+// ════════ Thêm thành viên & Rời nhóm ════════
+const showAddMemberDialog = ref(false);
+const showLeaveConfirm = ref(false);
+const groupActionLoading = ref(false);
+
+async function onAddMembers(memberIds: string[]) {
+  if (!props.activeZaloAccountId || !props.externalThreadId) return;
+  if (!memberIds.length) { showAddMemberDialog.value = false; return; }
+  groupActionLoading.value = true;
+  try {
+    await addMembers(props.activeZaloAccountId, props.externalThreadId, memberIds);
+    toast.success(`Đã thêm ${memberIds.length} thành viên vào nhóm`);
+    showAddMemberDialog.value = false;
+  } catch (err) {
+    toast.error(apiError(err, 'Thêm thành viên thất bại'));
+  } finally {
+    groupActionLoading.value = false;
+  }
+}
+
+function confirmLeaveGroup() {
+  showLeaveConfirm.value = true;
+}
+
+async function doLeaveGroup() {
+  if (!props.activeZaloAccountId || !props.externalThreadId) return;
+  groupActionLoading.value = true;
+  try {
+    await leaveGroup(props.activeZaloAccountId, props.externalThreadId);
+    showLeaveConfirm.value = false;
+    toast.success('Đã rời khỏi nhóm');
+    emit('saved');
+  } catch (err) {
+    toast.error(apiError(err, 'Rời nhóm thất bại'));
+  } finally {
+    groupActionLoading.value = false;
+  }
+}
+
+async function openCommonGroup(group: CommonGroup) {
+  if (!props.activeZaloAccountId) return;
+  try {
+    const { data } = await api.post<{ conversationId: string }>(`/zalo-accounts/${props.activeZaloAccountId}/groups/${group.id}/ensure-conversation`, {});
+    if (data.conversationId) await router.push({ name: 'Chat', params: { convId: data.conversationId } });
+  } catch (err) { toast.error(apiError(err, 'Không mở được hội thoại nhóm')); }
+}
+
+function parsePayload(content: string | null): Record<string, any> {
+  if (!content) return {};
+  if (/^https?:\/\//i.test(content)) return { href: content };
+  try { const value = JSON.parse(content); return value && typeof value === 'object' ? value : {}; }
+  catch { return {}; }
+}
+function firstUrl(value: unknown): string {
+  if (typeof value === 'string' && /^https?:\/\//i.test(value)) return value;
+  if (!value || typeof value !== 'object') return '';
+  const obj = value as Record<string, unknown>;
+  for (const key of ['hdUrl', 'normalUrl', 'href', 'url', 'src', 'thumbUrl', 'thumb', 'thumbnail']) {
+    const found = obj[key]; if (typeof found === 'string' && /^https?:\/\//i.test(found)) return found;
+  }
+  return '';
+}
+function humanSize(bytes: unknown): string {
+  const n = Number(bytes || 0); if (!n) return '';
+  return n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`;
+}
+function collectUrls(value: unknown, output: Set<string>) {
+  if (typeof value === 'string') {
+    for (const match of value.match(/https?:\/\/[^\s"'<>]+/gi) || []) output.add(match.replace(/[),.;!?]+$/, ''));
+    return;
+  }
+  if (Array.isArray(value)) { value.forEach(v => collectUrls(v, output)); return; }
+  if (value && typeof value === 'object') Object.values(value as Record<string, unknown>).forEach(v => collectUrls(v, output));
+}
+
+async function loadSharedContent() {
+  if (!props.conversationId) return;
+  try {
+    const { data } = await api.get(`/conversations/${props.conversationId}/messages`, { params: { limit: 200 } });
+    const media: SharedMediaItem[] = [], files: SharedFileItem[] = [];
+    const urls = new Set<string>();
+    for (const message of data.messages || []) {
+      const payload = parsePayload(message.content);
+      collectUrls(message.content, urls);
+      const url = firstUrl(payload);
+      if ((message.contentType === 'image' || message.contentType === 'video') && url) {
+        media.push({ id: message.id, kind: message.contentType, name: String(payload.name || payload.title || message.contentType), url, thumbnailUrl: String(payload.thumbUrl || payload.thumb || payload.thumbnail || (message.contentType === 'image' ? url : '')) });
+      } else if (message.contentType === 'file' && url) {
+        const name = String(payload.name || payload.fileName || 'Tệp đính kèm');
+        files.push({ id: message.id, name, url, sizeLabel: humanSize(payload.size), extension: (name.split('.').pop() || 'FILE').slice(0, 4).toUpperCase() });
+      }
+    }
+    sharedMedia.value = media;
+    sharedFiles.value = files;
+    const mediaUrls = new Set([...media.map(x => x.url), ...media.map(x => x.thumbnailUrl), ...files.map(x => x.url)]);
+    sharedLinks.value = [...urls].filter(url => !mediaUrls.has(url)).map(url => {
+      try { return { url, host: new URL(url).hostname }; } catch { return { url, host: url }; }
+    });
+  } catch { sharedMedia.value = []; sharedFiles.value = []; sharedLinks.value = []; }
+}
+
+async function loadCommonGroups() {
+  if (props.threadType === 'group' || !props.activeZaloAccountId || !currentMemberUid.value) {
+    commonGroups.value = [];
+    return;
+  }
+  try {
+    const { data } = await api.get(`/zalo-accounts/${props.activeZaloAccountId}/groups/common/${encodeURIComponent(currentMemberUid.value)}`);
+    commonGroups.value = data.groups || [];
+  } catch { commonGroups.value = []; }
+}
+
+async function loadMuteStatus() {
+  if (!props.conversationId) return;
+  try {
+    const { data } = await api.get(`/conversations/${props.conversationId}/mute-status`);
+    notificationMuted.value = !!data.muted;
+  } catch { notificationMuted.value = false; }
+}
+
+// ════════ Lightbox ảnh/video nội bộ ════════
+const lightboxOpen = ref(false);
+const lightboxIndex = ref(0);
+const lightboxZoomed = ref(false);
+const lightboxItems = computed(() => sharedMedia.value.filter(m => m.kind === 'image' || m.kind === 'video'));
+
+// function openSharedItem(item: SharedMediaItem) {
+//   const idx = lightboxItems.value.findIndex(m => m.id === item.id);
+//   lightboxIndex.value = idx >= 0 ? idx : 0;
+//   lightboxZoomed.value = false;
+//   lightboxOpen.value = true;
+// }
+
+function lightboxPrev() {
+  if (lightboxItems.value.length <= 1) return;
+  lightboxIndex.value = (lightboxIndex.value - 1 + lightboxItems.value.length) % lightboxItems.value.length;
+  lightboxZoomed.value = false;
+}
+
+function lightboxNext() {
+  if (lightboxItems.value.length <= 1) return;
+  lightboxIndex.value = (lightboxIndex.value + 1) % lightboxItems.value.length;
+  lightboxZoomed.value = false;
+}
+
+function lightboxToggleZoom() {
+  lightboxZoomed.value = !lightboxZoomed.value;
+}
+
+function lightboxClose() {
+  lightboxOpen.value = false;
+  lightboxZoomed.value = false;
+}
+
+function onLightboxKeydown(e: KeyboardEvent) {
+  if (!lightboxOpen.value) return;
+  if (e.key === 'Escape') lightboxClose();
+  else if (e.key === 'ArrowLeft') lightboxPrev();
+  else if (e.key === 'ArrowRight') lightboxNext();
+}
+
+onMounted(() => document.addEventListener('keydown', onLightboxKeydown));
+onUnmounted(() => document.removeEventListener('keydown', onLightboxKeydown));
+
+watch(() => props.isPinned, value => { pinned.value = !!value; }, { immediate: true });
+watch(() => props.conversationId, () => { void loadSharedContent(); void loadMuteStatus(); }, { immediate: true });
+watch([() => props.activeZaloAccountId, currentMemberUid], () => { commonGroupsExpanded.value = false; void loadCommonGroups(); }, { immediate: true });
 
 // orgId cho ContactDealStageSelector (trạng thái cột 4 cạnh UID — sync với cột 3).
 const _authStorePanel = useAuthStore();
@@ -661,6 +907,8 @@ const {
   () => props.contact,
   () => emit('saved'),
 );
+
+
 
 // ════════ Tên gợi nhớ Zalo (per-pair, sync 2-way với Zalo Real) ════════
 // Bound to Friend.aliasInNick — PATCH /friends/:id sẽ:
@@ -691,11 +939,18 @@ async function saveAlias() {
 // 2026-06-01: Refactor cột 4 4-tab — bottom strip Profile/Media/AI/Follow-up.
 // 2026-06-12 (anh chốt): tab 'automation' → 'media' (gộp Picker Media + Automation:
 //   Ảnh/Video/Tệp/Khối trong MediaTabPanel). `activeTab` (sub-tab) chỉ active scope 'profile'.
-const mainTab = ref<'profile' | 'media' | 'ai' | 'followup'>('profile');
+const mainTab = ref<'profile' | 'ai' | 'followup' | 'orders' | 'design-orders'>('profile');
+const followUpSubTab = ref<'automation' | 'ai'>('ai');
 const activeTab = ref<'profile' | 'crm' | 'activity' | 'score'>('profile');
 
+// Đổi hội thoại hoặc loại hội thoại → reset về tab phù hợp
+watch([() => props.conversationId, () => props.threadType], () => {
+  mainTab.value = props.hideProfile ? 'orders' : 'profile';
+  followUpSubTab.value = 'ai';
+}, { immediate: true });
+
 // Cho phép cha (ChatView) mở tab Media từ nút "Chèn từ kho" ở composer cột 3.
-function setMainTab(t: 'profile' | 'media' | 'ai' | 'followup') { mainTab.value = t; }
+function setMainTab(t: 'profile' | 'media' | 'ai' | 'followup' | 'orders' | 'design-orders') { mainTab.value = t === 'media' ? 'profile' : t; }
 defineExpose({ setMainTab });
 
 // ════════════════════════════════════════════════════════════════════════
@@ -855,6 +1110,12 @@ async function fetchRelations(contactId: string) {
 const headerFullName = computed(() => {
   const isUsable = (s: string | null | undefined): s is string =>
     !!s && s.trim().length > 0 && s.trim().toLowerCase() !== 'unknown';
+  // Hội thoại nhóm → ưu tiên groupName
+  if (props.threadType === 'group') {
+    if (isUsable(props.groupName)) return props.groupName!;
+    if (isUsable(props.contact?.fullName)) return props.contact!.fullName!;
+    return 'Nhóm Zalo';
+  }
   if (isUsable(props.contact?.crmName)) return props.contact!.crmName!;
   if (isUsable(props.contact?.fullName)) return props.contact!.fullName!;
   if (isUsable(props.friendship?.aliasInNick)) return props.friendship!.aliasInNick!;
@@ -864,13 +1125,9 @@ const headerFullName = computed(() => {
 });
 
 // Lead score tier để màu badge overlay trên avatar (thấp/TB/cao)
-// ════════ Phase 8.C — ScoreBanner 3 score data ════════
 const scoreData = computed(() => ({
   lead: props.contact?.leadScore ?? null,
-  engagement: props.contact?.engagementScore ?? null,
   priority: props.contact?.priorityScore ?? null,
-  engagementTrend: props.contact?.engagementTrend ?? null,
-  engagementPattern: props.contact?.engagementPattern ?? null,
 }));
 
 // ════════ Phones extras ════════
@@ -948,6 +1205,9 @@ const hasAnyActivity = computed(() =>
 
 const toast = useToast();
 const router = useRouter();
+// Khai báo cockpit trước watcher contactId chạy immediate. Hội thoại nhóm có contactId=null,
+// watcher phải reset cockpit/teammates ngay trong setup; khai báo sau watcher sẽ gây TDZ và làm trắng toàn bộ panel.
+const { cockpit, teammates, loading: cockpitLoading, fetchCockpit, fetchTeammates, generateHandoffMessage } = useContactCockpit();
 
 // AI suggest state — PHẢI khai báo TRƯỚC watcher(props.contactId, {immediate:true}) bên dưới
 // vì watcher đó reset suggestText.value lúc setup. Khai báo sau watcher → TDZ
@@ -965,7 +1225,9 @@ watch(() => props.contactId, (id) => {
   // KHÔNG persist sticky giữa các conv (theo spec: sticky chỉ trong cùng conv).
   expandMode.value = 'auto';
   startAutoCollapse();
-  if (id) void fetchRelations(id);
+  if (id) {
+    void fetchRelations(id);
+  }
   else relations.value = { friends: [] };
   // Tab CRM cockpit data — fetch chỉ khi tab CRM được mở (xem watch(activeTab) bên dưới)
   if (!id) {
@@ -988,7 +1250,7 @@ function relativeTime(dateStr: string) {
 // Tab CRM (Mini CRM cockpit) — 7 widget, anh chốt design 2026-05-22
 // docs/designs/CHAT-COL4-CRM-TAB.md
 // ════════════════════════════════════════════════════════════════════════
-const { cockpit, teammates, loading: cockpitLoading, fetchCockpit, fetchTeammates, generateHandoffMessage } = useContactCockpit();
+
 
 // Fetch cockpit + teammates khi tab CRM được mở lần đầu (lazy load tiết kiệm request)
 const crmTabLoaded = ref(false);
@@ -1072,27 +1334,6 @@ function ccDateLabel(iso: string): string {
     return d.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'Asia/Ho_Chi_Minh' });
   } catch { return ''; }
 }
-
-const patternIcon = computed(() => {
-  const p = cockpit.value?.engagementPattern;
-  if (p === 'hot') return '🔥';
-  if (p === 'champion') return '👑';
-  if (p === 'stable') return '🟢';
-  if (p === 'cooling') return '🟡';
-  if (p === 'cold') return '🔵';
-  return '⚪';
-});
-
-const patternLabel = computed(() => {
-  const p = cockpit.value?.engagementPattern;
-  if (p === 'hot') return 'Nóng';
-  if (p === 'champion') return 'Champion';
-  if (p === 'stable') return 'Ổn định';
-  if (p === 'cooling') return 'Đang nguội';
-  if (p === 'cold') return 'Lạnh';
-  if (p === 'noise') return 'Chưa đủ data';
-  return '—';
-});
 
 const priorityBarColor = computed(() => {
   const s = cockpit.value?.priorityScore;
@@ -1270,6 +1511,28 @@ async function onRegenerateHandoff() {
     handoffLoading.value = false;
   }
 }
+
+import AutomationCardList from './AutomationCardList.vue';
+
+console.log({
+  orgId: orgId.value,
+  onDealStageUpdatedPanel,
+  saveSuccess: saveSuccess.value,
+  saveError: saveError.value,
+  isSticky: isSticky.value,
+  scoreData: scoreData.value,
+  phoneFocused: phoneFocused.value,
+  addExtraPhone,
+  removeExtraPhone,
+  openAddFlowModal,
+  closeAddFlowModal,
+  onEnrolled,
+  openFullProfile,
+  crmBadgeCount: crmBadgeCount.value,
+  activityBadgeCount: activityBadgeCount.value,
+  onRefreshSuggest,
+  onInsertSuggest
+});
 </script>
 
 <style scoped>
@@ -1390,39 +1653,49 @@ async function onRegenerateHandoff() {
 }
 .care-status-select:hover { background: rgba(255,145,0,0.22); }
 
-/* ════════ Tab bar ════════ */
 .ip-tabs {
   display: flex;
-  border-bottom: 1px solid var(--smax-grey-200);
-  background: var(--smax-grey-50);
+  background: #F3F4F6;
+  padding: 4px;
+  border-radius: 12px;
+  gap: 2px;
+  border-bottom: none;
+  margin: 10px 12px;
+  height: 44px;
+  align-items: center;
   flex-shrink: 0;
 }
 .ip-tab {
   flex: 1;
-  background: transparent; border: none;
-  padding: 9px 7px;
+  height: 36px;
+  background: transparent;
+  border: none;
+  padding: 0 4px;
   cursor: pointer;
-  font-size: 12.5px; font-weight: 500;
-  color: var(--smax-grey-700);
-  border-bottom: 2px solid transparent;
-  margin-bottom: -1px;
-  display: inline-flex; align-items: center; justify-content: center; gap: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #6B7280;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  border-radius: 10px;
   font-family: inherit;
   position: relative;
-  transition: color 0.15s;
+  transition: background-color 150ms cubic-bezier(0.4, 0, 0.2, 1), color 150ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 .ip-tab .ic { font-size: 13px; line-height: 1; display: inline-flex; align-items: center; }
 .ip-tab .ic > svg { display: block; }
-.ip-tab:hover { color: var(--smax-primary); background: var(--smax-grey-100); }
+.ip-tab:hover {
+  background: #E5E7EB;
+  color: #374151;
+}
 .ip-tab.active {
-  color: var(--smax-primary);
-  border-bottom-color: var(--smax-primary);
-  background: var(--smax-bg);
+  color: #2F80ED !important;
+  background: #EBF3FF !important;
   font-weight: 600;
 }
 .tab-badge {
-  position: absolute;
-  top: 5px; right: 9px;
   background: var(--smax-primary);
   color: white;
   font-size: 10px; font-weight: 700;
@@ -1431,6 +1704,8 @@ async function onRegenerateHandoff() {
   min-width: 16px;
   line-height: 14px;
   text-align: center;
+  margin-left: 2px;
+  flex-shrink: 0;
   transition: transform 0.18s ease;
 }
 /* Bump effect — khi NotesSection báo created → scale + glow để feedback +1 */
@@ -2202,16 +2477,35 @@ async function onRegenerateHandoff() {
   overflow-y: auto;
   padding: 20px;
   display: flex;
-  align-items: center;
-  justify-content: center;
+  flex-direction: column;
+  min-height: 0;
 }
 /* FOLLOW-UP tab — AutomationCardList tự handle padding (16px nội bộ) + align-start */
 .main-tab-body.main-tab-body--no-padding {
   padding: 0;
-  display: block;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
   align-items: stretch;
   justify-content: stretch;
 }
+.main-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  background: #fff;
+  border-bottom: 1px solid #e2e7ef;
+  color: #2f80ed;
+  flex-shrink: 0;
+}
+.main-panel-head > div {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.main-panel-head b { font-size: 15px; line-height: 1.35; }
+.main-panel-head small { font-size: 11px; line-height: 1.35; color: #7d8798; }
 .main-tab-placeholder {
   text-align: center;
   max-width: 280px;
@@ -2256,4 +2550,635 @@ async function onRegenerateHandoff() {
   font-weight: 600;
 }
 .mtp-link:hover { background: #0050cc; }
+
+/* ════════ ZALO STYLE SIDEBAR (COL 3) ACCORDIONS & STYLING ════════ */
+.ip-header-zalo {
+  border-bottom: 1px solid #E5E7EB;
+  padding: 16px 12px;
+  background: #fff;
+  position: relative;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.ip-header-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: #1E202C;
+  margin-bottom: 16px;
+  width: 100%;
+  text-align: center;
+}
+.ip-profile-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+.ip-avatar-big-zalo {
+  border: 2px solid #E5E7EB;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
+}
+.ip-name-wrapper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+}
+.ip-name-line-zalo {
+  font-size: 17px;
+  font-weight: 700;
+  color: #1E202C;
+  max-width: 80%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ip-edit-btn {
+  background: #F3F4F6;
+  border: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #6B7280;
+  cursor: pointer;
+  transition: all 150ms;
+}
+.ip-edit-btn:hover {
+  background: #E5E7EB;
+  color: #1E202C;
+}
+
+.ip-quick-actions {
+  display: flex;
+  justify-content: center;
+  gap: 20px;
+  margin-top: 18px;
+  width: 100%;
+}
+.qa-btn {
+  background: transparent;
+  border: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  color: #4B5563;
+  width: 72px;
+}
+.qa-icon-wrap {
+  width: 38px;
+  height: 38px;
+  background: #F3F4F6;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #374151;
+  transition: all 150ms;
+  position: relative;
+}
+.qa-unread-dot {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  width: 8px;
+  height: 8px;
+  background-color: #ef4444;
+  border-radius: 50%;
+  border: 1.5px solid #ffffff;
+}
+.qa-btn:hover .qa-icon-wrap {
+  background: #E5E7EB;
+  color: #1E202C;
+}
+.qa-btn span {
+  font-size: 11px;
+  font-weight: 500;
+  text-align: center;
+  line-height: 1.2;
+}
+
+.profile-quote-block { margin-top: 8px; border-top: 1px solid #e8edf3; background: #f7f9fc; }
+.profile-quote-title { padding: 10px 14px 4px; color: #475467; font-size: 11px; font-weight: 800; letter-spacing: .045em; }
+
+.ip-tab-content-zalo {
+  flex: 1;
+  overflow-y: auto;
+  background: #F3F4F6;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Mobile: thu gọn header để 4 nút chức năng lọt ngay màn hình đầu, không phải kéo.
+   Tiêu đề "Thông tin hội thoại" đã có ở thanh popup mobile nên ẩn bản lặp trong panel. */
+@media (max-width: 768px) {
+  .ip-header-zalo { padding: 10px 12px; }
+  .ip-header-title { display: none; }
+  .ip-profile-hero { gap: 4px; }
+  .ip-avatar-big-zalo { width: 48px !important; height: 48px !important; }
+  .ip-name-line-zalo { font-size: 15px; }
+  .ip-quick-actions { margin-top: 12px; gap: 12px; }
+}
+
+/* Zalo list items & Accordions */
+.zalo-list-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #fff;
+  padding: 14px 16px;
+  cursor: pointer;
+  transition: background-color 150ms;
+}
+.zalo-list-item:hover {
+  background: #FAFAFA;
+}
+.item-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #374151;
+}
+.item-icon {
+  color: #4B5563;
+}
+.item-right {
+  color: #9CA3AF;
+}
+
+.zalo-accordion {
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+}
+.zalo-accordion summary {
+  list-style: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #1E202C;
+  cursor: pointer;
+  border-bottom: 1px solid #F3F4F6;
+}
+.zalo-accordion summary::-webkit-details-marker {
+  display: none;
+}
+.zalo-accordion summary .chevron {
+  color: #9CA3AF;
+  transition: transform 150ms;
+}
+.zalo-accordion[open] summary .chevron {
+  transform: rotate(180deg);
+}
+
+.zalo-media-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+  padding: 12px 16px 4px;
+}
+.media-thumb, .media-thumb-more {
+  aspect-ratio: 1;
+  border-radius: 4px;
+  overflow: hidden;
+  background: #F3F4F6;
+  cursor: pointer;
+  position: relative;
+}
+.media-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.media-thumb-more {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #6B7280;
+  background: #F3F4F6;
+  border: 1px dashed #D1D5DB;
+}
+.media-thumb-more:hover {
+  background: #E5E7EB;
+  color: #1E202C;
+}
+
+.zalo-view-all-btn {
+  background: #F3F4F6;
+  border: none;
+  width: calc(100% - 32px);
+  margin: 12px 16px;
+  height: 36px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #4B5563;
+  cursor: pointer;
+  transition: all 150ms;
+}
+.zalo-view-all-btn:hover {
+  background: #E5E7EB;
+  color: #1E202C;
+}
+
+.zalo-empty-info {
+  padding: 24px 16px;
+  font-size: 13px;
+  color: #9CA3AF;
+  text-align: center;
+}
+
+.zalo-link-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px 16px 4px;
+}
+.zalo-link-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  text-decoration: none;
+  padding: 8px;
+  border-radius: 8px;
+  transition: background-color 150ms;
+}
+.zalo-link-item:hover {
+  background: #F9FAFB;
+}
+.link-icon-wrap {
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  background: #F3F4F6;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #4B5563;
+  flex-shrink: 0;
+}
+.link-details {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.link-url {
+  font-size: 13px;
+  font-weight: 500;
+  color: #2563EB;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.link-host {
+  font-size: 11px;
+  color: #9CA3AF;
+  margin-top: 2px;
+}
+
+/* Security Settings */
+.zalo-security-settings {
+  display: flex;
+  flex-direction: column;
+}
+.security-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid #F3F4F6;
+}
+.sec-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 13.5px;
+  color: #374151;
+}
+.sec-icon {
+  color: #4B5563;
+}
+.sec-label {
+  font-weight: 500;
+}
+.sec-desc {
+  font-size: 11.5px;
+  color: #9CA3AF;
+  margin-top: 1px;
+}
+.sec-switch {
+  width: 40px;
+  height: 20px;
+  cursor: pointer;
+}
+.security-action-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  font-size: 13.5px;
+  cursor: pointer;
+  transition: background-color 150ms;
+}
+.security-action-row:hover {
+  background: #F9FAFB;
+}
+.security-action-row.danger {
+  color: #EF4444;
+}
+
+/* Alias edit box */
+.zalo-alias-edit-box {
+  background: #fff;
+  padding: 12px 16px;
+  border-bottom: 1px solid #E5E7EB;
+}
+.alias-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #4B5563;
+  margin-bottom: 6px;
+}
+.alias-input-row {
+  display: flex;
+  gap: 8px;
+}
+.alias-input-row input {
+  flex: 1;
+  height: 32px;
+  border: 1px solid #D1D5DB;
+  border-radius: 6px;
+  padding: 0 10px;
+  font-size: 13px;
+}
+.alias-input-row input:focus {
+  border-color: #2F80ED;
+  outline: none;
+}
+.save-alias-btn {
+  height: 32px;
+  padding: 0 12px;
+  background: #2F80ED;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.save-alias-btn:hover {
+  background: #5b3ecf;
+}
+
+
+.qa-btn:disabled { opacity: .5; cursor: not-allowed; }
+.qa-btn.active .qa-icon-wrap { background: #e8f0ff; color: #0068ff; box-shadow: inset 0 0 0 1px #b7d0ff; }
+.qa-btn-danger .qa-icon-wrap { color: #dc2626 !important; }
+.qa-btn-danger:hover .qa-icon-wrap { background: #fee2e2 !important; }
+.qa-btn-danger span { color: #dc2626 !important; }
+
+/* Dialog xác nhận rời nhóm */
+.ip-confirm-overlay {
+  position: fixed; inset: 0; z-index: 9800;
+  background: rgba(0,0,0,0.45);
+  display: flex; align-items: center; justify-content: center;
+}
+.ip-confirm-dialog {
+  background: #fff; border-radius: 12px;
+  padding: 24px; max-width: 360px; width: 90%;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.18);
+}
+.ip-confirm-title { font-size: 16px; font-weight: 700; color: #1f2937; margin-bottom: 10px; }
+.ip-confirm-body { font-size: 13px; color: #6b7280; line-height: 1.6; margin-bottom: 20px; }
+.ip-confirm-actions { display: flex; gap: 10px; justify-content: flex-end; }
+.ip-confirm-cancel {
+  padding: 8px 18px; border-radius: 8px;
+  background: #f3f4f6; color: #374151;
+  border: none; font-weight: 600; cursor: pointer; font-family: inherit;
+}
+.ip-confirm-cancel:hover { background: #e5e7eb; }
+.ip-confirm-ok {
+  padding: 8px 18px; border-radius: 8px;
+  border: none; font-weight: 600; cursor: pointer; font-family: inherit;
+  background: #2F80ED; color: #fff;
+}
+.ip-confirm-ok.danger { background: #dc2626; }
+.ip-confirm-ok.danger:hover { background: #b91c1c; }
+.ip-confirm-ok:disabled { opacity: .6; cursor: not-allowed; }
+
+.common-group-toggle { width: 100%; border: 0; font-family: inherit; text-align: left; }
+.common-group-toggle .item-right svg { transition: transform .15s; }
+.common-group-toggle .item-right svg.expanded { transform: rotate(90deg); }
+.common-group-list { background: #fff; border-top: 1px solid #f1f3f5; padding: 4px 10px 8px; }
+.common-group-row { width: 100%; border: 0; background: transparent; display: flex; align-items: center; gap: 10px; padding: 8px 6px; border-radius: 8px; cursor: pointer; text-align: left; font-family: inherit; }
+.common-group-row:hover { background: #f7f8fa; }
+.common-group-avatar { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; background: #e8f0ff; color: #0068ff; font-weight: 700; }
+.common-group-info { min-width: 0; flex: 1; display: flex; flex-direction: column; }
+.common-group-info strong { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.common-group-info small { font-size: 11px; color: #8b93a7; margin-top: 2px; }
+.media-thumb { border: 0; padding: 0; }
+.media-fallback { width: 100%; height: 100%; display: grid; place-items: center; color: #737b8c; font-size: 11px; }
+.shared-video-play { position: absolute; inset: 0; margin: auto; width: 25px; height: 25px; border-radius: 50%; background: rgba(0,0,0,.55); color: white; display: grid; place-items: center; font-size: 10px; padding-left: 2px; }
+.shared-file-list { padding: 4px 12px 10px; }
+.shared-file-row { display: flex; align-items: center; gap: 10px; padding: 9px 4px; color: inherit; text-decoration: none; border-bottom: 1px solid #f1f3f5; }
+.shared-file-row:last-child { border-bottom: 0; }
+.shared-file-row:hover { background: #f9fafb; }
+.shared-file-icon { width: 36px; height: 36px; border-radius: 7px; display: grid; place-items: center; background: #eef2f7; color: #475066; font-size: 9px; font-weight: 800; }
+.shared-file-info { min-width: 0; display: flex; flex-direction: column; }
+.shared-file-info strong { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.shared-file-info small { font-size: 10px; color: #8b93a7; margin-top: 2px; }
+
+/* ════════ Lightbox nội bộ ════════ */
+.ip-lightbox-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9900;
+  background: rgba(0,0,0,0.92);
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+.ip-lb-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  background: rgba(0,0,0,0.6);
+  flex-shrink: 0;
+}
+.ip-lb-title {
+  color: #e5e7eb;
+  font-size: 13px;
+  font-weight: 500;
+  max-width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ip-lb-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ip-lb-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  background: rgba(255,255,255,0.08);
+  color: #d1d5db;
+  border: none;
+  cursor: pointer;
+  transition: background 0.15s;
+  text-decoration: none;
+}
+.ip-lb-btn:hover { background: rgba(255,255,255,0.18); color: #fff; }
+.ip-lb-close:hover { background: rgba(220,38,38,0.5); }
+.ip-lb-body {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  overflow: hidden;
+  min-height: 0;
+}
+.ip-lb-body.zoomed { overflow: auto; align-items: flex-start; justify-content: flex-start; }
+.ip-lb-img-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  max-width: 100%;
+  max-height: 100%;
+}
+.ip-lb-img-wrap.zoomed { min-width: 100%; min-height: 100%; }
+.ip-lb-media {
+  max-width: 100%;
+  max-height: calc(100vh - 130px);
+  object-fit: contain;
+  border-radius: 4px;
+  display: block;
+  cursor: zoom-in;
+  transition: transform 0.2s ease;
+}
+.ip-lb-media.zoomed {
+  max-width: none;
+  max-height: none;
+  transform: scale(2);
+  transform-origin: top left;
+  cursor: zoom-out;
+}
+.ip-lb-nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.1);
+  color: #fff;
+  border: none;
+  cursor: pointer;
+  z-index: 2;
+  transition: background 0.15s;
+}
+.ip-lb-nav:hover { background: rgba(255,255,255,0.25); }
+.ip-lb-nav-prev { left: 12px; }
+.ip-lb-nav-next { right: 12px; }
+.ip-lb-thumbs {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 16px;
+  background: rgba(0,0,0,0.5);
+  flex-shrink: 0;
+  overflow-x: auto;
+}
+.ip-lb-thumbs::-webkit-scrollbar { height: 3px; }
+.ip-lb-thumb {
+  width: 48px;
+  height: 48px;
+  border-radius: 5px;
+  overflow: hidden;
+  border: 2px solid transparent;
+  cursor: pointer;
+  flex-shrink: 0;
+  background: #1f2937;
+  transition: border-color 0.15s;
+}
+.ip-lb-thumb.active { border-color: #2F80ED; }
+.ip-lb-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ip-lb-thumb-vid {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  color: #9ca3af;
+  font-size: 18px;
+}
+.zalo-notes-panel {
+  padding: 10px 14px 14px;
+}
+.zalo-notes-textarea {
+  width: 100%;
+  border: 1px solid #dcdfe6;
+  border-radius: 8px;
+  padding: 10px;
+  font-size: 13px;
+  color: #303133;
+  background-color: #fff;
+  resize: vertical;
+  outline: none;
+  transition: border-color 0.2s;
+}
+.zalo-notes-textarea:focus {
+  border-color: #2F80ED;
+}
+.follow-up-subtabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--smax-grey-200);
+  background: #fff;
+}
+.follow-up-subtabs button {
+  min-width: 0;
+  min-height: 32px;
+  padding: 6px 8px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: var(--smax-grey-100, #f1f5f9);
+  color: var(--smax-grey-700, #475569);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 650;
+}
+.follow-up-subtabs button.active {
+  border-color: #a9d3f6;
+  background: #eaf4ff;
+  color: #0866c6;
+}
+
 </style>

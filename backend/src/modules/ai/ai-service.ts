@@ -11,6 +11,7 @@ import { buildReplyDraftPrompt } from './prompts/reply-draft.js';
 import { buildSummaryPrompt } from './prompts/summary.js';
 import { buildSentimentPrompt } from './prompts/sentiment.js';
 import { parseAppointmentRuleBased } from './appointment-fallback-parser.js';
+import { KB_CUSTOMER_SERVICE_PROMPT } from './prompts/kb-customer-service.js';
 
 export type AiTaskType = 'reply_draft' | 'summary' | 'sentiment';
 
@@ -456,7 +457,6 @@ export type SalesHandoffInput = {
     statusLabel?: string | null;
     priorityScore?: number | null;
     leadScore?: number | null;
-    engagementPattern?: string | null;
     nextAppointmentAt?: Date | null;
     nextAppointmentLocation?: string | null;
   };
@@ -490,25 +490,11 @@ function relativeVnDays(d: Date): string {
   return `${days} ngày trước`;
 }
 
-function patternLabel(p?: string | null): string {
-  switch (p) {
-    case 'hot': return 'nóng';
-    case 'champion': return 'champion';
-    case 'stable': return 'ổn định';
-    case 'cooling': return 'đang nguội';
-    case 'cold': return 'lạnh';
-    case 'noise': return 'chưa đủ data';
-    default: return '';
-  }
-}
-
 export function aiGenerateSalesHandoffMessage(input: SalesHandoffInput): SalesHandoffResult {
   const t = input.targetActivity || {};
 
-  // Trạng thái: statusLabel (CRM status) hoặc engagementPattern
-  const statusText = input.contact.statusLabel?.trim()
-    || patternLabel(input.contact.engagementPattern)
-    || 'đang chăm';
+  // Trạng thái: statusLabel (CRM status)
+  const statusText = input.contact.statusLabel?.trim() || 'đang chăm';
 
   // Số liệu Nhiệt + Điểm — chỉ thêm nếu có
   const numBits: string[] = [];
@@ -607,4 +593,72 @@ export async function aiFormatRichText(input: { orgId: string; rawText: string }
     logger.warn('[ai-format-rich] AI call failed:', err);
     return { text, styles: [], source: 'fallback' };
   }
+}
+
+// ── Trợ lý CSKH (tab AI /chat) ──────────────────────────────────────────────
+// 2026-07-18: chat tự do dựa trên KB gộp của Thiệp Cưới Nhà Yến. Trả lời thẳng
+// như đang nói với khách (khác /ai/suggest gắn conversation). Tái dùng provider
+// per-org + quota. Provider mặc định openai/gpt-4o-mini (config qua .env).
+export type KbChatMessage = { role: 'user' | 'assistant'; content: string };
+
+const KB_CHAT_MAX_HISTORY = 12;
+const KB_CHAT_MAX_TOKENS = 700;
+
+export async function generateKbChatReply(input: {
+  orgId: string;
+  messages: KbChatMessage[];
+}): Promise<{ reply: string }> {
+  const currentConfig = await getAiConfig(input.orgId);
+  if (!currentConfig.enabled) throw new Error('AI is disabled for this organization');
+
+  const startOfDay = new Date();
+  startOfDay.setHours(0, 0, 0, 0);
+  const withinQuota = await tenantTransaction(async (tx) => {
+    const usedToday = await tx.aiSuggestion.count({ where: { orgId: input.orgId, createdAt: { gte: startOfDay } } });
+    return usedToday < currentConfig.maxDaily;
+  });
+  if (!withinQuota) throw new Error('AI daily quota exceeded');
+
+  // Trợ lý CSKH ưu tiên OpenAI/gpt-4o-mini (độc lập provider chung của org).
+  // Nếu chưa cấu hình key OpenAI → fallback provider/model mặc định của org.
+  const openaiKey = await getProviderApiKey(input.orgId, 'openai');
+  const provider = openaiKey ? 'openai' : currentConfig.provider;
+  const model = openaiKey ? (config.openaiDefaultGpt4oMiniModel || 'gpt-4o-mini') : currentConfig.model;
+  const apiKey = openaiKey || (await getProviderApiKey(input.orgId, currentConfig.provider));
+  if (!apiKey) throw new Error('AI provider key is not configured');
+
+  // Ghép lịch sử thành 1 prompt (generateText nhận system + prompt phẳng).
+  const trimmed = input.messages.slice(-KB_CHAT_MAX_HISTORY);
+  const userPrompt = [
+    '<lich_su_hoi_thoai>',
+    trimmed
+      .map((m) => `[${m.role === 'user' ? 'KHÁCH' : 'TRỢ LÝ'}]: ${(m.content || '').trim()}`)
+      .join('\n'),
+    '</lich_su_hoi_thoai>',
+    '',
+    'Hãy trả lời tin nhắn mới nhất của KHÁCH theo đúng vai trò và quy tắc trong system prompt. Chỉ trả về nội dung câu trả lời, không thêm nhãn.',
+  ].join('\n');
+
+  const raw = await generateText(
+    provider,
+    apiKey,
+    model,
+    KB_CUSTOMER_SERVICE_PROMPT,
+    userPrompt,
+    KB_CHAT_MAX_TOKENS,
+    await getProviderBaseUrl(input.orgId, provider),
+  );
+
+  const reply = (raw || '').trim();
+  if (!reply) throw new Error('AI returned empty reply');
+
+  await saveSuggestion({
+    orgId: input.orgId,
+    conversationId: null,
+    type: 'reply_draft',
+    content: JSON.stringify({ kind: 'kb_chat', reply: reply.slice(0, 2000) }),
+    confidence: 0.8,
+  }).catch(() => {});
+
+  return { reply };
 }

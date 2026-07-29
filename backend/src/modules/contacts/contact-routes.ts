@@ -522,6 +522,154 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // ── POST /api/v1/contacts — create new contact ────────────────────────────
+  app.get('/api/v1/contacts/:id/conversations', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const user = request.user!;
+      const { id } = request.params as { id: string };
+      const visible = await assertContactVisible({ userId: user.id, orgId: user.orgId, legacyRole: user.role, contactId: id });
+      if (!visible) return reply.status(404).send({ error: 'Contact not found' });
+
+      const zaloScope = await getZaloScope(user.id, user.orgId, user.role);
+      const visibleAccountIds = zaloScope.displayableIds;
+      const friends = await prisma.friend.findMany({
+        where: { contactId: id, zaloAccountId: { in: visibleAccountIds } },
+        select: { zaloAccountId: true, zaloUidInNick: true },
+      });
+      const memberPairs = friends.filter((friend) => !!friend.zaloUidInNick)
+        .map((friend) => ({ zaloAccountId: friend.zaloAccountId, memberUid: friend.zaloUidInNick }));
+      const groupMembers = memberPairs.length ? await prisma.groupMember.findMany({
+        where: {
+          orgId: user.orgId,
+          OR: memberPairs.map((pair) => ({ zaloAccountId: pair.zaloAccountId, memberUid: pair.memberUid })),
+        },
+        select: { zaloAccountId: true, groupId: true },
+        distinct: ['zaloAccountId', 'groupId'],
+      }) : [];
+
+      // GroupMember exists only after roster scan. A customer message inside a group is positive membership evidence.
+      // Match exact account + UID pair because UID is account-specific.
+      const memberUidsByAccount = new Map<string, string[]>();
+      for (const pair of memberPairs) {
+        const uids = memberUidsByAccount.get(pair.zaloAccountId) ?? [];
+        uids.push(pair.memberUid);
+        memberUidsByAccount.set(pair.zaloAccountId, uids);
+      }
+      const candidateGroups = memberUidsByAccount.size ? await prisma.conversation.findMany({
+        where: {
+          orgId: user.orgId,
+          zaloAccountId: { in: [...memberUidsByAccount.keys()] },
+          threadType: 'group',
+          deletedAt: null,
+        },
+        select: { id: true, zaloAccountId: true },
+      }) : [];
+      const groupIdsByAccount = new Map<string, string[]>();
+      for (const group of candidateGroups) {
+        const ids = groupIdsByAccount.get(group.zaloAccountId) ?? [];
+        ids.push(group.id);
+        groupIdsByAccount.set(group.zaloAccountId, ids);
+      }
+      const messageEvidenceFilters = [...memberUidsByAccount].flatMap(([zaloAccountId, memberUids]) => {
+        const conversationIds = groupIdsByAccount.get(zaloAccountId) ?? [];
+        return conversationIds.length ? [{ conversationId: { in: conversationIds }, senderUid: { in: memberUids } }] : [];
+      });
+      const groupMessageHits = messageEvidenceFilters.length ? await prisma.message.findMany({
+        where: { OR: messageEvidenceFilters },
+        select: {
+          conversation: { select: { zaloAccountId: true, externalThreadId: true } },
+        },
+        distinct: ['conversationId'],
+      }) : [];
+
+      const groupPairKeys = new Set<string>();
+      const groupPairs: Array<{ zaloAccountId: string; externalThreadId: string; threadType: string }> = [];
+      const addGroupPair = (zaloAccountId: string, externalThreadId: string | null) => {
+        if (!externalThreadId) return;
+        const key = `${zaloAccountId}:${externalThreadId}`;
+        if (groupPairKeys.has(key)) return;
+        groupPairKeys.add(key);
+        groupPairs.push({ zaloAccountId, externalThreadId, threadType: 'group' });
+      };
+      for (const member of groupMembers) addGroupPair(member.zaloAccountId, member.groupId);
+      for (const hit of groupMessageHits) {
+        addGroupPair(hit.conversation.zaloAccountId, hit.conversation.externalThreadId);
+      }
+
+      const conversations = await prisma.conversation.findMany({
+        where: {
+          orgId: user.orgId,
+          deletedAt: null,
+          zaloAccountId: { in: visibleAccountIds },
+          OR: [{ contactId: id, threadType: 'user' }, ...groupPairs],
+        },
+        include: {
+          contact: { select: {
+            id: true, fullName: true, crmName: true, avatarUrl: true, phone: true, zaloUid: true,
+            hasZalo: true, tags: true, leadScore: true, statusId: true, assignedUserId: true, priorityScore: true,
+            contactAccess: { select: { role: true, user: { select: { id: true, fullName: true, email: true } } }, orderBy: { createdAt: 'asc' }, take: 5 },
+            _count: { select: { contactAccess: true } },
+          } },
+          zaloAccount: { select: {
+            id: true, displayName: true, avatarUrl: true, zaloUid: true, status: true,
+            privacyMode: true, ownerUserId: true, archivedAt: true,
+          } },
+          pins: { select: { id: true } },
+          messages: {
+            take: 1,
+            orderBy: [{ zaloMsgIdNum: { sort: 'desc', nulls: 'last' } }, { sentAt: 'desc' }],
+            select: {
+              id: true, zaloMsgId: true, senderUid: true, senderName: true, content: true, contentType: true,
+              senderType: true, sentAt: true, isDeleted: true, editedAt: true,
+              reactions: { select: { emoji: true, reactorId: true, reactorName: true, reactorSource: true } },
+            },
+          },
+        },
+        orderBy: { lastMessageAt: { sort: 'desc', nulls: 'last' } },
+      });
+
+      const accountIds = [...new Set(friends.map((friend) => friend.zaloAccountId))];
+      const scans = accountIds.length ? await prisma.groupScan.findMany({
+        where: { zaloAccountId: { in: accountIds }, orgId: user.orgId },
+        orderBy: { createdAt: 'desc' },
+        select: { zaloAccountId: true, state: true, createdAt: true, completedAt: true, error: true },
+      }) : [];
+      const latestScanByAccount = new Map<string, typeof scans[number]>();
+      for (const scan of scans) if (!latestScanByAccount.has(scan.zaloAccountId)) latestScanByAccount.set(scan.zaloAccountId, scan);
+      const accountStates = [...new Map(friends.map((friend) => {
+        const scan = latestScanByAccount.get(friend.zaloAccountId);
+        return [friend.zaloAccountId, {
+          accountId: friend.zaloAccountId,
+          state: scan?.state ?? 'unscanned',
+          checkedAt: scan?.completedAt ?? scan?.createdAt ?? null,
+          error: scan?.error ?? null,
+        }] as const;
+      })).values()];
+      const complete = accountStates.length > 0 && accountStates.every((state) => state.state === 'completed');
+      const coverageState = complete ? 'complete'
+        : accountStates.some((state) => state.state === 'partial' || state.state === 'failed') ? 'partial'
+        : accountStates.some((state) => state.state === 'running' || state.state === 'queued') ? 'scanning'
+        : 'unscanned';
+
+      const { buildPrivacyContext, redactConversationRow, redactMessage } = await import('../privacy/redact.js');
+      const privacyCtx = await buildPrivacyContext(request);
+      const items = conversations.map((conversation) => {
+        const base = { ...conversation, isPinned: conversation.pins.length > 0, friendship: null };
+        const redacted = redactConversationRow(base as any, privacyCtx) as any;
+        if (redacted.messages?.length && redacted.redacted) {
+          redacted.messages = redacted.messages.map((message: any) => redactMessage(message, conversation as any, privacyCtx));
+        }
+        return redacted;
+      });
+      return {
+        items,
+        groupCoverage: { complete, state: coverageState, accounts: accountStates },
+      };
+    } catch (err) {
+      logger.error('[contacts] Related conversations error:', err);
+      return reply.status(500).send({ error: 'Failed to fetch related conversations' });
+    }
+  });
+
   app.post('/api/v1/contacts', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const user = request.user!;
@@ -1896,6 +2044,22 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
 
       // Group conv chưa có → tạo. Note: contactId nullable (group conv không bind 1
       // contact cụ thể, listener sẽ tạo group-contact khi có msg đầu).
+      let groupName = 'Nhóm Zalo';
+      let groupAvatarUrl: string | null = null;
+      let groupMembersCount: number | null = null;
+      try {
+        const { zaloOps } = await import('../../shared/zalo-operations.js');
+        const raw: any = await zaloOps.getGroupInfo(accountId, groupId);
+        const info = raw?.gridInfoMap?.[groupId] ?? Object.values(raw?.gridInfoMap || {})[0];
+        if (info) {
+          if (info.name || info.groupName) groupName = info.name || info.groupName || groupName;
+          groupAvatarUrl = info.fullAvt || info.avt || null;
+          groupMembersCount = typeof info.totalMember === 'number' ? info.totalMember : null;
+        }
+      } catch (e) {
+        logger.warn(`[groups] Failed to fetch group info during ensure-conversation: ${e}`);
+      }
+
       const created = await prisma.conversation.create({
         data: {
           orgId: user.orgId,
@@ -1903,6 +2067,9 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
           contactId: null,
           threadType: 'group',
           externalThreadId: groupId,
+          groupName,
+          groupAvatarUrl,
+          groupMembersCount,
           // 2026-05-28: NULL cho conv vừa tạo từ ensure-conversation (Lead Pool /
           // Friend click "Bắt đầu chat") — KHÔNG set new Date() vì conv chưa có
           // message thật → bug pin-top vĩnh viễn nếu set timestamp.

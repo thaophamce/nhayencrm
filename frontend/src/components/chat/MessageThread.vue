@@ -46,80 +46,30 @@
         <div class="ch-info">
           <!-- Row 1: TÊN KH ưu tiên + Gender icon (Anh chốt 2026-06-03 layout 3 dòng) -->
           <div class="ch-row-1">
-            <div
-              class="ch-name"
-              :class="{ clickable: canClickHeader }"
-              :title="canClickHeader ? `Xem thông tin KH: ${headerName}` : headerName"
-              @click="onHeaderAvatarClick"
-            >{{ headerName }}</div>
-            <span class="ch-gender-chip" :class="genderChipClass" :title="genderTitle">
-              <svg v-if="conversation.threadType === 'group'" class="gender-svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                <path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/>
-              </svg>
-              <svg v-else-if="contactGender === 'female'" class="gender-svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                <path d="M17 9.5C17 6.46 14.54 4 11.5 4S6 6.46 6 9.5c0 2.71 1.96 4.94 4.5 5.41V17H8v2h2.5v2.5h2V19H15v-2h-2.5v-2.09c2.54-.47 4.5-2.7 4.5-5.41zm-9 0C8 7.57 9.57 6 11.5 6S15 7.57 15 9.5S13.43 13 11.5 13S8 11.43 8 9.5z"/>
-              </svg>
-              <svg v-else-if="contactGender === 'male'" class="gender-svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                <path d="M19 4h-6v2h2.59l-4.13 4.13C10.65 9.42 9.36 9 8 9c-3.31 0-6 2.69-6 6s2.69 6 6 6 6-2.69 6-6c0-1.36-.42-2.65-1.13-3.74L17 7.41V10h2V4h0zM8 19c-2.21 0-4-1.79-4-4s1.79-4 4-4 4 1.79 4 4-1.79 4-4 4z"/>
-              </svg>
-              <svg v-else class="gender-svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17h-2v-2h2v2zm2.07-7.75l-.9.92C13.45 12.9 13 13.5 13 15h-2v-.5c0-1.1.45-2.1 1.17-2.83l1.24-1.26c.37-.36.59-.86.59-1.41 0-1.1-.9-2-2-2s-2 .9-2 2H8c0-2.21 1.79-4 4-4s4 1.79 4 4c0 .88-.36 1.68-.93 2.25z"/>
-              </svg>
-              <span class="gender-label">{{ genderLabel }}</span>
-            </span>
-            <!-- Gom 2 dòng 2026-06-06 (Anh chốt): deal-stage lên dòng 1 cạnh gender. -->
-            <ContactDealStageSelector
-              v-if="conversation.contact"
-              :contact-id="conversation.contact.id"
-              :current-status-id="conversation.contact.statusId ?? null"
-              :org-id="_authStore.user?.orgId ?? null"
-              @updated="onDealStageUpdated"
-            />
-            <!-- Tag Zalo Real — dòng 1 PHÍA SAU trạng thái (Anh chốt 2026-06-06). -->
-            <v-menu v-if="conversation.externalThreadId && conversation.zaloAccount" :close-on-content-click="false" location="bottom start">
-              <template #activator="{ props: actProps }">
-                <button v-bind="actProps" class="zlbl-trigger" :title="currentLabel ? `Đang gắn: ${currentLabel.text}` : 'Chưa gắn tag Zalo'">
-                  <!-- Logo Zalo thật (brand đa màu) — ĐỒNG BỘ với TagCrmBar + cột 2 (Anh chốt 2026-06-06).
-                       KHÔNG ép màu theo label; chỉ tên label mới ăn currentLabel.color. -->
-                  <ZaloBrandIcon class="zlbl-icon" :size="14" />
-                  <span v-if="currentLabel" class="zlbl-current-name" :style="`color: ${currentLabel.color}`">
-                    {{ currentLabel.emoji ? currentLabel.emoji + ' ' : '' }}{{ currentLabel.text }}
-                  </span>
-                  <span v-else class="zlbl-empty">Phân loại</span>
-                  <span class="zlbl-caret"><ChevronDownIcon :size="13" :stroke-width="2" /></span>
-                </button>
-              </template>
-              <div class="zlbl-dropdown zalo-native">
-                <div v-if="loadingAllLabels && !allLabels.length" class="zlbl-loading">Đang tải…</div>
-
-                <div v-else-if="!allLabels.length" class="zlbl-empty-state">
-                  Tài khoản chưa có thẻ phân loại nào.<br />
-                  <button class="zlbl-inline-sync" @click="onSyncLabels"><RefreshCwIcon :size="13" :stroke-width="2" /> Đồng bộ từ Zalo</button>
-                </div>
-
-                <div v-else class="zlbl-options">
-                  <button
-                    v-for="lbl in allLabels"
-                    :key="lbl.id"
-                    class="zlbl-option"
-                    :class="{ active: currentLabel?.id === lbl.id }"
-                    @click="onPickLabel(lbl)"
-                  >
-                    <span class="zlbl-flag" :style="`color: ${lbl.color}`"><FlagIcon :size="13" :stroke-width="2" /></span>
-                    <span class="zlbl-name">
-                      <span v-if="lbl.emoji">{{ lbl.emoji }} </span>{{ lbl.text }}
-                    </span>
-                    <span v-if="currentLabel?.id === lbl.id" class="zlbl-check"><CheckIcon :size="13" :stroke-width="2.2" /></span>
-                  </button>
-                </div>
-
-                <div class="zlbl-divider"></div>
-                <button class="zlbl-manage" @click="goToLabelsSettings">
-                  <span class="manage-icon"><SettingsIcon :size="14" :stroke-width="2" /></span>
-                  Quản lý thẻ phân loại
-                </button>
-              </div>
-            </v-menu>
+            <!-- Tên hội thoại: click bút chì để inline edit -->
+            <template v-if="editingHeaderName">
+              <input
+                ref="headerNameInputEl"
+                v-model="headerNameDraft"
+                class="ch-name-input"
+                maxlength="100"
+                @keydown.enter.prevent="saveHeaderName"
+                @keydown.escape.prevent="cancelHeaderNameEdit"
+                @blur="saveHeaderName"
+              />
+              <button class="ch-name-save-btn" title="Lưu (Enter)" @mousedown.prevent="saveHeaderName">✓</button>
+              <button class="ch-name-cancel-btn" title="Hủy (Esc)" @mousedown.prevent="cancelHeaderNameEdit">✕</button>
+            </template>
+            <template v-else>
+              <div
+                class="ch-name clickable"
+                title="Click để copy tên hội thoại"
+                @click.stop="copyToClipboard(headerName, 'Đã copy tên hội thoại')"
+              >{{ headerName }}</div>
+              <button class="ch-name-edit-btn" title="Đổi tên hội thoại" @click.stop="startHeaderNameEdit">
+                <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+              </button>
+            </template>
           </div>
 
           <!-- Row 2: chip meta gom 1 dòng (cùng-chăm + tag Zalo + nick + số tin + online) -->
@@ -150,7 +100,7 @@
                       platform="zalo"
                     />
                   </NickAvatarLock>
-                  <span class="nick-name">
+                  <span class="nick-name clickable" title="Click để copy tên Zalo" @click.stop="copyToClipboard(conversation.zaloAccount?.displayName || '', 'Đã copy tên Zalo')">
                     {{ conversation.zaloAccount?.displayName || '—' }}
                   </span>
                   <span class="nick-caret"><ChevronDownIcon :size="13" :stroke-width="2" /></span>
@@ -221,6 +171,34 @@
                 {{ lastOnlineLabel }}
               </span>
             </template>
+
+            <!-- Nhóm chung giữa khách và nick Zalo đang chọn. Không có thì ẩn. -->
+            <template v-if="commonGroups.length === 1">
+              <span class="ch-sep">|</span>
+              <button class="common-groups-chip" type="button" :title="`Mở hội thoại nhóm ${commonGroups[0].name}`" @click="openCommonGroup(commonGroups[0])">
+                <UsersIcon :size="13" :stroke-width="2" />
+                <span>Nhóm chung:</span><strong>{{ commonGroups[0].name }}</strong>
+              </button>
+            </template>
+            <template v-else-if="commonGroups.length > 1">
+              <span class="ch-sep">|</span>
+              <v-menu location="bottom start" :close-on-content-click="true">
+                <template #activator="{ props: menuProps }">
+                  <button class="common-groups-chip" type="button" v-bind="menuProps">
+                    <UsersIcon :size="13" :stroke-width="2" />
+                    <span>Nhóm chung:</span><strong>{{ commonGroups.length }} nhóm</strong>
+                    <ChevronDownIcon :size="12" :stroke-width="2" />
+                  </button>
+                </template>
+                <div class="common-groups-menu">
+                  <div class="common-groups-menu-title">Nhóm chung ({{ commonGroups.length }})</div>
+                  <button v-for="group in commonGroups" :key="group.id" class="common-groups-menu-item" type="button" @click="openCommonGroup(group)">
+                    <span class="common-group-initial">{{ group.name.slice(0, 1).toUpperCase() }}</span>
+                    <span class="common-group-menu-name">{{ group.name }}</span>
+                  </button>
+                </div>
+              </v-menu>
+            </template>
           </div>
         </div>
         <!-- ch-actions: nút Kết bạn / menu ⋮ / ⓘ — đẩy phải dòng 1 (gom 2 dòng 2026-06-06) -->
@@ -268,7 +246,7 @@
               :disabled="actionLoading"
               @click="onAcceptInvite"
             >
-              <span class="ic"><HandIcon :size="14" :stroke-width="2" /></span> Chấp nhận <span class="sub-meta">{{ pendingDaysLabel }}</span>
+              <span class="ic"><HandIcon :size="14" :stroke-width="2" /></span> Chấp nhận
             </button>
             <button
               class="btn-action btn-reject-invite"
@@ -303,6 +281,32 @@
                Function fireWebhook() + state webhookLoading vẫn giữ trong file
                để bật lại sau bằng cách un-comment block button trên. -->
 
+          <!-- Ghi chú KH — nút nhỏ gọn ở header (thay khối Ghi chú to ở cột phải, 2026-07) -->
+          <NotePopover
+            v-if="conversation.contact"
+            :contact-id="conversation.contact.id"
+          />
+
+          <button
+            v-if="conversation.contact"
+            class="icon-btn"
+            :class="{ 'icon-btn-active': relatedMode }"
+            title="Tất cả hội thoại của khách này"
+            @click="$emit('toggle-related-conversations')"
+          >
+            <v-icon size="18">mdi-format-list-bulleted</v-icon>
+          </button>
+
+          <button
+            v-if="!showContactPanel"
+            class="icon-btn"
+            title="Hiện thông tin hội thoại"
+            aria-label="Hiện thông tin hội thoại"
+            @click="$emit('toggle-contact-panel')"
+          >
+            <v-icon size="18">mdi-information-outline</v-icon>
+          </button>
+
           <!-- More dropdown: gộp Lịch sử / Tìm / Note -->
           <v-menu>
             <template #activator="{ props: act }">
@@ -318,7 +322,6 @@
               <v-divider />
               <v-list-item prepend-icon="mdi-history" title="Lịch sử hội thoại" @click="toast.push('Lịch sử: chưa implement')" />
               <v-list-item prepend-icon="mdi-magnify" title="Tìm trong hội thoại" @click="toast.push('Tìm: chưa implement')" />
-              <v-list-item prepend-icon="mdi-note-edit-outline" title="Ghi chú nhanh" @click="onOpenNote" />
               <v-divider />
               <!-- Merge KH này vào KH khác (transfer Friends + delete source Contact) -->
               <v-list-item
@@ -357,8 +360,64 @@
         </div>
       </div>
 
+      <!-- Chế độ an toàn (2026-07-23): Banner cho nick tạm mất kết nối Zalo — vẫn xem được
+           lịch sử, chỉ tạm không gửi/nhận tin mới cho tới khi kết nối lại. -->
+      <div v-if="isNickOffline" class="virtual-banner offline-banner">
+        <div class="virtual-banner-icon"><InfoIcon :size="14" :stroke-width="2" /></div>
+        <div class="virtual-banner-body">
+          <div class="virtual-banner-title">Nick tạm mất kết nối — tin nhắn mới sẽ không tới</div>
+          <div class="virtual-banner-sub">
+            Bạn vẫn xem được lịch sử chat. Kết nối lại nick để gửi/nhận tin nhắn trở lại.
+          </div>
+        </div>
+        <button
+          class="offline-banner-reconnect"
+          @click="conversation?.zaloAccount?.id && emit('reconnect-nick', conversation.zaloAccount.id)"
+        >
+          Kết nối lại
+        </button>
+      </div>
+
+      <!-- Ghim tin nhắn (CRM-only, 2026-07-14) — thanh hiện tin đã ghim, click để nhảy tới tin gốc -->
+      <div v-if="pinnedMessages && pinnedMessages.length > 0" class="pinned-bar">
+        <v-icon size="15" class="pinned-bar-icon">mdi-pin</v-icon>
+        <div class="pinned-bar-list">
+          <div
+            v-for="pin in pinnedMessages"
+            :key="pin.id"
+            class="pinned-bar-item"
+            @click="jumpToPinned(pin.messageId)"
+          >
+            <span class="pinned-bar-sender">{{ pin.message.senderName || 'Ẩn danh' }}:</span>
+            <span class="pinned-bar-content">{{ pinnedPreview(pin.message) }}</span>
+          </div>
+        </div>
+        <button
+          v-if="pinnedMessages.length === 1"
+          class="pinned-bar-unpin"
+          title="Bỏ ghim"
+          @click.stop="emit('unpin-message', pinnedMessages[0].messageId)"
+        >
+          <v-icon size="14">mdi-close</v-icon>
+        </button>
+      </div>
+
+      <!-- Chọn nhiều tin nhắn (CRM-only, 2026-07-14) — thanh hành động copy/chuyển tiếp -->
+      <div v-if="multiSelectMode" class="multi-select-bar">
+        <span class="msb-count">Đã chọn {{ multiPicked.size }} tin</span>
+        <div class="msb-actions">
+          <button class="msb-btn" :disabled="multiPicked.size === 0" @click="copyMultiSelected">
+            <v-icon size="16">mdi-content-copy</v-icon> Sao chép
+          </button>
+          <button class="msb-btn primary" :disabled="multiPicked.size === 0" @click="forwardMultiSelected">
+            <v-icon size="16">mdi-share</v-icon> Chuyển tiếp
+          </button>
+          <button class="msb-btn ghost" @click="exitMultiSelect">Hủy</button>
+        </div>
+      </div>
+
       <!-- ════════ Messages ════════ -->
-      <div ref="messagesContainer" class="messages chat-messages-area" :class="{ 'is-virtual-mode': isVirtualConv }">
+      <div ref="messagesContainer" class="messages chat-messages-area" :class="{ 'is-virtual-mode': isVirtualConv }" @scroll="handleContainerScroll">
         <v-progress-linear v-if="loading" indeterminate color="primary" class="mb-2" />
 
         <template v-for="item in displayItems" :key="item.key">
@@ -383,9 +442,11 @@
             />
             <div class="msg-album-body">
               <div class="bubble album">
+                <!-- album-sender ẩn theo yêu cầu 2026-07-13: chỉ hiện avatar + ảnh + thời gian
                 <div v-if="conversation.threadType === 'group' && item.senderType !== 'self'" class="album-sender">
                   {{ item.senderName || 'Unknown' }}
                 </div>
+                -->
                 <div class="album-grid" :class="albumGridClass(item.messages.length)">
                   <div
                     v-for="m in item.messages"
@@ -477,10 +538,18 @@
             :class="{
               'msg-wrap-self': item.msg.senderType === 'self',
               'msg-wrap-other': item.msg.senderType !== 'self',
+              'msg-wrap-selectable': multiSelectMode,
+              'msg-wrap-picked': multiSelectMode && multiPicked.has(item.msg.id),
             }"
             :data-msg-id="item.msg.id"
             :data-zalo-msg-id="item.msg.zaloMsgId || ''"
+            @click="multiSelectMode ? toggleMultiPick(item.msg.id) : undefined"
           >
+            <span
+              v-if="multiSelectMode"
+              class="msg-select-check"
+              :class="{ on: multiPicked.has(item.msg.id) }"
+            >{{ multiPicked.has(item.msg.id) ? '✓' : '' }}</span>
             <MessageBubble
               :message="item.msg"
               :reply="item.msg.reply || null"
@@ -490,6 +559,8 @@
               :is-group="conversation.threadType === 'group'"
               :sender-avatar-url="resolveSenderAvatar(item.msg)"
               :current-user-id="currentUserId"
+              :active-zalo-account-id="props.conversation?.zaloAccount?.id ?? null"
+              :style="multiSelectMode ? 'pointer-events: none' : undefined"
               @contextmenu="onContextMenu($event, item.msg)"
               @preview-image="openImageLightbox($event, [])"
               @preview-video="onPreviewVideo"
@@ -500,12 +571,29 @@
               @open-phone="onOpenPhone"
               @open-reaction-detail="onOpenReactionDetail"
               @jump-to-reply="jumpToReply"
+              @reply-click="contextMsg = item.msg; onReply()"
+              @forward-click="contextMsg = item.msg; showForwardDialog = true"
+              @send-friend-request="onSendFriendRequestFromCard"
+              @open-chat-with-uid="onOpenChatWithUidFromCard"
             />
           </div>
         </template>
 
         <div v-if="!loading && messages.length === 0" class="text-center pa-8 text-grey">Chưa có tin nhắn</div>
       </div>
+
+      <!-- Nút kéo xuống dưới cùng hội thoại -->
+      <button
+        v-if="showScrollBottomBtn"
+        class="scroll-bottom-btn"
+        title="Cuộn xuống dưới cùng"
+        @click="scrollToBottom(true)"
+      >
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="12" y1="5" x2="12" y2="19"></line>
+          <polyline points="19 12 12 19 5 12"></polyline>
+        </svg>
+      </button>
 
       <!-- Typing indicator -->
       <TypingIndicator :typers="currentTypers" />
@@ -524,10 +612,29 @@
         <!-- Tag bar Friend-cấp (per-pair sale-nick × KH) — chỉ KH chat 1-1.
              Refactor 2026-06-01: 3 nhóm [Zalo Real] | [Auto] | [Manual per Nick + button].
              Đọc/ghi qua endpoint /api/v1/friends/:id/tags (Tag v2 junction). -->
+        <div class="zalo-native-quick-tags" style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 6px 8px; border-bottom: 1px solid #f0f0f0;">
+          <span style="font-size: 13px; color: #666; display: flex; align-items: center; gap: 4px; font-weight: bold; margin-right: 4px;">
+            <TagIcon :size="14" :stroke-width="2" /> Nhãn Zalo:
+          </span>
+          <button
+            v-for="lbl in allLabels"
+            :key="lbl.id"
+            class="t2-tag-pill inline-quick-tag"
+            :class="{ active: currentLabel?.id === lbl.id }"
+            :style="{ '--tag-color': lbl.color }"
+            @click="onPickLabel(lbl)"
+          >
+            <span v-if="lbl.emoji" class="t2-pill-emoji">{{ lbl.emoji }}</span>
+            <span class="t2-pill-text">{{ lbl.text }}</span>
+          </button>
+        </div>
+
         <TagCrmBar
-          v-if="conversation.contact && conversation.threadType === 'user' && conversation.friendship?.id"
-          :friend-id="conversation.friendship.id"
+          v-if="conversation.contact"
+          :friend-id="conversation.friendship?.id || null"
           :contact-id="conversation.contact.id"
+          :conversation-id="conversation.id"
+          :default-name="headerName"
         />
 
         <ReplyPreviewBar
@@ -536,87 +643,91 @@
           @cancel="onCancelReplyEdit"
         />
 
-        <!-- Compact toolbar — Lucide icons (anh chốt 2026-05-22 — bộ icon đồng bộ line 1.5px) -->
-        <div class="input-toolbar-top">
-          <!-- Group 1: Media -->
-          <StickerPicker @select="onSendSticker" />
-          <button class="icon-tool" title="Gửi ảnh" @click="onPickImage">
-            <ImageIcon :size="18" :stroke-width="1.5" />
-          </button>
-          <button class="icon-tool" title="Gửi file" @click="onPickFile">
-            <PaperclipIcon :size="18" :stroke-width="1.5" />
-          </button>
-          <button class="icon-tool" title="Chèn từ kho Media (ảnh/video/tệp/khối) — mở cột Media" @click="$emit('open-media-tab')">
-            <ImagesIcon :size="18" :stroke-width="1.5" />
-          </button>
-          <span class="toolbar-divider"></span>
-
-          <!-- Group 2: Contact / format -->
-          <button class="icon-tool" title="Gửi danh thiếp" @click="todoToast('Danh thiếp')">
-            <ContactIcon :size="18" :stroke-width="1.5" />
-          </button>
-          <button
-            class="icon-tool"
-            :class="{ active: formatBarVisible }"
-            :title="formatBarVisible ? 'Ẩn định dạng văn bản' : 'Hiện định dạng văn bản (B I U S ...)'"
-            @click="toggleFormat"
-          >
-            <TypeIcon :size="18" :stroke-width="1.5" />
-          </button>
-          <span class="toolbar-divider"></span>
-
-          <!-- Group 3: Productivity -->
-          <button
-            class="icon-tool"
-            :class="{ active: showAppointmentDialog }"
-            title="Tạo nhắc hẹn cho KH này"
-            :disabled="!conversation.contact"
-            @click="showAppointmentDialog = true"
-          >
-            <CalendarClockIcon :size="18" :stroke-width="1.5" />
-          </button>
-          <button class="icon-tool" title="Template tin nhắn (gõ /)" @click="openTemplatePopup">
-            <ZapIcon :size="18" :stroke-width="1.5" />
-          </button>
-          <!-- M14 (2026-06-02) — Chèn Khối "Gửi tin nhắn" từ Automation Blocks vào composer.
-               Ẩn ở group thread (memory feedback_crm_filter_1to1_not_group: Block 1-1 only).
-               Disable khi composer bị Privacy lock hoặc đang edit message để tránh ghi đè text edit. -->
-          <button
-            v-if="conversation.threadType === 'user'"
-            class="icon-tool"
-            title="Chèn Khối tin nhắn (Automation Blocks)"
-            :disabled="!privacyVisibility.canSendInConv(conversation) || !!editingMessage"
-            @click="openBlockPicker"
-          >
-            <PackageIcon :size="18" :stroke-width="1.5" />
-          </button>
-          <button class="icon-tool ai-btn" title="AI compose" :disabled="aiSuggestionLoading" @click="$emit('ask-ai')">
-            <SparklesIcon :size="18" :stroke-width="1.5" />
+        <!-- 2026-07-13: Pending images preview — ảnh chọn từ kho chờ gửi -->
+        <div v-if="pendingMediaAssets.length > 0" class="pending-media-bar">
+          <div class="pmb-list">
+            <div
+              v-for="(a, idx) in pendingMediaAssets"
+              :key="a.id"
+              class="pmb-thumb"
+              :title="a.name"
+            >
+              <img :src="a.thumbnailUrl || a.url || ''" loading="lazy" alt="" />
+              <button class="pmb-remove" @click="removePendingMedia(idx)" title="Bỏ ảnh này">
+                <XIcon :size="10" :stroke-width="2.5" />
+              </button>
+            </div>
+          </div>
+          <button class="pmb-clear" @click="pendingMediaAssets = []" title="Xóa tất cả ảnh">
+            Xóa tất cả
           </button>
         </div>
 
-        <div class="input-row">
-          <!-- Avatar nick đang gửi — OUTSIDE editor (góc trái), halo gradient cam-đỏ-vàng -->
-          <NickAvatarLock
-            v-if="conversation.zaloAccount"
-            :privacy-mode="conversation.zaloAccount.privacyMode"
-          >
-          <div
-            class="nick-avatar-halo"
-            :title="`Tin nhắn này được gửi đi từ ${conversation.zaloAccount.displayName || 'nick Zalo'}`"
-          >
-            <Avatar
-              :src="conversation.zaloAccount.avatarUrl"
-              :name="conversation.zaloAccount.displayName || 'Nick'"
-              :size="36"
-              :gradient-seed="conversation.zaloAccount.id"
-              platform="zalo"
-              class="sender-nick-avatar"
-            />
-          </div>
-          </NickAvatarLock>
+        <AiFollowUpComposerCard
+          :conversation-id="conversation.id"
+          @use="applyApprovedFollowUp"
+        />
 
-          <div ref="editorWrapRef" class="editor-wrap" :class="{ 'editor-locked': !privacyVisibility.canSendInConv(conversation) || isArchivedNick }">
+        <div class="input-row">
+          <!-- Nút '+' kích hoạt menu chức năng phụ -->
+          <v-menu offset-y transition="slide-y-transition" :close-on-content-click="false">
+            <template v-slot:activator="{ props: plusProps }">
+              <v-btn
+                v-bind="plusProps"
+                icon
+                variant="flat"
+                color="#F1F5F9"
+                class="text-slate-500 mr-1"
+                size="34"
+                style="border-radius: 50% !important; flex-shrink: 0; min-width: 34px;"
+              >
+                <v-icon size="20" color="#64748B">mdi-plus</v-icon>
+              </v-btn>
+            </template>
+            <div class="cl-inline-plus-panel pa-3 bg-white rounded-xl border shadow-lg d-flex flex-column gap-2" style="min-width: 240px; border-radius: 16px !important;">
+              <div class="text-caption text-slate-400 font-weight-bold uppercase px-1 mb-1" style="font-size: 11px !important;">Công cụ soạn tin</div>
+              <div class="d-flex align-center flex-wrap gap-2">
+                <!-- Sticker -->
+                <div class="cl-tool-item">
+                  <StickerPicker @select="onSendSticker" />
+                </div>
+                <!-- Chọn ảnh -->
+                <v-btn icon variant="text" size="small" title="Gửi ảnh" @click="onPickImage" class="text-slate-600">
+                  <v-icon size="20">mdi-image-outline</v-icon>
+                </v-btn>
+                <!-- Chọn tệp -->
+                <v-btn icon variant="text" size="small" title="Gửi tệp" @click="onPickFile" class="text-slate-600">
+                  <v-icon size="20">mdi-paperclip</v-icon>
+                </v-btn>
+                <!-- Kho ảnh -->
+                <v-btn icon variant="text" size="small" title="Kho ảnh" @click="showMediaPicker = true" class="text-slate-600">
+                  <v-icon size="20">mdi-folder-image</v-icon>
+                </v-btn>
+                <!-- Định dạng -->
+                <v-btn icon variant="text" size="small" title="Định dạng" @click="toggleFormat" :class="{ 'text-primary': formatBarVisible }" class="text-slate-600">
+                  <v-icon size="20">mdi-format-text</v-icon>
+                </v-btn>
+                <!-- Nhắc hẹn -->
+                <v-btn icon variant="text" size="small" title="Tạo nhắc hẹn" :disabled="!conversation.contact" @click="showAppointmentDialog = true" class="text-slate-600">
+                  <v-icon size="20">mdi-calendar-clock</v-icon>
+                </v-btn>
+                <!-- Template -->
+                <v-btn icon variant="text" size="small" title="Tin nhắn mẫu" @click="openTemplatePopup" class="text-slate-600">
+                  <v-icon size="20">mdi-flash-outline</v-icon>
+                </v-btn>
+                <!-- Khối tin nhắn -->
+                <v-btn icon variant="text" size="small" title="Khối tin nhắn" :disabled="!privacyVisibility.canSendInConv(conversation) || !!editingMessage" v-if="conversation.threadType === 'user'" @click="openBlockPicker" class="text-slate-600">
+                  <v-icon size="20">mdi-package-variant-closed</v-icon>
+                </v-btn>
+                <!-- AI Compose -->
+                <v-btn icon variant="text" size="small" title="AI CSKH soạn tin" :disabled="aiSuggestionLoading" @click="$emit('ask-ai')" class="text-purple">
+                  <v-icon size="20">mdi-sparkles</v-icon>
+                </v-btn>
+              </div>
+            </div>
+          </v-menu>
+
+          <div ref="editorWrapRef" class="editor-wrap" :class="{ 'editor-locked': !privacyVisibility.canSendInConv(conversation) || isArchivedNick || isNickOffline }">
             <QuickTemplatePopup
               ref="templatePopupRef"
               :visible="showTemplatePopup"
@@ -625,6 +736,8 @@
               :contact="conversation.contact ? { ...conversation.contact, crmAlias: conversation.friendship?.aliasInNick ?? null } : null"
               :sale-full-name="_authStore.user?.fullName ?? null"
               :anchor-el="editorWrapRef"
+              :send-immediately="templateSendImmediately"
+              @update:send-immediately="templateSendImmediately = $event"
               @select="onTemplateSelect"
               @close="showTemplatePopup = false"
             />
@@ -659,7 +772,28 @@
             >
               <span class="editor-lock-pill">🗑 Nick đã xóa — không gửi được. Kết nối lại để gửi tin.</span>
             </div>
+            <!-- Chế độ an toàn (2026-07-23): nick mất kết nối tạm thời → overlay khóa mềm, bấm để mở lại QR kết nối -->
+            <div
+              v-else-if="isNickOffline"
+              class="editor-lock-overlay"
+              @click.stop="conversation?.zaloAccount?.id && emit('reconnect-nick', conversation.zaloAccount.id)"
+            >
+              <span class="editor-lock-pill">📡 Nick mất kết nối — không gửi được. Kết nối lại để tiếp tục.</span>
+            </div>
           </div>
+
+          <!-- Nút mở kho ảnh cạnh ô nhập -->
+          <v-btn
+            icon
+            variant="text"
+            size="small"
+            title="Kho ảnh"
+            @click="showMediaPicker = true"
+            class="text-slate-500 flex-shrink-0"
+            style="min-width: 32px;"
+          >
+            <v-icon size="20">mdi-folder-image</v-icon>
+          </v-btn>
 
           <!-- Emoji picker (hover) — sát nút Gửi -->
           <EmojiPicker @pick="onPickEmoji" />
@@ -668,9 +802,9 @@
           <button
             class="send-btn"
             :class="{ 'send-btn-virtual': isVirtualConv }"
-            :disabled="!inputText.trim() || sending || isArchivedNick"
+            :disabled="(!inputText.trim() && pendingMediaAssets.length === 0) || sending || isArchivedNick || isNickOffline"
             @click="handleSend"
-            :title="isArchivedNick ? 'Nick đã xóa — không gửi được.' : isVirtualConv ? 'Lưu nội bộ (Enter) — KHÔNG gửi đi Zalo' : 'Gửi (Enter)'"
+            :title="isArchivedNick ? 'Nick đã xóa — không gửi được.' : isNickOffline ? 'Nick mất kết nối — không gửi được.' : isVirtualConv ? 'Lưu nội bộ (Enter) — KHÔNG gửi đi Zalo' : 'Gửi (Enter)'"
           >
             <v-icon v-if="sending" size="20">mdi-loading mdi-spin</v-icon>
             <template v-else-if="isVirtualConv">
@@ -750,6 +884,7 @@
       v-model="showContextMenu"
       :message="contextMsg"
       :is-self="contextMsg?.senderType === 'self'"
+      :is-pinned="isContextMsgPinned"
       :position="contextPos"
       @reply="onReply"
       @edit="onEdit"
@@ -760,6 +895,9 @@
       @favorite-media="onFavoriteFromChat"
       @download-media="onDownloadMedia"
       @copy="() => {}"
+      @pin="onPin"
+      @unpin="onUnpin"
+      @select-multi="startMultiSelect"
     />
 
     <!-- Menu chuột phải cho ảnh trong ALBUM (3 mức: 1 tấm / cả album / chọn nhiều) -->
@@ -791,6 +929,13 @@
       :source-nick-label="conversation?.zaloAccount?.displayName ?? null"
       :current-conversation-id="conversation?.id ?? null"
       @forward="onForward"
+    />
+
+    <!-- 2026-07-13: ChatMediaPickerModal — popup chọn ảnh từ kho, thay thế open-media-tab -->
+    <ChatMediaPickerModal
+      :visible="showMediaPicker"
+      @close="showMediaPicker = false"
+      @pick="onMediaPickerConfirm"
     />
 
     <!-- E07 Image lightbox — anh chốt 2026-05-21: nút ‹ › + arrow keys điều hướng,
@@ -896,22 +1041,22 @@
 <script setup lang="ts">
 import { ref, watch, nextTick, computed, onMounted, onBeforeUnmount } from 'vue';
 import type { Conversation, Message } from '@/composables/use-chat';
+import type { PinnedMessageEntry } from '@/composables/use-chat-operations';
 import { formatInOrgTz, weekdayInOrgTz, getOrgParts } from '@/composables/use-org-timezone';
 import { api } from '@/api/index';
 import { saveFromChat, saveFromChatBatch, toggleFavorite } from '@/api/media';
 import AISuggestBar from '@/components/chat/AISuggestBar.vue';
+import AiFollowUpComposerCard from '@/components/chat/AiFollowUpComposerCard.vue';
 // Mission Fix 2 (2026-05-30) — header picker GHI `Contact.statusId` (FK Status table)
 // để Wave 3 evaluateStatusGate đọc đúng cột. Trước đây CareStatusBadge ghi enum legacy
 // `Contact.status` khiến lazy gate KHÔNG kích hoạt. CareStatusBadge giữ ở ChatContactPanel.vue
 // nếu sale vẫn cần thao tác care-status legacy 9 giá trị.
-import ContactDealStageSelector from '@/components/chat/ContactDealStageSelector.vue';
-import ZaloBrandIcon from '@/components/icons/ZaloBrandIcon.vue';
 import Avatar from '@/components/ui/Avatar.vue';
 import EmojiPicker from '@/components/chat/EmojiPicker.vue';
 import QuickTemplatePopup from '@/components/chat/quick-template-popup.vue';
-import BlockPreviewDialog from '@ee/automation/chat-blocks/BlockPreviewDialog.vue';
+import BlockPreviewDialog from '@/components/blocks/BlockPreviewDialog.vue';
 // M14 (2026-06-02) — Popup chọn "Khối tin nhắn" từ Automation Blocks
-import BlockPickerPopup from '@ee/automation/chat-blocks/BlockPickerPopup.vue';
+import BlockPickerPopup from '@/components/blocks/BlockPickerPopup.vue';
 import MessageBubble from '@/components/chat/message-bubble.vue';
 // M53 2026-05-30: Trợ lý AI cho virtual chat
 import AiAssistantMessage from '@/components/chat/AiAssistantMessage.vue';
@@ -953,16 +1098,6 @@ function onPrivacyUnlocked() {
 
 // Lucide icons (anh chốt 2026-05-22 — bộ icon đồng bộ thay MDI)
 import {
-  Images as ImagesIcon,
-  Image as ImageIcon,
-  Paperclip as PaperclipIcon,
-  Contact as ContactIcon,
-  Type as TypeIcon,
-  CalendarClock as CalendarClockIcon,
-  Zap as ZapIcon,
-  Sparkles as SparklesIcon,
-  Package as PackageIcon,
-  // Header action + chrome icons (anh chốt 2026-06-08 — bỏ emoji thô, đồng bộ Lucide)
   UserPlus as UserPlusIcon,
   UserCheck as UserCheckIcon,
   UserX as UserXIcon,
@@ -973,15 +1108,14 @@ import {
   ChevronDown as ChevronDownIcon,
   ChevronLeft as ChevronLeftIcon,
   ChevronRight as ChevronRightIcon,
-  RefreshCw as RefreshCwIcon,
-  Settings as SettingsIcon,
+  X as XIcon,
   ArrowDownLeft as ArrowDownLeftIcon,
   ArrowUpRight as ArrowUpRightIcon,
   Info as InfoIcon,
-  Check as CheckIcon,
-  Flag as FlagIcon,
   Send as SendIcon,
   Download as DownloadIcon,
+  Tag as TagIcon,
+  Users as UsersIcon,
 } from 'lucide-vue-next';
 
 // Reaction detail popup state — anh chốt 2026-05-22: click reaction box → popup
@@ -1019,6 +1153,7 @@ import MessageContextMenu from '@/components/chat/message-context-menu.vue';
 import TypingIndicator from '@/components/chat/typing-indicator.vue';
 import ReplyPreviewBar from '@/components/chat/reply-preview-bar.vue';
 import ForwardDialog from '@/components/chat/forward-dialog.vue';
+import ChatMediaPickerModal from '@/components/chat/ChatMediaPickerModal.vue';
 import RichTextEditor from '@/components/chat/rich-text-editor.vue';
 import TagCrmBar from '@/components/chat/TagCrmBar.vue';
 import AppointmentEditor from '@/components/appointments/AppointmentEditor.vue';
@@ -1027,6 +1162,7 @@ import { useAuthStore } from '@/stores/auth';
 const _authStore = useAuthStore();
 const currentUserId = computed<string | null>(() => _authStore.user?.id ?? null);
 import FriendInviteDialog from '@/components/chat/FriendInviteDialog.vue';
+import NotePopover from '@/components/chat/NotePopover.vue';
 import { useToast } from '@/composables/use-toast';
 import { useZaloPresence } from '@/composables/use-zalo-presence';
 import { useZaloFriendStatus } from '@/composables/use-zalo-friend-status';
@@ -1053,6 +1189,8 @@ const props = defineProps<{
   replyingTo?: Message | null;
   editingMessage?: Message | null;
   typingUsers?: { userId: string; userName: string }[];
+  pinnedMessages?: PinnedMessageEntry[];
+  relatedMode?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -1065,12 +1203,15 @@ const emit = defineEmits<{
   'undo-message': [msgId: string];
   'edit-message': [msgId: string, content: string];
   'forward-message': [msgId: string, targetIds: string[]];
+  'pin-message': [msgId: string];
+  'unpin-message': [msgId: string];
   'set-reply-to': [msg: Message];
   'set-editing': [msg: Message];
   'cancel-reply-edit': [];
   'typing': [];
   'refresh-thread': [];
   // 2026-06-12 (anh chốt): nút "Chèn từ kho" → mở tab Media ở cột 4 (bỏ popover nổi).
+  // 2026-07-13: đã dời vào ChatMediaPickerModal — giữ emit để backward compat với ChatView.
   'open-media-tab': [];
   'care-status-changed': [value: string];
   // Sprint v3 Tuần 3 Row 6.9 (2026-06-03): sale chọn nick khác → ChatView navigate.
@@ -1078,11 +1219,24 @@ const emit = defineEmits<{
   // Fix 2026-06-16: dialog xem info Zalo trả avatar/tên mới từ SDK → báo ChatView patch
   // conversation state (header + list cập nhật ngay, không chờ F5).
   'profile-synced': [payload: { uid: string; avatarUrl: string | null; displayName: string | null; gender: number | null }];
+  // Chế độ an toàn (2026-07-23): nick mất kết nối → sale bấm "Kết nối lại" trong banner/overlay.
+  'reconnect-nick': [accountId: string];
+  'toggle-related-conversations': [];
 }>();
 
 const toast = useToast();
+type CommonGroup = { id: string; name: string; totalMember: number };
+const commonGroups = ref<CommonGroup[]>([]);
+let commonGroupsRequestId = 0;
 const inputText = ref('');
 const messagesContainer = ref<HTMLElement | null>(null);
+const showScrollBottomBtn = ref(false);
+function handleContainerScroll() {
+  const el = messagesContainer.value;
+  if (!el) return;
+  // Khoảng cách cuộn cách đáy hơn 300px thì hiện nút
+  showScrollBottomBtn.value = el.scrollHeight - el.scrollTop - el.clientHeight > 300;
+}
 const previewImageUrl = ref('');
 const showImagePreview = computed({ get: () => !!previewImageUrl.value, set: (v) => { if (!v) { previewImageUrl.value = ''; lightboxList.value = []; lightboxIndex.value = 0; } } });
 // E07 Lightbox state — list ảnh trong album hiện tại + index ảnh đang xem.
@@ -1216,7 +1370,19 @@ async function onLinkedParent() {
 const editorRef = ref<InstanceType<typeof RichTextEditor> | null>(null);
 const editorWrapRef = ref<HTMLElement | null>(null); // anchor cho QuickTemplatePopup (Teleport ra body)
 const templatePopupRef = ref<InstanceType<typeof QuickTemplatePopup> | null>(null);
+// Công tắc "Gửi ngay" trong popup gợi ý: bật → chọn mẫu là gửi luôn (text + ảnh),
+// tắt → chỉ chèn vào ô soạn. Nhớ lựa chọn qua localStorage.
+const templateSendImmediately = ref(localStorage.getItem('qtp-send-immediately') === '1');
+watch(templateSendImmediately, (v) => {
+  localStorage.setItem('qtp-send-immediately', v ? '1' : '0');
+});
 const currentTypers = computed(() => props.typingUsers || []);
+
+// Chọn nhiều tin nhắn (CRM-only, 2026-07-14) — khai báo sớm vì watch conversation.id
+// (immediate) tham chiếu tới. Logic copy/forward nằm ở khối hàm phía dưới.
+const multiSelectMode = ref(false);
+const multiPicked = ref<Set<string>>(new Set());
+const multiForwardPending = ref(false);
 
 // @mention: danh sách thành viên để tag = người ĐÃ GỬI tin trong hội thoại (uid +
 // tên + avatar). Nguồn này tin cậy (data đã load), KHÔNG phụ thuộc API group-members
@@ -1278,6 +1444,45 @@ function jumpToReply(replyMsgId: string) {
   }, 2000);
 }
 
+// Nhảy tới tin đã ghim — match theo internal messageId (data-msg-id chính là id nội bộ).
+function jumpToPinned(messageId: string) {
+  const el = document.querySelector(`[data-msg-id="${messageId}"]`) as HTMLElement | null;
+  if (!el) {
+    toast.push('Tin đã ghim không có trong khung chat hiện tại');
+    return;
+  }
+  el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  const wrap = el.closest('.msg-bubble-wrap, .msg-album-wrap') as HTMLElement | null;
+  if (!wrap) return;
+  wrap.classList.add('msg-jump-highlight');
+  if (jumpHighlightTimer) clearTimeout(jumpHighlightTimer);
+  jumpHighlightTimer = setTimeout(() => {
+    wrap.classList.remove('msg-jump-highlight');
+    jumpHighlightTimer = null;
+  }, 2000);
+}
+
+// Text preview ngắn cho thanh ghim — xử lý text thường, JSON rich, và media fallback.
+function pinnedPreview(m: PinnedMessageEntry['message']): string {
+  if (m.isDeleted) return 'Tin đã bị xóa';
+  const type = m.contentType;
+  if (type === 'image') return '[Hình ảnh]';
+  if (type === 'video') return '[Video]';
+  if (type === 'file') return '[Tệp đính kèm]';
+  if (type === 'audio') return '[Tin nhắn thoại]';
+  if (type === 'sticker') return '[Sticker]';
+  const raw = (m.content || '').trim();
+  if (!raw) return '[Tin nhắn]';
+  let text = raw;
+  if (raw.startsWith('{') || raw.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(raw);
+      text = parsed.title || parsed.text || parsed.description || parsed.caption || raw;
+    } catch { /* giữ raw */ }
+  }
+  return text.length > 60 ? text.slice(0, 60) + '…' : text;
+}
+
 // ── Header derived data (Avatar handles initials/gradient/gender) ──────────
 // B7 fix — Contact stub "Unknown" fallback chain qua zaloDisplayName Friend.
 function _isUsableName(s: string | null | undefined): s is string {
@@ -1302,6 +1507,55 @@ const headerName = computed(() => {
   if (_isUsableName(friendship?.zaloDisplayName)) return friendship!.zaloDisplayName!;
   return 'Unknown';
 });
+
+// ════════ Inline edit tên hội thoại (icon bút chì ở header cột 3) ════════
+const editingHeaderName = ref(false);
+const headerNameDraft = ref('');
+const headerNameInputEl = ref<HTMLInputElement | null>(null);
+
+function startHeaderNameEdit() {
+  headerNameDraft.value = headerName.value === 'Unknown' ? '' : headerName.value;
+  editingHeaderName.value = true;
+  nextTick(() => headerNameInputEl.value?.focus());
+}
+
+function cancelHeaderNameEdit() {
+  editingHeaderName.value = false;
+}
+
+async function saveHeaderName() {
+  if (!editingHeaderName.value) return;
+  editingHeaderName.value = false;
+  const trimmed = headerNameDraft.value.trim();
+  if (!trimmed || trimmed === headerName.value) return;
+
+  const conv = props.conversation;
+  if (!conv) return;
+
+  try {
+    if (conv.threadType === 'group') {
+      // Đổi tên nhóm Zalo thật
+      const accountId = conv.zaloAccount?.id;
+      const groupId = conv.externalThreadId;
+      if (!accountId || !groupId) { toast.error('Thiếu thông tin nhóm'); return; }
+      await api.patch(`/zalo-accounts/${accountId}/groups/${groupId}/name`, { name: trimmed });
+      // Cập nhật reactive ngay (không chờ socket)
+      (conv as any).groupName = trimmed;
+      toast.success(`Đã đổi tên nhóm → "${trimmed}"`);
+    } else {
+      // Hội thoại cá nhân: lưu alias gợi nhớ
+      const friendId = conv.friendship?.id;
+      if (!friendId) { toast.error('Không tìm thấy friendship'); return; }
+      await api.patch(`/friends/${friendId}`, { aliasInNick: trimmed });
+      (conv as any).friendship = { ...(conv.friendship || {}), aliasInNick: trimmed };
+      toast.success(`Đã đổi tên gợi nhớ → "${trimmed}"`);
+    }
+  } catch (err: any) {
+    const msg = err?.response?.data?.error || 'Đổi tên thất bại';
+    toast.error(msg);
+  }
+}
+
 const headerAvatarSrc = computed(() => {
   if (props.conversation?.threadType === 'group') {
     return (props.conversation as { groupAvatarUrl?: string }).groupAvatarUrl || null;
@@ -1314,22 +1568,8 @@ const headerAvatarSrc = computed(() => {
 });
 const contactGender = computed(() => props.conversation?.contact?.gender || null);
 
-const genderLabel = computed(() => {
-  if (props.conversation?.threadType === 'group') return 'Nhóm';
-  if (contactGender.value === 'female') return 'Nữ';
-  if (contactGender.value === 'male') return 'Nam';
-  return 'Chưa rõ';
-});
-const genderTitle = computed(() => {
-  if (props.conversation?.threadType === 'group') return 'Nhóm hội thoại';
-  return `Giới tính: ${genderLabel.value}`;
-});
-const genderChipClass = computed(() => {
-  if (props.conversation?.threadType === 'group') return 'gender-group';
-  if (contactGender.value === 'female') return 'gender-female';
-  if (contactGender.value === 'male') return 'gender-male';
-  return 'gender-unknown';
-});
+
+
 
 // ── Message counts (per-pair, lấy từ contact aggregate cho user thread) ──────
 // Per-pair counter (Friend.totalInbound/Outbound) cho cặp nick × KH HIỆN TẠI.
@@ -1419,8 +1659,51 @@ async function touchConversationProfile(convId: string) {
 }
 
 // Watch conversation switch → sync labels (cooldown 5s server-side) + fetch master list cho thread hiện tại
+async function loadCommonGroups(): Promise<void> {
+  const requestId = ++commonGroupsRequestId;
+  const conversation = props.conversation;
+  const accountId = conversation?.zaloAccount?.id;
+  const memberUid = conversation?.externalThreadId;
+  if (!conversation || conversation.threadType !== 'user' || !accountId || !memberUid || conversation.isVirtual) {
+    commonGroups.value = [];
+    return;
+  }
+  commonGroups.value = [];
+  try {
+    const { data } = await api.get(`/zalo-accounts/${accountId}/groups/common/${encodeURIComponent(memberUid)}`);
+    if (requestId !== commonGroupsRequestId) return;
+    commonGroups.value = Array.isArray(data?.groups)
+      ? data.groups.filter((group: CommonGroup) => group?.id && group?.name)
+      : [];
+  } catch {
+    if (requestId === commonGroupsRequestId) commonGroups.value = [];
+  }
+}
+
+async function openCommonGroup(group: CommonGroup): Promise<void> {
+  const accountId = props.conversation?.zaloAccount?.id;
+  if (!accountId) return;
+  try {
+    const { data } = await api.post<{ conversationId: string }>(
+      `/zalo-accounts/${accountId}/groups/${group.id}/ensure-conversation`, {},
+    );
+    if (data?.conversationId) emit('switch-conversation', data.conversationId);
+  } catch (err) {
+    const message = (err as { response?: { data?: { error?: string } } })?.response?.data?.error;
+    toast.error(message || 'Không mở được hội thoại nhóm');
+  }
+}
+
+watch(
+  () => [props.conversation?.id, props.conversation?.zaloAccount?.id, props.conversation?.externalThreadId],
+  () => { void loadCommonGroups(); },
+  { immediate: true },
+);
+
 watch(() => props.conversation?.id, (newId, oldId) => {
   if (!newId || newId === oldId) return;
+  // Đổi hội thoại → thoát chế độ chọn nhiều tin (tránh giữ tick tin của thread cũ).
+  if (multiSelectMode.value) exitMultiSelect();
   // Xoá nhãn Zalo của nick CŨ ngay lập tức. Nếu không, allLabels vẫn giữ list của
   // thread trước → currentLabel.find(assignedTo) trả nhãn nick cũ trong lúc chờ
   // fetchAllLabels → "hiện sai vài giây rồi nhảy đúng". Xoá xong currentLabel sẽ
@@ -1514,24 +1797,7 @@ async function onPickLabel(label: AccountLabelView) {
   }
 }
 
-async function onSyncLabels() {
-  const accId = props.conversation?.zaloAccount?.id;
-  const threadId = props.conversation?.externalThreadId;
-  if (!accId) return;
-  try {
-    const { api: apiClient } = await import('@/api/index');
-    const { data } = await apiClient.post(`/zalo-accounts/${accId}/labels/sync`);
-    toast.success(`✓ Sync ${data.labels.length} tag · ${data.friendsUpdated} KH`);
-    await fetchAllLabels(accId, threadId);
-    window.dispatchEvent(new CustomEvent('zalo-labels-synced', { detail: { accountId: accId } }));
-  } catch (err: any) {
-    toast.error(err.response?.data?.error || 'Sync thất bại');
-  }
-}
 
-function goToLabelsSettings() {
-  window.location.assign('/settings?tab=zalo-labels');
-}
 
 // CRM tags = merge Contact.tags + Friend.crmTagsPerNick (Zalo-mirrored "🔵 X").
 // Source of truth: 2 fields khác nhau. Dedup, Zalo tags lên trước.
@@ -1623,6 +1889,16 @@ const isVirtualConv = computed(() => {
 // status='disconnected' (nick sống cũng có thể disconnected tạm).
 const isArchivedNick = computed(() => !!props.conversation?.zaloAccount?.archivedAt);
 
+// Chế độ an toàn (2026-07-23): nick còn tồn tại (chưa xóa) nhưng mất kết nối Zalo tạm thời
+// (status != 'connected') → banner + khóa mềm ô soạn tin, NHƯNG vẫn xem được lịch sử (đọc
+// thẳng DB, không phụ thuộc listener sống). Ưu tiên isArchivedNick trước — nick đã xóa có
+// banner/khóa riêng, không hiện đè 2 banner cùng lúc.
+const isNickOffline = computed(() =>
+  !isArchivedNick.value &&
+  !!props.conversation?.zaloAccount?.status &&
+  props.conversation.zaloAccount.status !== 'connected',
+);
+
 // M55 2026-05-30 — Cùng chăm chip + tooltip cho header chat
 const contactAccessList = computed(() => {
   const list = (props.conversation?.contact as { contactAccess?: Array<{
@@ -1698,6 +1974,59 @@ function onOpenProfileFromCard(uid: string) {
   if (!uid) return;
   userInfoUid.value = uid;
   userInfoDialog.value = true;
+}
+
+// 2026-07-13 — Kết bạn từ card danh thiếp trong tin nhắn
+async function onSendFriendRequestFromCard(uid: string) {
+  const accountId = props.conversation?.zaloAccount?.id;
+  if (!accountId || !uid) {
+    toast.warning('Không xác định được nick Zalo để gửi lời mời');
+    return;
+  }
+  try {
+    await api.post(`/zalo-accounts/${accountId}/friends/requests`, {
+      userId: uid,
+      message: 'Xin chào, tôi muốn kết bạn với bạn.',
+    });
+    toast.push('Đã gửi lời mời kết bạn', 'success');
+  } catch (err: unknown) {
+    const e = err as { response?: { data?: { error?: string } } };
+    toast.push(e.response?.data?.error || 'Không gửi được lời mời kết bạn', 'error');
+  }
+}
+
+// 2026-07-13 — Mở/tạo hội thoại với UID từ card danh thiếp. commit=true để backend
+// link/tạo Contact ngay — nếu không, conv mới sẽ có contactId=null → header hiện
+// "Unknown" và cột 3 (ChatContactPanel) không render (yêu cầu contact với thread user).
+const openChatFromCardBusy = ref(false);
+async function onOpenChatWithUidFromCard(payload: { uid: string; name?: string; avatarUrl?: string }) {
+  const accountId = props.conversation?.zaloAccount?.id;
+  const uid = payload.uid;
+  if (!accountId || !uid || openChatFromCardBusy.value) return;
+  openChatFromCardBusy.value = true;
+  try {
+    const res = await api.post<{ conversationId: string; created: boolean }>(
+      '/conversations/ensure-by-uid',
+      {
+        zaloAccountId: accountId,
+        uid,
+        commit: true,
+        // 'create' (không phải 'auto'): card gợi ý bạn bè thường KHÔNG có SĐT nên
+        // 'auto' sẽ không tự tạo Contact khi chưa match → contactId vẫn null.
+        // resolveExistingContactId bên backend vẫn dedupe theo zaloUid/globalId trước khi tạo mới.
+        contactMode: 'create',
+        zaloName: payload.name,
+        zaloAvatarUrl: payload.avatarUrl,
+      },
+    );
+    if (res.data?.created) toast.push('Đã tạo cuộc trò chuyện mới', 'success');
+    emit('switch-conversation', res.data.conversationId);
+  } catch (err) {
+    const msg = (err as { response?: { data?: { error?: string } } }).response?.data?.error || 'Không mở được hội thoại';
+    toast.push(msg, 'error');
+  } finally {
+    openChatFromCardBusy.value = false;
+  }
 }
 
 // 2026-06-22 (anh báo UI chat): click SĐT trong tin nhắn → tra người dùng Zalo QUA NICK
@@ -2207,11 +2536,6 @@ async function onAcceptInvite() {
     actionLoading.value = false;
   }
 }
-function onOpenNote() {
-  // Open right info panel + scroll to note footer
-  if (!props.showContactPanel) emit('toggle-contact-panel');
-  toast.push('Mở ghi chú nhanh ở panel bên phải');
-}
 const inputPlaceholder = computed(() => {
   // T11 2026-06-20: nick đã xóa → placeholder khóa
   if (isArchivedNick.value) {
@@ -2226,16 +2550,6 @@ const inputPlaceholder = computed(() => {
   return 'Gõ tin nhắn… ("/" template, "@" mention, "#" tag)';
 });
 
-/* Mission Fix 2 (2026-05-30) — header picker giai đoạn KH (ContactDealStageSelector)
- * đã ghi statusId trực tiếp qua PUT /contacts/:id. Handler này chỉ patch local state
- * + trigger timeline refresh để các surface đang quan sát đồng bộ ngay. */
-function onDealStageUpdated(newStatusId: string | null) {
-  if (props.conversation?.contact) {
-    (props.conversation.contact as { statusId?: string | null }).statusId = newStatusId;
-  }
-  // Emit để parent (ChatView) có thể refresh KPI / lazy gate hint nếu cần.
-  emit('care-status-changed', newStatusId || '');
-}
 
 /* Legacy CareStatusBadge handler đã được gỡ khỏi MessageThread (Mission Fix 2,
  * 2026-05-30). CareStatusBadge + persist enum legacy vẫn sống trong
@@ -2258,9 +2572,6 @@ async function fireWebhook() {
   }
 }
 
-function todoToast(label: string) {
-  toast.push(`${label}: chưa implement`, 'warning');
-}
 
 function onPickEmoji(emoji: string) {
   editorRef.value?.insertText(emoji);
@@ -2288,6 +2599,23 @@ async function onSendSticker(sticker: { id: number; catId: number; type: number 
 // ── File / image upload ─────────────────────────────────────────────────────
 const imageInputRef = ref<HTMLInputElement | null>(null);
 const fileInputRef = ref<HTMLInputElement | null>(null);
+
+// ── Media picker popup + pending images (2026-07-13) ──────────────────────────
+import { sendMediaToConversation } from '@/api/media';
+import type { MediaAssetItem } from '@/api/media';
+const showMediaPicker = ref(false);
+const pendingMediaAssets = ref<MediaAssetItem[]>([]);
+
+function onMediaPickerConfirm(assets: MediaAssetItem[]) {
+  // Merge vào pending, không nhân bản (theo id)
+  const existingIds = new Set(pendingMediaAssets.value.map(a => a.id));
+  for (const a of assets) {
+    if (!existingIds.has(a.id)) pendingMediaAssets.value.push(a);
+  }
+}
+function removePendingMedia(idx: number) {
+  pendingMediaAssets.value.splice(idx, 1);
+}
 // 2026-06-12: showMediaPicker + MediaPickerPopover đã GỠ — nút "Chèn từ kho" giờ mở
 // tab Media ở cột 4 (emit 'open-media-tab'). Logic kho dời sang MediaTabPanel.
 // 2026-06-20: GỠ "Gợi ý ảnh dự án" (mediaSuggestions/loadMediaSuggestions/sendSuggestion) — anh chốt bỏ.
@@ -2307,6 +2635,16 @@ function onFileFilesPicked(e: Event) {
   if (files.length) handleFiles(files);
   if (fileInputRef.value) fileInputRef.value.value = '';
 }
+
+function copyToClipboard(text: string, message: string = 'Đã copy vào bộ nhớ tạm') {
+  if (!text) return;
+  navigator.clipboard.writeText(text).then(() => {
+    toast.success(message);
+  }).catch(() => {
+    toast.error('Không thể copy');
+  });
+}
+
 function onPasteImage(files: File[]) {
   // Bắt được khi user Ctrl+V image vào editor
   handleImageFiles(files);
@@ -2526,6 +2864,15 @@ function onEdit() {
 function onDelete() { if (contextMsg.value) emit('delete-message', contextMsg.value.id); }
 function onUndo() { if (contextMsg.value) emit('undo-message', contextMsg.value.id); }
 
+// Ghim tin nhắn (CRM-only, 2026-07-14) — check tin đang mở context menu đã ghim chưa.
+const isContextMsgPinned = computed(() => {
+  const id = contextMsg.value?.id;
+  if (!id) return false;
+  return (props.pinnedMessages || []).some((p) => p.messageId === id);
+});
+function onPin() { if (contextMsg.value) emit('pin-message', contextMsg.value.id); }
+function onUnpin() { if (contextMsg.value) emit('unpin-message', contextMsg.value.id); }
+
 // Lưu ảnh/file từ chat vào Kho phương tiện — Phase Media Library 2026-06-11.
 // visibility: 'private' = Kho cá nhân (mặc định) / 'public' = Kho chung (G3 submenu).
 async function onSaveToMedia(visibility: 'private' | 'public' = 'private') {
@@ -2657,9 +3004,70 @@ function handleSaveErr(e: any) {
 
 
 function onForward(targetIds: string[]) {
+  // Multi-select: chuyển tiếp lần lượt từng tin đã chọn (không có batch API — loop từng tin).
+  if (multiForwardPending.value) {
+    const ids = orderedPickedIds();
+    for (const id of ids) emit('forward-message', id, targetIds);
+    multiForwardPending.value = false;
+    showForwardDialog.value = false;
+    exitMultiSelect();
+    toast.success(`Đã chuyển tiếp ${ids.length} tin nhắn`);
+    return;
+  }
   if (contextMsg.value) emit('forward-message', contextMsg.value.id, targetIds);
   showForwardDialog.value = false;
 }
+
+// ── Chọn nhiều tin nhắn (CRM-only, 2026-07-14) — copy / chuyển tiếp hàng loạt ──
+// State (multiSelectMode/multiPicked/multiForwardPending) khai báo sớm ở trên.
+function startMultiSelect() {
+  multiSelectMode.value = true;
+  multiPicked.value = new Set();
+  // Tin đang mở context menu → tick sẵn cho tiện.
+  if (contextMsg.value) multiPicked.value.add(contextMsg.value.id);
+}
+function exitMultiSelect() {
+  multiSelectMode.value = false;
+  multiPicked.value = new Set();
+}
+function toggleMultiPick(msgId: string) {
+  const next = new Set(multiPicked.value);
+  if (next.has(msgId)) next.delete(msgId);
+  else next.add(msgId);
+  multiPicked.value = next;
+}
+// Trả về id theo đúng thứ tự thời gian hiển thị (props.messages đã sort tăng dần).
+function orderedPickedIds(): string[] {
+  return props.messages.filter((m) => multiPicked.value.has(m.id)).map((m) => m.id);
+}
+async function copyMultiSelected() {
+  if (multiPicked.value.size === 0) return;
+  const picked = props.messages.filter((m) => multiPicked.value.has(m.id));
+  const text = picked
+    .map((m) => {
+      const raw = (m.content || '').trim();
+      if (m.contentType === 'text' && raw) return raw;
+      if (m.contentType === 'image') return '[Hình ảnh]';
+      if (m.contentType === 'video') return '[Video]';
+      if (m.contentType === 'file') return '[Tệp đính kèm]';
+      return raw || '[Tin nhắn]';
+    })
+    .join('\n');
+  try {
+    await navigator.clipboard.writeText(text);
+    toast.success(`Đã sao chép ${picked.length} tin nhắn`);
+    exitMultiSelect();
+  } catch {
+    toast.warning('Không sao chép được vào clipboard');
+  }
+}
+function forwardMultiSelected() {
+  if (multiPicked.value.size === 0) return;
+  multiForwardPending.value = true;
+  showForwardDialog.value = true;
+}
+// Đóng dialog mà không chuyển tiếp → reset cờ multi (tránh lần forward đơn kế tiếp bị hiểu nhầm).
+watch(showForwardDialog, (open) => { if (!open) multiForwardPending.value = false; });
 
 function onCancelReplyEdit() {
   emit('cancel-reply-edit');
@@ -2682,8 +3090,11 @@ onMounted(() => { loadTemplates(); });
 // Listener cho tab CRM (cột 4) — widget "AI Next Action" → emit insert-suggestion
 // qua window event để giảm prop drilling. Cùng pattern với 'zalo-labels-synced'.
 function onInsertSuggestionEvent(e: Event) {
-  const text = (e as CustomEvent<{ text: string }>).detail?.text;
+  const detail = (e as CustomEvent<{ text: string; photos?: string[] }>).detail;
+  const text = detail?.text;
   if (text) void applySuggestion(text);
+  // Cột phải "Tin nhắn nhanh": kèm ảnh của mẫu → nạp vào hàng chờ gửi như popup "/".
+  if (Array.isArray(detail?.photos) && detail.photos.length) attachPhotoUrls(detail.photos);
 }
 onMounted(() => window.addEventListener('chat:insert-suggestion', onInsertSuggestionEvent));
 onBeforeUnmount(() => window.removeEventListener('chat:insert-suggestion', onInsertSuggestionEvent));
@@ -2758,6 +3169,49 @@ function onComposerNavKey(event: KeyboardEvent): boolean {
   return true;
 }
 
+// Trích danh sách URL ảnh (từ mẫu tin nhắn nhanh) → đẩy vào hàng chờ gửi pendingMediaAssets.
+// Dùng chung cho popup "/" (onTemplateSelect) và danh sách cột phải (chat:insert-suggestion).
+function attachPhotoUrls(photoUrls: unknown): void {
+  if (!Array.isArray(photoUrls)) return;
+  const uuidRegex = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
+  const mediaRegex = /\/media\/([^\.\/\?]+)/i;
+  const existingIds = new Set(pendingMediaAssets.value.map(a => a.id));
+  const urls = photoUrls.flatMap((value) =>
+    typeof value === 'string' ? (value.match(/https?:\/\/\S+/gi) ?? []) : [],
+  );
+  for (const url of urls) {
+    if (url) {
+      // Tách assetId từ link kho (r2/media). Link ngoài (pancake.vn...) không có
+      // uuid/media → sinh id tổng hợp KHÔNG chứa dấu "/" (không dùng URL làm id vì
+      // dấu "/" phá route POST /media/:id/send → 404); URL thật gửi kèm body.url,
+      // backend có đường giải cứu gửi ảnh theo URL.
+      let assetId: string;
+      const matchUuid = url.match(uuidRegex);
+      const matchMedia = url.match(mediaRegex);
+      if (matchUuid) assetId = matchUuid[0];
+      else if (matchMedia) assetId = matchMedia[1];
+      else assetId = 'ext-' + url.replace(/[^a-zA-Z0-9]/g, '').slice(-48);
+
+      if (!existingIds.has(assetId)) {
+        existingIds.add(assetId);
+        pendingMediaAssets.value.push({
+          id: assetId,
+          kind: 'image',
+          name: 'Ảnh đính kèm',
+          visibility: 'public',
+          ownerUserId: null,
+          tagIds: [],
+          usageCount: 0,
+          url: url,
+          thumbnailUrl: url,
+          sizeBytes: null,
+          createdAt: new Date().toISOString()
+        });
+      }
+    }
+  }
+}
+
 // Chèn mẫu: giữ định dạng đậm/màu qua applyRichPayload (biến đã render + re-anchor offset ở popup).
 // Thay nội dung ô bằng (text trước "/") + mẫu. KHÔNG auto-send — sale tự Enter.
 function onTemplateSelect(payload: { text: string; styles?: Array<{ st: string; start: number; len: number }> }, templateId: string) {
@@ -2773,8 +3227,18 @@ function onTemplateSelect(payload: { text: string; styles?: Array<{ st: string; 
   showTemplatePopup.value = false;
   slashTriggerPos.value = -1;
   templateQuery.value = '';
+
+  // Trích xuất ảnh đính kèm từ mẫu và đưa vào hàng chờ gửi (pendingMediaAssets) để hiển thị xem trước
+  const tpl = templates.value.find((t) => t.id === templateId);
+  if (tpl) attachPhotoUrls(tpl.tagIds || []);
+
   // Track use (non-blocking)
   api.post(`/automation/templates/${templateId}/track-use`).catch(() => {});
+
+  // Công tắc "Gửi ngay": chèn xong thì gửi luôn (text + ảnh đính kèm vừa nạp).
+  if (templateSendImmediately.value) {
+    void nextTick(() => { void handleSend(); });
+  }
 }
 
 // ── M14 (2026-06-02): Chèn Khối tin nhắn (Automation Blocks) vào composer ──
@@ -2792,14 +3256,14 @@ function openBlockPicker() {
 // 2026-06-04 — Khối Phase 1 MVP: 2 đường workflow
 // 👁 Xem trước → mở Preview dialog → bấm Gửi → dispatch
 // 📤 Gửi luôn → bỏ qua preview, dispatch ngay
-const previewBlock = ref<import('@ee/automation/api/types').Block | null>(null);
+const previewBlock = ref<import('@/api/automation/types').Block | null>(null);
 
-function onBlockPreview(block: import('@ee/automation/api/types').Block) {
+function onBlockPreview(block: import('@/api/automation/types').Block) {
   previewBlock.value = block;
   showBlockPicker.value = false;
 }
 
-async function onBlockSendDirect(block: import('@ee/automation/api/types').Block) {
+async function onBlockSendDirect(block: import('@/api/automation/types').Block) {
   showBlockPicker.value = false;
   await dispatchBlockComponents(block.id);
 }
@@ -2823,7 +3287,7 @@ async function dispatchBlockComponents(blockId: string) {
   if (blockSending.value) return; // chống double-send
   blockSending.value = true;
   try {
-    const { sendBlockToConversation } = await import('@ee/automation/api/blocks');
+    const { sendBlockToConversation } = await import('@/api/automation/blocks');
     const res = await sendBlockToConversation(conversationId, blockId);
     // 2026-06-13: BE gửi NỀN, trả {accepted} ngay → báo "đang gửi", tin hiện dần qua socket
     // (KHÔNG chờ → hết timeout). Giữ nhánh cũ {partial/sentCount} phòng STUB/đường khác trả đủ.
@@ -2846,27 +3310,80 @@ async function dispatchBlockComponents(blockId: string) {
 }
 
 // ── Send ────────────────────────────────────────────────────────────────────
-function handleSend() {
+async function handleSend() {
   if (showTemplatePopup.value) { showTemplatePopup.value = false; return; }
-  if (isArchivedNick.value) return; // T11: nick đã xóa → chặn gửi (Enter + nút). Khóa mềm UX.
-  if (!inputText.value.trim()) return;
+  if (isArchivedNick.value) return;
+  const hasText = !!inputText.value.trim();
+  const hasPending = pendingMediaAssets.value.length > 0;
+  if (!hasText && !hasPending) return;
 
-  // 2026-05-21 fix: lấy rich payload {text, styles} từ editor để gửi format đi Zalo.
-  // Nếu không có styles → behaves như plain text (backward compat).
-  const rich = (editorRef.value as any)?.getRichPayload?.() || { text: inputText.value, styles: [], mentions: [] };
-  const textToSend = rich.text || inputText.value;
-  const styles = Array.isArray(rich.styles) && rich.styles.length > 0 ? rich.styles : undefined;
-  // 2026-06-24: @mention thành viên nhóm — chỉ gửi khi có mention (group thread).
-  const mentions = Array.isArray(rich.mentions) && rich.mentions.length > 0 ? rich.mentions : undefined;
+  // Gửi ảnh pending trước (từng ảnh gọi sendMediaToConversation)
+  if (hasPending && props.conversation?.id) {
+    const assetsToSend = [...pendingMediaAssets.value];
+    pendingMediaAssets.value = [];
+    // Chốt hội thoại đích NGAY lúc bấm Gửi. Tiến trình gửi ảnh chạy ngầm nhiều
+    // lượt (album con cách nhau 1000ms); nếu đọc props.conversation.id "sống"
+    // thì đổi hội thoại giữa chừng sẽ khiến ảnh còn lại nhảy sang hội thoại mới.
+    const targetConvId = props.conversation.id;
+    const targetConvName = headerName.value;
+    toast.success(`Đang gửi ${assetsToSend.length} ảnh vào ${targetConvName}…`);
+    // Chạy ngầm tiến trình gửi ảnh (không await để tránh treo luồng gửi text)
+    void (async () => {
+      try {
+        if (assetsToSend.length === 1) {
+          const a = assetsToSend[0];
+          await sendMediaToConversation(a.id, targetConvId, undefined, undefined, a.url || undefined);
+        } else {
+          const ids = assetsToSend.map(a => a.id);
+          const urls = assetsToSend.map(a => a.url || '');
+          const { sendAlbumToConversation } = await import('@/api/media');
 
-  if (props.editingMessage) {
-    emit('edit-message', props.editingMessage.id, textToSend);
-  } else {
-    emit('send', textToSend, props.replyingTo?.id ?? null, styles, mentions);
+          // Tự động chia nhỏ danh sách ảnh thành các album con tối đa 12 ảnh/lượt
+          const chunkSize = 12;
+          const chunks: Array<{ ids: string[]; urls: string[] }> = [];
+          for (let i = 0; i < ids.length; i += chunkSize) {
+            chunks.push({
+              ids: ids.slice(i, i + chunkSize),
+              urls: urls.slice(i, i + chunkSize)
+            });
+          }
+
+          console.log('[MessageThread] Tổng số album con cần gửi:', chunks.length);
+
+          // Gửi tuần tự các album con cách nhau 1000ms để tránh quá tải API và đảm bảo thứ tự
+          for (let i = 0; i < chunks.length; i++) {
+            const chunk = chunks[i];
+            if (i > 0) {
+              console.log('[MessageThread] Đợi 1000ms trước khi gửi album tiếp theo...');
+              await new Promise(resolve => setTimeout(resolve, 1000));
+            }
+            console.log(`[MessageThread] Đang gửi album con ${i + 1}/${chunks.length} với ${chunk.ids.length} ảnh`);
+            await sendAlbumToConversation(chunk.ids, targetConvId, undefined, chunk.urls);
+          }
+        }
+        // Chỉ refresh khung chat nếu vẫn đang đứng ở đúng hội thoại vừa gửi.
+        if (props.conversation?.id === targetConvId) emit('refresh-thread');
+      } catch (err: any) {
+        toast.error(err?.response?.data?.error || 'Gửi ảnh thất bại');
+      }
+    })();
   }
-  inputText.value = '';
-  editorRef.value?.clear();
-  emit('cancel-reply-edit');
+
+  // Gửi text ngay trong cùng lượt xử lý Enter để optimistic bubble render ở microtask kế tiếp.
+  if (hasText) {
+    const rich = (editorRef.value as any)?.getRichPayload?.() || { text: inputText.value, styles: [], mentions: [] };
+    const textToSend = rich.text || inputText.value;
+    const styles = Array.isArray(rich.styles) && rich.styles.length > 0 ? rich.styles : undefined;
+    const mentions = Array.isArray(rich.mentions) && rich.mentions.length > 0 ? rich.mentions : undefined;
+    if (props.editingMessage) {
+      emit('edit-message', props.editingMessage.id, textToSend);
+    } else {
+      emit('send', textToSend, props.replyingTo?.id ?? null, styles, mentions);
+    }
+    inputText.value = '';
+    editorRef.value?.clear();
+    emit('cancel-reply-edit');
+  }
 }
 
 // Áp dụng suggestion: chèn text vào editor + focus caret cuối → user Enter gửi luôn.
@@ -2881,6 +3398,10 @@ async function applySuggestion(text?: string) {
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
+async function applyApprovedFollowUp(content: string): Promise<void> {
+  await applySuggestion(content);
+}
+
 function formatMessageTime(d: string) {
   return formatInOrgTz(d, undefined, { timeOnly: true });
 }
@@ -2903,6 +3424,7 @@ function getImageUrl(msg: Message): string | null {
 
 /** Scroll xuống đáy (tin nhắn mới nhất). Retry sau khi images load. */
 function scrollToBottom(immediate = false) {
+  showScrollBottomBtn.value = false;
   if (!messagesContainer.value) return;
   const el = messagesContainer.value;
   el.scrollTop = el.scrollHeight;
@@ -2914,11 +3436,11 @@ function scrollToBottom(immediate = false) {
   }
 }
 
-// Khi messages thêm (tin mới đến) → scroll mượt
-watch(() => props.messages.length, async () => {
+// Khi danh sách tin nhắn thay đổi (đổi cuộc trò chuyện hoặc thêm tin mới) → scroll xuống đáy
+watch([() => props.messages, () => props.messages.length], async () => {
   await nextTick();
   scrollToBottom();
-});
+}, { immediate: true });
 
 // Khi đổi sang conv khác → reset scroll xuống đáy ngay + retry sau khi messages
 // load xong (messages.length thay đổi async sau khi parent fetch).
@@ -2960,7 +3482,45 @@ watch(() => props.editingMessage?.id, async (id) => {
 </script>
 
 <style scoped>
+/* ── Pending media bar (2026-07-13): ảnh chọn từ kho chờ gửi ── */
+.pending-media-bar {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 12px 6px;
+  background: #f5f3ff; border-top: 1px solid #ede9fe;
+  flex-shrink: 0; overflow: hidden;
+}
+.pmb-list {
+  display: flex; gap: 6px; overflow-x: auto; flex: 1;
+  scrollbar-width: thin; scrollbar-color: #c4b5fd transparent;
+}
+.pmb-list::-webkit-scrollbar { height: 4px; }
+.pmb-list::-webkit-scrollbar-track { background: transparent; }
+.pmb-list::-webkit-scrollbar-thumb { background: #c4b5fd; border-radius: 9999px; }
+.pmb-thumb {
+  position: relative; flex-shrink: 0;
+  width: 52px; height: 52px; border-radius: 8px; overflow: hidden;
+  border: 2px solid #7c3aed;
+}
+.pmb-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.pmb-remove {
+  position: absolute; top: 2px; right: 2px;
+  width: 16px; height: 16px; border-radius: 50%;
+  background: rgba(0,0,0,.6); color: #fff;
+  border: none; cursor: pointer; padding: 0;
+  display: flex; align-items: center; justify-content: center;
+  opacity: 0; transition: opacity 140ms;
+}
+.pmb-thumb:hover .pmb-remove { opacity: 1; }
+.pmb-clear {
+  flex-shrink: 0; border: none; background: none; cursor: pointer;
+  font-size: 11px; color: #7c3aed; font-weight: 600; padding: 4px 6px;
+  border-radius: 6px; font-family: inherit;
+  transition: background 130ms;
+}
+.pmb-clear:hover { background: #ede9fe; }
+
 .message-thread {
+
   display: flex; flex-direction: column;
   height: 100%;
   background: var(--smax-grey-100);
@@ -3137,6 +3697,11 @@ watch(() => props.editingMessage?.id, async (id) => {
    Row 2: Chips meta (Cùng-chăm + Giai đoạn + Phân loại)
    Row 3: Nick + counts + Online — FULL-WIDTH lấn sang phải vùng actions
    Actions absolute top-right để row 3 không bị nén. */
+@media (max-width: 768px) {
+  .chat-header {
+    display: none !important;
+  }
+}
 .chat-header {
   position: relative;
   background: var(--smax-bg);
@@ -3175,6 +3740,47 @@ watch(() => props.editingMessage?.id, async (id) => {
 .ch-avatar-wrap.clickable:hover { transform: scale(1.05); box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.18); }
 .ch-name.clickable { cursor: pointer; transition: color 0.12s ease; }
 .ch-name.clickable:hover { color: var(--smax-primary, #1786be); }
+
+/* Inline edit tên hội thoại */
+.ch-name-edit-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+  width: 20px; height: 20px;
+  border-radius: 4px;
+  background: transparent;
+  border: none;
+  color: var(--smax-grey-400, #9ca3af);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s, background 0.15s, color 0.15s;
+  margin-left: 2px;
+}
+.ch-row-1:hover .ch-name-edit-btn { opacity: 1; }
+.ch-name-edit-btn:hover { background: var(--smax-primary-soft, #EBF3FF); color: var(--smax-primary, #2F80ED); }
+.ch-name-input {
+  flex: 1; min-width: 0;
+  border: 1.5px solid var(--smax-primary, #2F80ED);
+  border-radius: 5px;
+  padding: 2px 7px;
+  font-size: 15px; font-weight: 600; font-family: inherit;
+  color: var(--smax-text, #1f2937);
+  background: #fff;
+  outline: none;
+}
+.ch-name-save-btn, .ch-name-cancel-btn {
+  flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px;
+  border-radius: 4px;
+  border: none;
+  cursor: pointer;
+  font-size: 13px; font-weight: 700;
+  margin-left: 3px;
+}
+.ch-name-save-btn { background: var(--smax-primary, #2F80ED); color: #fff; }
+.ch-name-save-btn:hover { background: #5538e0; }
+.ch-name-cancel-btn { background: #f3f4f6; color: #6b7280; }
+.ch-name-cancel-btn:hover { background: #e5e7eb; }
 
 .ch-info {
   flex: 1; min-width: 0;
@@ -3268,12 +3874,12 @@ watch(() => props.editingMessage?.id, async (id) => {
   flex-shrink: 0;
 }
 .gender-female {
-  background: rgba(233, 30, 99, 0.10);
-  color: var(--smax-female, #e91e63);
+  background: #FF5A5F;
+  color: #FFFFFF;
 }
 .gender-male {
-  background: rgba(30, 136, 229, 0.10);
-  color: var(--smax-male, #1e88e5);
+  background: #267EFF;
+  color: #FFFFFF;
 }
 .gender-unknown {
   background: var(--smax-grey-100);
@@ -3390,6 +3996,16 @@ watch(() => props.editingMessage?.id, async (id) => {
   text-transform: uppercase;
   letter-spacing: 0.2px;
 }
+.common-groups-chip { display:inline-flex; align-items:center; gap:4px; min-width:0; max-width:230px; padding:2px 7px; border:1px solid #d9e4f2; border-radius:999px; background:#f5f9ff; color:#35618f; font-size:11px; line-height:18px; cursor:pointer; }
+.common-groups-chip:hover { background:#eaf3ff; border-color:#adc9e9; }
+.common-groups-chip strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#1f4f7f; }
+.common-groups-menu { width:280px; max-height:320px; overflow-y:auto; padding:6px; border:1px solid #e3e9f1; border-radius:10px; background:#fff; box-shadow:0 8px 24px rgba(15,23,42,.14); }
+.common-groups-menu-title { padding:7px 9px; color:#667085; font-size:12px; font-weight:600; }
+.common-groups-menu-item { display:flex; align-items:center; width:100%; gap:9px; padding:8px 9px; border:0; border-radius:7px; background:transparent; color:#1f2937; text-align:left; cursor:pointer; }
+.common-groups-menu-item:hover { background:#f1f6fc; }
+.common-group-initial { display:inline-flex; align-items:center; justify-content:center; flex:0 0 28px; width:28px; height:28px; border-radius:50%; background:#e7f1fd; color:#2563a6; font-size:12px; font-weight:700; }
+.common-group-menu-name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:13px; }
+
 .last-online {
   display: inline-flex; align-items: center; gap: 4px;
   /* Giảm font 2026-06-06 (Anh chốt): chữ Online/last-seen nhỏ lại cho gọn header. */
@@ -3473,6 +4089,29 @@ watch(() => props.editingMessage?.id, async (id) => {
 }
 .archived-banner .virtual-banner-icon { background: #9ca3af; }
 .archived-banner .virtual-banner-sub { color: #6b7280; }
+
+/* Chế độ an toàn (2026-07-23): banner nick mất kết nối tạm thời — tông ĐỎ NHẠT (khác archived xám) */
+.offline-banner {
+  background: linear-gradient(90deg, #fef2f2, #fee2e2);
+  border-bottom: 1px solid #fecaca;
+  color: #991b1b;
+  align-items: center;
+}
+.offline-banner .virtual-banner-icon { background: #ef4444; }
+.offline-banner .virtual-banner-sub { color: #b91c1c; }
+.offline-banner-reconnect {
+  flex-shrink: 0;
+  padding: 5px 12px;
+  border-radius: 6px;
+  border: 1px solid #ef4444;
+  background: #fff;
+  color: #b91c1c;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.offline-banner-reconnect:hover { background: #fef2f2; }
 .nick-archived-chip {
   display: inline-flex;
   align-items: center;
@@ -3542,14 +4181,14 @@ watch(() => props.editingMessage?.id, async (id) => {
   transform: translateY(-0.5px);
 }
 .btn-friend-already {
-  background: rgba(0,200,83,0.08);
-  color: #00897b;
-  border-color: rgba(0,200,83,0.25);
+  background: #00A859;
+  color: #FFFFFF;
+  border-color: #00A859;
   cursor: default;
 }
 .btn-friend-already:hover {
-  background: rgba(0,200,83,0.16);
-  border-color: rgba(0,200,83,0.45);
+  background: #00A859;
+  border-color: #00A859;
 }
 .btn-friend-already:disabled { opacity: 1; }
 .btn-pending {
@@ -3563,25 +4202,25 @@ watch(() => props.editingMessage?.id, async (id) => {
 }
 /* Phase C — KH gửi mời, sale cần accept. Màu vàng cảnh báo + emphasize action */
 .btn-accept-friend {
-  background: rgba(251, 191, 36, 0.18);
-  color: #B45309;
-  border-color: rgba(251, 191, 36, 0.5);
+  background: #16A34A;
+  color: #FFFFFF;
+  border-color: #16A34A;
   font-weight: 600;
 }
 .btn-accept-friend:hover {
-  background: rgba(251, 191, 36, 0.34);
-  border-color: #F59E0B;
-  color: #92400E;
+  background: #15803D;
+  border-color: #15803D;
+  color: #FFFFFF;
 }
 .btn-add-friend {
-  background: var(--smax-primary-soft);
-  color: var(--smax-primary);
-  border-color: var(--smax-primary);
+  background: #267EFF;
+  color: #FFFFFF;
+  border-color: #267EFF;
 }
 .btn-add-friend:hover {
-  background: var(--smax-primary);
-  color: white;
-  border-color: var(--smax-primary);
+  background: #267EFF;
+  color: #FFFFFF;
+  border-color: #267EFF;
 }
 /* Secondary "Thu hồi" — neutral grey, không cảnh báo (rút lại action của chính mình).
    2026-06-23: giờ là popup xổ xuống (.fr-hover-pop) → thêm shadow toả xuống cho ra dáng dropdown. */
@@ -3599,15 +4238,15 @@ watch(() => props.editingMessage?.id, async (id) => {
 }
 /* Secondary "Từ chối" — đỏ nhạt, action destructive đối với KH */
 .btn-reject-invite {
-  background: rgba(239, 68, 68, 0.10);
-  color: #b91c1c;
-  border-color: rgba(239, 68, 68, 0.35);
+  background: #DC2626;
+  color: #FFFFFF;
+  border-color: #DC2626;
   font-weight: 500;
 }
 .btn-reject-invite:hover:not(:disabled) {
-  background: rgba(239, 68, 68, 0.22);
-  border-color: rgba(239, 68, 68, 0.6);
-  color: #991b1b;
+  background: #B91C1C;
+  border-color: #B91C1C;
+  color: #FFFFFF;
 }
 /* 2026-06-03 Anh chốt: hover-reveal VERTICAL (xổ xuống dưới), KHÔNG đẩy ngang.
    .friend-hover-group là anchor; .fr-hover-pop absolute top:100% slide-down.
@@ -3705,6 +4344,7 @@ watch(() => props.editingMessage?.id, async (id) => {
   font-size: 15px;
 }
 .icon-btn:hover { background: var(--smax-grey-100); }
+.icon-btn-active { background: #dbeafe !important; color: #2563eb !important; }
 .icon-btn.on {
   background: var(--smax-primary-soft);
   color: var(--smax-primary);
@@ -3714,8 +4354,62 @@ watch(() => props.editingMessage?.id, async (id) => {
 /* min-height: 0 cho phép flex item co lại khi input-area mở rộng (toolbar slide-in,
    ReplyPreviewBar, AISuggestBar) — nếu thiếu, flexbox default min-height: auto
    khiến container vượt parent → input đè lên đoạn chat. */
+/* Ghim tin nhắn (CRM-only, 2026-07-14) — thanh tin đã ghim trên đầu khung chat */
+.pinned-bar {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 14px; background: #fff7e6;
+  border-bottom: 1px solid #ffe1a8;
+}
+.pinned-bar-icon { color: #e8961a; flex-shrink: 0; }
+.pinned-bar-list { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.pinned-bar-item {
+  display: flex; align-items: baseline; gap: 5px; min-width: 0;
+  cursor: pointer; font-size: 12.5px; line-height: 1.35;
+}
+.pinned-bar-item:hover .pinned-bar-content { text-decoration: underline; }
+.pinned-bar-sender { color: #b45309; font-weight: 600; flex-shrink: 0; }
+.pinned-bar-content {
+  color: #6b4e12; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.pinned-bar-unpin {
+  flex-shrink: 0; border: none; background: transparent; cursor: pointer;
+  color: #b45309; display: flex; align-items: center; padding: 2px; border-radius: 4px;
+}
+.pinned-bar-unpin:hover { background: rgba(180,83,9,.12); }
+
+/* Chọn nhiều tin nhắn (CRM-only, 2026-07-14) — thanh hành động + tick chọn */
+.multi-select-bar {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 14px; background: #eef4ff;
+  border-bottom: 1px solid #cbd9f5;
+}
+.multi-select-bar .msb-count { font-size: 12.5px; font-weight: 600; color: #1d4ed8; margin-right: auto; }
+.multi-select-bar .msb-actions { display: flex; gap: 7px; }
+.multi-select-bar .msb-btn {
+  display: inline-flex; align-items: center; gap: 4px;
+  border: 1px solid #c3d3f2; background: #fff; color: #333840; border-radius: 6px;
+  padding: 5px 12px; font-size: 12px; cursor: pointer; font-weight: 500;
+}
+.multi-select-bar .msb-btn.primary { background: #2563eb; color: #fff; border-color: #2563eb; }
+.multi-select-bar .msb-btn.ghost { border: none; color: var(--smax-grey-700); background: transparent; }
+.multi-select-bar .msb-btn:disabled { opacity: .45; cursor: default; }
+
+.msg-wrap-selectable { cursor: pointer; border-radius: 8px; transition: background .12s ease; }
+.msg-wrap-selectable:hover { background: rgba(37,99,235,.05); }
+.msg-wrap-picked { background: rgba(37,99,235,.10); }
+.msg-select-check {
+  position: absolute; top: 50%; left: 6px; transform: translateY(-50%);
+  width: 20px; height: 20px; border-radius: 50%;
+  border: 2px solid #2563eb; background: #fff; color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 700; z-index: 3;
+}
+.msg-select-check.on { background: #2563eb; }
+.msg-wrap-selectable { position: relative; padding-left: 34px; }
+
 .messages {
   flex: 1; min-height: 0;
+  background: #FFFFFF;
   overflow-y: auto; overflow-anchor: auto;
   /* Phase A UI fix v3 (2026-05-21): overflow-x hidden để reaction overlap chip
      (absolute position) KHÔNG bao giờ gây scroll ngang. Đề phòng future overflow
@@ -3806,11 +4500,19 @@ watch(() => props.editingMessage?.id, async (id) => {
 .msg-album-wrap .msg-avatar { flex-shrink: 0; }
 .msg-album-body { max-width: 60%; }
 .bubble.album {
-  background: var(--smax-bg);
+  background: transparent;
+  color: #1E202C;
+  border: 1px solid #E5E7EB;
   border-radius: 13px;
   overflow: hidden;
-  box-shadow: 0 1px 1px rgba(0,0,0,0.06);
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.04);
 }
+.msg-album-wrap:not(.self) .bubble-time,
+.msg-album-wrap.self .bubble-time {
+  background: transparent;
+  color: #1E202C;
+}
+
 .album-sender {
   font-size: 11.5px; color: var(--smax-primary);
   font-weight: 600;
@@ -3951,7 +4653,11 @@ watch(() => props.editingMessage?.id, async (id) => {
   flex: 1; min-width: 0;
   position: relative;
 }
-.input-editor { width: 100%; }
+.input-editor {
+  width: 100%;
+  --editor-min-h: 36px !important;
+  --editor-max-h: 150px !important;
+}
 
 /* ── Avatar nick halo: gradient cam-đỏ-vàng đậm xoay quanh avatar ───────
  * Inspired Instagram Stories halo. Conic-gradient rotate 3s linear infinite.
@@ -4097,6 +4803,32 @@ watch(() => props.editingMessage?.id, async (id) => {
 }
 .zlbl-inline-sync:hover { filter: brightness(0.95); }
 
+.t2-tag-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 700;
+  border: 1px solid var(--tag-color, #546E7A);
+  background: transparent;
+  color: var(--tag-color, #546E7A);
+  white-space: nowrap;
+  flex-shrink: 0;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.t2-tag-pill.active {
+  background: var(--tag-color, #546E7A) !important;
+  color: #ffffff !important;
+}
+.t2-tag-pill:hover {
+  filter: brightness(0.9);
+}
+.t2-pill-emoji { font-size: 13px; flex-shrink: 0; }
+.t2-pill-text { white-space: nowrap; }
+
 .zlbl-options {
   display: flex;
   flex-direction: column;
@@ -4127,7 +4859,7 @@ watch(() => props.editingMessage?.id, async (id) => {
 }
 .zlbl-name {
   flex: 1;
-  color: var(--smax-text);
+  color: inherit;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -4162,4 +4894,35 @@ watch(() => props.editingMessage?.id, async (id) => {
 }
 .zlbl-manage:hover { background: var(--smax-grey-50); color: var(--smax-primary); }
 .manage-icon { font-size: 14px; }
+
+/* Nút kéo xuống dưới cùng hội thoại */
+.scroll-bottom-btn {
+  position: absolute;
+  bottom: 180px; /* Định vị nằm nổi ngay trên thanh Tags/Composer */
+  right: 20px;
+  z-index: 49;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.95);
+  color: var(--smax-primary, #1786be);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.15);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  backdrop-filter: blur(4px);
+}
+.scroll-bottom-btn:hover {
+  background: #ffffff;
+  color: var(--smax-primary-hover, #0288d1);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.2);
+}
+.scroll-bottom-btn:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+}
 </style>

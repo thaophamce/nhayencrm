@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Nguyễn Tiến Lộc
-import { ref, computed } from 'vue';
+import { ref, computed, nextTick } from 'vue';
 import { api } from '@/api/index';
 import { Socket } from 'socket.io-client';
 import { createAppSocket } from '@/api/socket';
@@ -11,6 +11,8 @@ import { usePrivacyStore } from '@/stores/privacy';
 import { useWorkScope } from '@/composables/use-work-scope';
 import { classifyIncoming } from '@/composables/work-scope-logic';
 import { useToast } from '@/composables/use-toast';
+import { reconcileOptimisticMessage } from '@/composables/optimistic-message-reconcile';
+import { markAiFollowUpStale } from '@/composables/use-ai-follow-up';
 
 interface ZaloAccount {
   id: string;
@@ -23,6 +25,9 @@ interface ZaloAccount {
   /** T11 2026-06-20: thời điểm nick bị XÓA (ẩn-mềm). !=null → badge "Đã xóa" + khóa ô soạn tin.
    *  KHÔNG suy ra từ status='disconnected' (nick sống cũng disconnected tạm). */
   archivedAt?: string | null;
+  /** Chế độ an toàn (2026-07-23): trạng thái kết nối Zalo của nick — 'connected'|'disconnected'|'qr_pending'.
+   *  Dùng cho banner "mất kết nối" + khóa ô soạn tin trong MessageThread. */
+  status?: string;
 }
 
 export interface AiSentiment {
@@ -121,6 +126,8 @@ export interface Conversation {
   /** Friend record per-pair (chỉ user thread) — backend join từ Friend table */
   friendship?: FriendshipInfo | null;
   lastMessageAt: string | null;
+  /** MVP phân loại hội thoại (2026-07-19) — nhãn ngày im: hot/warm/cool/cold, null=chưa xếp (<4 ngày). */
+  silenceLabel?: 'hot' | 'warm' | 'cool' | 'cold' | null;
   unreadCount: number;
   isReplied: boolean;
   isPinned?: boolean;
@@ -179,6 +186,9 @@ export interface Message {
   repliedBy?: { id: string; fullName: string | null; email: string | null } | null;
   /** M55 — virtual chat indicators */
   isLocal?: boolean;
+  /** Optimistic send 2026-07-22 — UUID client sinh, khớp echo HTTP + socket để
+   *  thay bong bóng "đang gửi" tại chỗ (chống trùng). Backend trả lại field này. */
+  echoId?: string;
   /** Anh chốt 2026-06-03 — Persist Zalo SDK TGroupMessage.mentions để FE
    *  render mention theo pos+len thay vì đoán regex. Chỉ group có. */
   mentions?: Array<{ uid: string; pos: number; len: number; type: 0 | 1 }> | null;
@@ -224,15 +234,71 @@ function compareMessages(a: Message, b: Message): number {
   return new Date(a.sentAt).getTime() - new Date(b.sentAt).getTime();
 }
 
-// In-memory cache per-conv messages — quay lại conv cũ render ngay, fetch fresh background.
-const messagesCache = new Map<string, Message[]>();
+// sessionStorage-backed cache per-conv messages — quay lại conv cũ HOẶC F5 reload trang render ngay lập tức
+const MSG_CACHE_PREFIX = 'crm_msg_cache_v2_';
+const inMemoryMsgCache = new Map<string, Message[]>();
+const messagesCache = {
+  get(key: string) {
+    if (inMemoryMsgCache.has(key)) return inMemoryMsgCache.get(key);
+    try {
+      const raw = sessionStorage.getItem(MSG_CACHE_PREFIX + key);
+      if (raw) {
+        const val = JSON.parse(raw);
+        inMemoryMsgCache.set(key, val);
+        return val;
+      }
+    } catch {}
+    return null;
+  },
+  set(key: string, value: Message[]) {
+    const capped = value.slice(-100); // Giới hạn 100 tin gần nhất để tối ưu dung lượng sessionStorage
+    inMemoryMsgCache.set(key, capped);
+    try {
+      sessionStorage.setItem(MSG_CACHE_PREFIX + key, JSON.stringify(capped));
+    } catch {}
+  },
+  delete(key: string) {
+    inMemoryMsgCache.delete(key);
+    try {
+      sessionStorage.removeItem(MSG_CACHE_PREFIX + key);
+    } catch {}
+  },
+  get size() { return inMemoryMsgCache.size; },
+  entries() { return inMemoryMsgCache.entries(); }
+};
 
-// M-tier tab-switch fix (2026-05-21) — per-filter-key conversation list cache.
-// Stale-while-revalidate: chuyển tab → paint từ cache NGAY (0ms lag), bg fetch update.
-// Trước fix: mỗi lần chuyển tab user chờ 1-3s HTTP+DB roundtrip → loading spinner.
-// Cache key encode toàn bộ filter params (tab, threadType, accountIds, search, ...).
-const conversationsCache = new Map<string, { data: Conversation[]; fetchedAt: number }>();
-const CONV_CACHE_MAX_ENTRIES = 16;  // ~4 tabs × ~4 filter variants
+// sessionStorage-backed conversations cache — F5 reload trang paint list hội thoại ngay lập tức
+const CONV_CACHE_MAX_ENTRIES = 16;
+const CONV_CACHE_PREFIX = 'crm_conv_cache_v2_';
+const inMemoryConvCache = new Map<string, { data: Conversation[]; fetchedAt: number }>();
+const conversationsCache = {
+  get(key: string) {
+    if (inMemoryConvCache.has(key)) return inMemoryConvCache.get(key);
+    try {
+      const raw = sessionStorage.getItem(CONV_CACHE_PREFIX + key);
+      if (raw) {
+        const val = JSON.parse(raw);
+        inMemoryConvCache.set(key, val);
+        return val;
+      }
+    } catch {}
+    return null;
+  },
+  set(key: string, value: { data: Conversation[]; fetchedAt: number }) {
+    inMemoryConvCache.set(key, value);
+    try {
+      sessionStorage.setItem(CONV_CACHE_PREFIX + key, JSON.stringify(value));
+    } catch {}
+  },
+  delete(key: string) {
+    inMemoryConvCache.delete(key);
+    try {
+      sessionStorage.removeItem(CONV_CACHE_PREFIX + key);
+    } catch {}
+  },
+  get size() { return inMemoryConvCache.size; },
+  entries() { return inMemoryConvCache.entries(); }
+};
 
 // Debug hook (DEV only) — expose cache state via window.__zaloCRMConvCache để
 // diagnose cache miss khi tab switch vẫn cảm giác lag. Inspect:
@@ -728,7 +794,7 @@ export function useChat() {
     const arr = messages.value;
     // Fast path: append-to-end (msg mới nhất, thường case)
     if (arr.length === 0 || compareMessages(arr[arr.length - 1], msg) <= 0) {
-      arr.push(msg);
+      messages.value = [...arr, msg];
       return;
     }
     // Binary search vị trí đầu tiên có order > msg
@@ -738,28 +804,69 @@ export function useChat() {
       if (compareMessages(arr[mid], msg) <= 0) lo = mid + 1;
       else hi = mid;
     }
-    arr.splice(lo, 0, msg);
+    messages.value = [...arr.slice(0, lo), msg, ...arr.slice(lo)];
   }
 
   async function sendMessageTo(conversationId: string, content: string, replyMessageId?: string | null, styles?: Array<{ st: string; start: number; len: number }>, mentions?: Array<{ uid: string; pos: number; len: number }>) {
     if (!content.trim()) return;
     sendingMsg.value = true;
+    // Optimistic UI 2026-07-22 (anh duyệt): hiện bong bóng NGAY khi bấm, trạng thái
+    // "đang gửi", KHÔNG chờ round-trip Zalo (sendMessage của zca-js là gọi mạng đồng bộ,
+    // ~0.3–5s). echoId khớp cả echo HTTP (res.data.echoId) lẫn socket (data.echoId) để
+    // thay placeholder tại chỗ — tránh trùng bong bóng khi socket echo về trước/sau.
+    const echoId = crypto.randomUUID();
+    const placeholderId = `local-${echoId}`;
+    const nowIso = new Date().toISOString();
+    const isCurrentConv = conversationId === selectedConvId.value;
+    if (isCurrentConv) {
+      const placeholder: Message = {
+        id: placeholderId,
+        content,
+        contentType: 'text',
+        senderType: 'self',
+        senderName: null,
+        sentAt: nowIso,
+        isDeleted: false,
+        zaloMsgId: null,
+        zaloMsgIdNum: null,
+        albumKey: null,
+        albumIndex: null,
+        albumTotal: null,
+        isLocal: true,
+        echoId,
+        reply: null,
+      };
+      insertMessageSorted(placeholder);
+      await nextTick();
+    }
     try {
       // 2026-05-21 RTF: gắn styles vào payload nếu user format bold/italic/underline/strike.
-      const payload: Record<string, unknown> = { content };
+      const payload: Record<string, unknown> = { content, echoId };
       if (replyMessageId) payload.replyMessageId = replyMessageId;
       if (styles && styles.length > 0) payload.styles = styles;
       // 2026-06-24: @mention thành viên nhóm — server đẩy thẳng sang zca-js.
       if (mentions && mentions.length > 0) payload.mentions = mentions;
       const res = await api.post(`/conversations/${conversationId}/messages`, payload);
       if (conversationId === selectedConvId.value) {
-        if (!messages.value.find(m => m.id === res.data.id)) {
-          insertMessageSorted(res.data);
+        const real = res.data as Message;
+        const reconciled = reconcileOptimisticMessage(messages.value, echoId, real);
+        if (reconciled !== messages.value) {
+          reconciled.sort(compareMessages);
+          messages.value = reconciled;
         }
       }
     } catch (err) {
       console.error('Failed to send message:', err);
-      // 2026-06-24 (anh báo bug): gửi fail mà UI im lặng — sale không biết vì sao.
+      // 2026-07-22: chỉ tới đây khi LỖI HỆ THỐNG THẬT (mạng rớt không response, hoặc 5xx) —
+      // Zalo từ chối nghiệp vụ đã được BE nuốt thành 200 + badge từ 2026-06-24. Đánh dấu
+      // placeholder "gửi thất bại" tại chỗ thay vì để nó treo "đang gửi" mãi.
+      if (isCurrentConv) {
+        const ph = messages.value.find(m => m.echoId === echoId || m.id === placeholderId);
+        if (ph) {
+          ph.metadata = { ...(ph.metadata ?? {}), sendStatus: 'failed', failReason: 'Lỗi kết nối, tin chưa gửi được' };
+          ph.isLocal = true;
+        }
+      }
       // Backend trả 422 + message tiếng Việt thật khi Zalo TỪ CHỐI nghiệp vụ
       // (vd "Khách chặn nhận tin từ người lạ", 119, 127...). Interceptor toàn cục
       // chỉ toast 403 + 5xx → ở đây bù phần còn lại (422 + lỗi mạng không response)
@@ -816,7 +923,11 @@ export function useChat() {
     document.addEventListener('visibilitychange', onVisible);
     window.addEventListener('online', onOnline);
 
-    socket.on('chat:message', (data: { message: Message; conversationId: string; accountId?: string; _privacyMeta?: { privacyMode?: string; ownerUserId?: string | null } }) => {
+    socket.on('chat:message', (data: { message: Message; conversationId: string; accountId?: string; echoId?: string; _privacyMeta?: { privacyMode?: string; ownerUserId?: string | null } }) => {
+      if (data.message.senderType !== 'self') {
+        markAiFollowUpStale(data.conversationId, data.message.sentAt);
+      }
+
       // PRIVACY 2026-06-11 — Server GIỜ redact server-side trước khi emit (emit-chat.ts):
       // non-owner nhận bản đã blur, chính chủ đã unlock nhận bản thật ở room riêng.
       // Đoạn dưới chỉ còn là LỚP 2 (safety belt) đánh dấu redacted để UI blur — KHÔNG
@@ -849,6 +960,20 @@ export function useChat() {
       // (a) THREAD ĐANG MỞ: LUÔN nhận tin (kể cả nick ngoài scope — vd vừa nav sang chưa
       // reload). KHÔNG bị guard chặn → không mất tin (fix bug v1.2).
       if (cls.insertThread) {
+        // Optimistic reconcile 2026-07-22: echo của CHÍNH tin mình vừa gửi có thể về qua
+        // socket. echoId nằm ở CẤP NGOÀI payload (emit-chat.ts basePayload spread extra).
+        // Nếu placeholder "đang gửi" còn đó → thay tại chỗ theo echoId (chống trùng bong
+        // bóng, vì placeholder id 'local-...' ≠ id thật nên dedup-by-id không bắt được).
+        const echoId = data.echoId;
+        if (echoId) {
+          const real = normalizeMessage(data.message as RawMessage);
+          const reconciled = reconcileOptimisticMessage(messages.value, echoId, real);
+          if (reconciled !== messages.value) {
+            reconciled.sort(compareMessages);
+            messages.value = reconciled;
+            return;
+          }
+        }
         if (!messages.value.find(m => m.id === data.message.id)) {
           // INSERT theo sortedBy sentAt thay vì push cuối array. Lý do: socket có
           // thể giao messages KHÔNG theo chronological order (vd old_messages backfill
@@ -1114,7 +1239,7 @@ export function useChat() {
       const cached = messagesCache.get(data.conversationId);
       if (cached) {
         const msg = cached.find(
-          m => m.id === data.messageId || (data.zaloMsgId && m.zaloMsgId === data.zaloMsgId),
+          (m: Message) => m.id === data.messageId || (data.zaloMsgId && m.zaloMsgId === data.zaloMsgId),
         );
         if (msg) {
           msg.deliveredAt = data.deliveredAt ?? msg.deliveredAt;
@@ -1165,6 +1290,26 @@ export function useChat() {
     }
   }
 
+  // Chế độ an toàn (2026-07-23): patch trạng thái kết nối nick tại chỗ khi socket báo
+  // zalo:connected/disconnected/reconnect-failed — banner "mất kết nối" trong MessageThread
+  // cập nhật NGAY, không cần F5. Tạo object zaloAccount MỚI (giống patchContactProfile) để
+  // ép reactivity, vì Vue không track việc gán field lên object đã có nếu key đã tồn tại
+  // nhưng component dùng computed đọc props sâu — an toàn hơn là mutate in-place.
+  function patchZaloAccountStatus(accountId: string, status: string) {
+    if (!accountId) return;
+    for (const conv of conversations.value) {
+      if (conv.zaloAccount?.id === accountId) {
+        conv.zaloAccount = { ...conv.zaloAccount, status };
+      }
+    }
+    if (selectedConvDetail.value?.zaloAccount?.id === accountId) {
+      selectedConvDetail.value = {
+        ...selectedConvDetail.value,
+        zaloAccount: { ...selectedConvDetail.value.zaloAccount, status },
+      };
+    }
+  }
+
   function destroySocket() {
     window.removeEventListener('friend-crm-tags-changed', onFriendCrmTagsChanged);
     document.removeEventListener('visibilitychange', onVisible);
@@ -1173,8 +1318,16 @@ export function useChat() {
     socket = null;
   }
 
+  function markUnreadLocal(conversationId: string) {
+    const conv = conversations.value.find(c => c.id === conversationId);
+    if (conv) {
+      conv.unreadCount = 1;
+    }
+  }
+
   return {
     conversations,
+    markUnreadLocal,
     selectedConvId,
     selectedConv,
     messages,
@@ -1200,6 +1353,7 @@ export function useChat() {
     fetchMessages,
     selectConversation,
     patchContactProfile,
+    patchZaloAccountStatus,
     sendMessage,
     sendMessageTo,
     generateAiSuggestion,

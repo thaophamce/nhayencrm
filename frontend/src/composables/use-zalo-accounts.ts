@@ -47,6 +47,7 @@ export function useZaloAccounts(opts?: { onStatusChange?: () => void }) {
   const currentLoginAccountId = ref('');
   // fix ②: nick quét trúng zaloUid đã tồn tại → BE emit 'zalo:duplicate' + dọn record rác.
   const duplicateInfo = ref<{ owner: string | null; message: string } | null>(null);
+  const syncProgress = ref<{ [accountId: string]: { step: string; message: string } }>({});
 
   let socket: Socket | null = null;
 
@@ -257,6 +258,10 @@ export function useZaloAccounts(opts?: { onStatusChange?: () => void }) {
       }
       fetchAccounts();
     });
+
+    socket.on('zalo:sync-progress', (data: { accountId: string; step: string; message: string }) => {
+      syncProgress.value[data.accountId] = { step: data.step, message: data.message };
+    });
   }
 
   // Quyền truy cập nick đổi (BE bắn qua socket use-chat → window event) → refetch nick list
@@ -272,7 +277,7 @@ export function useZaloAccounts(opts?: { onStatusChange?: () => void }) {
   return {
     accounts, loading, adding, deleting,
     showQRDialog, qrImage, qrScanned, scannedName, qrError, qrSessionDead, duplicateInfo,
-    currentLoginAccountId,
+    currentLoginAccountId, syncProgress,
     statusColor, statusText,
     fetchAccounts, addAccount, loginAccount, reconnectAccount, deleteAccount,
     updateProxy, cancelQR, setupSocket,

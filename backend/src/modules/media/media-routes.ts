@@ -22,14 +22,15 @@ import { zaloPool } from '../zalo/zalo-pool.js';
 import { zaloOps } from '../../shared/zalo-operations.js';
 import { zaloRateLimiter } from '../zalo/zalo-rate-limiter.js';
 import { registerAsset, bumpUsage, resolveSavedVisibility, generateWatermarkVariant, disableWatermark, logMediaUsage, normalizeTags, type MediaKind } from './media-service.js';
-import { downloadMediaToTemp } from '../chat/chat-media-helpers.js';
+import { downloadMediaToTemp, assertUserProvidedMediaUrlAllowed } from '../chat/chat-media-helpers.js';
 import { createMediaMessage, getUserFullName } from '../chat/chat-helpers.js';
 import { emitChatMessage } from '../../shared/realtime/emit-chat.js';
 import { generateThumbnail, sendNativeVideo } from '../../shared/video-processor.js';
-import { uploadBuffer, getObjectBuffer, keyFromPublicUrl } from '../../shared/storage/minio-client.js';
+import { uploadBuffer, getObjectBuffer, keyFromPublicUrl, materializeForSend, type StorageSendSource } from '../../shared/storage/minio-client.js';
 import { scanOrPass } from '../../shared/security/clamav-client.js';
 import { readFile } from 'node:fs/promises';
 import { logger } from '../../shared/utils/logger.js';
+import { config } from '../../config/index.js';
 
 const ALLOWED_IMAGE = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
 const ALLOWED_VIDEO = ['video/mp4', 'video/quicktime', 'video/webm'];
@@ -48,6 +49,53 @@ const ALLOWED_FILE = [
 const IMAGE_MAX = 15 * 1024 * 1024;
 const VIDEO_MAX = 500 * 1024 * 1024;
 const FILE_MAX = 1024 * 1024 * 1024;
+
+const MEDIA_UPLOAD_MAX_FILES = 30;
+const MEDIA_UPLOAD_MAX_TOTAL = 1024 * 1024 * 1024;
+const MEDIA_PREPARE_CONCURRENCY = 3;
+
+function sendSourceFileName(kind: MediaKind, blob: { mimeType?: string; publicUrl: string }, preferred?: string): string {
+  if (preferred) return preferred;
+  const ext = blob.mimeType === 'image/webp' ? '.webp'
+    : blob.mimeType === 'image/png' ? '.png'
+      : blob.mimeType === 'image/gif' ? '.gif'
+        : blob.mimeType === 'video/mp4' ? '.mp4'
+          : kind === 'image' ? '.jpg' : kind === 'video' ? '.mp4' : '.bin';
+  return `media${ext}`;
+}
+
+async function sourceForInternalBlob(
+  kind: MediaKind,
+  blob: { minioKey?: string | null; publicUrl: string; mimeType?: string; sizeBytes?: number; width?: number | null; height?: number | null },
+  preferredName?: string,
+): Promise<StorageSendSource | null> {
+  const key = blob.minioKey || keyFromPublicUrl(blob.publicUrl);
+  if (!key) return null;
+  // Generic files keep old named-temp path so recipients see the real filename.
+  if (kind === 'file') return null;
+  // Native R2 video still needs a local path for ffmpeg; avoid allocating a Buffer only to discard it.
+  if (kind === 'video' && config.storageDriver !== 'local') return null;
+  return materializeForSend(key, {
+    filename: sendSourceFileName(kind, blob, preferredName),
+    totalSize: blob.sizeBytes ?? 0,
+    width: blob.width,
+    height: blob.height,
+  });
+}
+
+async function mapConcurrent<T, R>(items: T[], limit: number, mapper: (item: T, index: number) => Promise<R>): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let cursor = 0;
+  async function worker() {
+    while (true) {
+      const index = cursor++;
+      if (index >= items.length) return;
+      results[index] = await mapper(items[index], index);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, () => worker()));
+  return results;
+}
 
 // GĐ13a Thùng rác Media (2026-06-12): giữ trong thùng rác 30 ngày rồi cron tự dọn (xóa hàng DB,
 // KHÔNG đụng byte MinIO). TRASH_EMPTY_BATCH: dọn-sạch-thủ-công xóa tối đa N/lần tránh khóa DB lâu.
@@ -449,9 +497,12 @@ export async function mediaRoutes(app: FastifyInstance) {
       let visibility: 'private' | 'public' = 'private';
       let folderId: string | null = null;
       let tagIds: string[] = [];
+      let originalFilenames: string[] = [];
       // BUG self-verify 2026-06-11: field 'visibility' có thể đến SAU file trong multipart
       // → đọc khi register thì còn 'private'. Fix: GOM file buffers + fields TRƯỚC, register SAU.
       const pending: Array<{ buffer: Buffer; mimeType: string; kind: MediaKind; filename: string }> = [];
+      let totalUploadBytes = 0;
+      const requestStartedAt = Date.now();
 
       try {
         for await (const part of request.parts()) {
@@ -461,14 +512,24 @@ export async function mediaRoutes(app: FastifyInstance) {
             if (part.fieldname === 'tagIds' && part.value) {
               try { tagIds = JSON.parse(String(part.value)); } catch { /* ignore */ }
             }
+            if (part.fieldname === 'originalFilenames' && part.value) {
+              try { originalFilenames = JSON.parse(String(part.value)); } catch { /* ignore */ }
+            }
             continue;
           }
           if (part.type !== 'file') continue;
+          if (pending.length >= MEDIA_UPLOAD_MAX_FILES) {
+            return reply.status(413).send({ error: `Maximum ${MEDIA_UPLOAD_MAX_FILES} files per upload` });
+          }
           const kind = classify(part.mimetype);
           if (!kind) {
             return reply.status(415).send({ error: `Loại tệp không hỗ trợ: ${part.mimetype}` });
           }
           const buf = await part.toBuffer();
+          totalUploadBytes += buf.length;
+          if (totalUploadBytes > MEDIA_UPLOAD_MAX_TOTAL) {
+            return reply.status(413).send({ error: 'Total upload size exceeds 1GB' });
+          }
           const max = kind === 'image' ? IMAGE_MAX : kind === 'video' ? VIDEO_MAX : FILE_MAX;
           if (buf.length > max) {
             return reply.status(413).send({
@@ -483,13 +544,16 @@ export async function mediaRoutes(app: FastifyInstance) {
 
         // Register SAU khi đã đọc hết parts → visibility/folderId/tagIds chắc chắn đầy đủ.
         const created: any[] = [];
-        for (const p of pending) {
+        for (let index = 0; index < pending.length; index++) {
+          const p = pending[index];
+          const originalFilename = originalFilenames[index] || p.filename;
           const res = await registerAsset({
             orgId: user.orgId,
             buffer: p.buffer,
             mimeType: p.mimeType,
             kind: p.kind,
-            originalFilename: p.filename,
+            originalFilename,
+            name: originalFilename,
             ownerUserId: userId,
             createdById: userId,
             visibility,
@@ -500,6 +564,9 @@ export async function mediaRoutes(app: FastifyInstance) {
           created.push({ id: res.asset.id, name: res.asset.name, deduped: res.deduped });
         }
         if (created.length === 0) return reply.status(400).send({ error: 'Không có tệp nào' });
+        const uploadTotalMs = Date.now() - requestStartedAt;
+        logger.info(`[media][perf] stage=upload_total files=${created.length} inputBytes=${totalUploadBytes} totalMs=${uploadTotalMs}`);
+        reply.header('Server-Timing', `media-upload;dur=${uploadTotalMs}`);
         return { assets: created };
       } catch (err: any) {
         logger.error('[media] upload error:', err);
@@ -564,23 +631,45 @@ export async function mediaRoutes(app: FastifyInstance) {
       const user = request.user!;
       const userId = (user as any).userId ?? user.id;
       const { id } = request.params as { id: string };
-      const body = request.body as { conversationId: string; caption?: string; addTags?: string[] };
+      const body = request.body as { conversationId: string; caption?: string; addTags?: string[]; url?: string };
       if (!body?.conversationId) return reply.status(400).send({ error: 'conversationId required' });
 
       // Asset phải thuộc org + (của mình HOẶC public HOẶC có view_all).
       const canViewAll = await userHasGrant(userId, 'media', 'view_all');
-      const asset = await prisma.mediaAsset.findFirst({
+      let asset = await prisma.mediaAsset.findFirst({
         where: {
           id, orgId: user.orgId, archivedAt: null,
           ...(canViewAll ? {} : { OR: [{ ownerUserId: userId }, { visibility: 'public' }] }),
         },
         include: { blobs: { where: { variantType: { in: ['original', 'watermarked'] } } } },
-      });
+      }) as any;
+
+      let blob: any = null;
+      if (!asset && body.url) {
+        try { assertUserProvidedMediaUrlAllowed(body.url); }
+        catch (err) { return reply.status(400).send({ error: (err as Error).message, code: 'MEDIA_URL_BLOCKED' }); }
+        // Giải cứu: nếu DB local thiếu asset nhưng client cung cấp URL ảnh đính kèm (ảnh từ VPS R2)
+        asset = {
+          id,
+          orgId: user.orgId,
+          kind: 'image',
+          name: 'Ảnh đính kèm',
+          ownerUserId: userId,
+          visibility: 'public',
+          watermarkEnabled: false,
+          thumbnailUrl: null,
+        };
+        blob = {
+          publicUrl: body.url,
+          sizeBytes: 0,
+        };
+      } else if (asset) {
+        const original = asset.blobs.find((b: any) => b.variantType === 'original');
+        const watermarked = asset.blobs.find((b: any) => b.variantType === 'watermarked');
+        blob = (asset.kind === 'image' && asset.watermarkEnabled && watermarked) ? watermarked : original;
+      }
+
       if (!asset) return reply.status(404).send({ error: 'Không tìm thấy media trong kho' });
-      // WATERMARK BẬT → gửi bản có logo; ngược lại gửi bản gốc. (Ảnh mới đóng dấu được.)
-      const original = asset.blobs.find((b) => b.variantType === 'original');
-      const watermarked = asset.blobs.find((b) => b.variantType === 'watermarked');
-      const blob = (asset.kind === 'image' && asset.watermarkEnabled && watermarked) ? watermarked : original;
       if (!blob) return reply.status(400).send({ error: 'Media chưa có dữ liệu (đã xóa khỏi kho?)' });
 
       const conversation = await prisma.conversation.findFirst({
@@ -619,16 +708,19 @@ export async function mediaRoutes(app: FastifyInstance) {
       const userFullName = await getUserFullName(user.id);
       const caption = body.caption ?? '';
 
-      // GĐ1: tải object kho về temp → gửi từ local path (như chat hiện tại).
-      // (GĐ3 sẽ tối ưu forward/cache per-nick — chưa làm ở GĐ1.)
+      const sendStartedAt = Date.now();
       let tmp: { path: string; cleanup: () => Promise<void> } | null = null;
+      let sendSource: StorageSendSource | null = null;
       try {
-        // ẢNH/VIDEO: KHÔNG truyền filename (name "Lưu từ chat" không đuôi → temp mất đuôi →
-        // Zalo coi ảnh thành FILE). Để downloadMediaToTemp lấy đuôi .webp/.mp4 từ URL.
-        // FILE (pdf/excel/doc): BẮT BUỘC truyền tên thật + đuôi — zca-js lấy tên+đuôi khách
-        // nhìn thấy từ basename temp; thiếu đuôi → "file lỗi". (anh báo 2026-06-12.)
         const sendName = asset.kind === 'file' ? buildSendFileName(asset, blob) : undefined;
-        tmp = await downloadMediaToTemp({ url: blob.publicUrl, filename: sendName }, asset.kind);
+        const prepareStartedAt = Date.now();
+        sendSource = await sourceForInternalBlob(asset.kind, blob, sendName);
+        if (!sendSource) {
+          // External template URL: guarded by explicit host allowlist + SSRF-safe downloader.
+          tmp = await downloadMediaToTemp({ url: blob.publicUrl, filename: sendName }, asset.kind);
+          sendSource = tmp.path;
+        }
+        logger.info(`[media][perf] stage=prepare_send kind=${asset.kind} bytes=${blob.sizeBytes ?? 0} prepareMs=${Date.now() - prepareStartedAt}`);
         zaloRateLimiter.recordSend(conversation.zaloAccountId);
 
         // Guard nick connected ở trên. Gửi qua zaloOps (check status + reconnect).
@@ -637,11 +729,16 @@ export async function mediaRoutes(app: FastifyInstance) {
         if (asset.kind === 'image') {
           // ẢNH: sendImage (đã fix có msg) → temp CÓ đuôi .webp → Zalo nhận ẢNH INLINE.
           const sendResult: any = await zaloOps.sendImage(
-            conversation.zaloAccountId, threadId, threadType as 0 | 1, [tmp.path], io, caption,
+            conversation.zaloAccountId, threadId, threadType as 0 | 1, [sendSource], io, caption,
           );
           zaloMsgId = String(sendResult?.msgId || sendResult?.data?.msgId || '');
           content = JSON.stringify({ href: blob.publicUrl, thumb: blob.publicUrl, size: blob.sizeBytes });
         } else if (asset.kind === 'video') {
+          if (typeof sendSource !== 'string') {
+            // ffmpeg/native video requires a local path; retain bounded temp fallback for R2 videos.
+            tmp = await downloadMediaToTemp({ url: blob.publicUrl }, 'video');
+            sendSource = tmp.path;
+          }
           // VIDEO: gửi NATIVE (player + thumbnail + duration) như chat thường — KHÔNG sendFile
           // (sendFile làm video thành "file .mp4 tải về", mất player). Sinh thumbnail bằng ffmpeg,
           // mirror lên MinIO để lưu vào content. Native lỗi → fallback sendFile (vẫn gửi được).
@@ -649,7 +746,7 @@ export async function mediaRoutes(app: FastifyInstance) {
           let thumbUrl: string = asset.thumbnailUrl ?? blob.publicUrl;
           let thumbPath: string | undefined;
           try {
-            const gen = await generateThumbnail(tmp.path);
+            const gen = await generateThumbnail(sendSource);
             thumbPath = gen.path;
             const thumbBuf = await readFile(gen.path);
             const up = await uploadBuffer(thumbBuf, 'image/jpeg', `${asset.name || 'video'}-thumb.jpg`);
@@ -660,14 +757,14 @@ export async function mediaRoutes(app: FastifyInstance) {
           try {
             if (!instance?.api) throw new Error('nick api null');
             const sendResult: any = await sendNativeVideo({
-              api: instance.api as any, videoPath: tmp.path, thumbnailPath: thumbPath,
+              api: instance.api as any, videoPath: sendSource, thumbnailPath: thumbPath,
               threadId, threadType: threadType as 0 | 1, message: caption,
             });
             zaloMsgId = String(sendResult?.msgId || sendResult?.data?.msgId || '');
           } catch (e) {
             logger.warn('[media] sendNativeVideo lỗi → fallback sendFile:', (e as Error)?.message ?? e);
             const sendResult: any = await zaloOps.sendFile(
-              conversation.zaloAccountId, threadId, threadType as 0 | 1, [tmp.path], io, caption,
+              conversation.zaloAccountId, threadId, threadType as 0 | 1, [sendSource], io, caption,
             );
             zaloMsgId = String(sendResult?.msgId || sendResult?.data?.msgId || '');
           }
@@ -675,7 +772,7 @@ export async function mediaRoutes(app: FastifyInstance) {
         } else {
           // FILE (pdf/excel/doc/zip): sendFile (zca-js đọc local path → đính kèm file).
           const sendResult: any = await zaloOps.sendFile(
-            conversation.zaloAccountId, threadId, threadType as 0 | 1, [tmp.path], io, caption,
+            conversation.zaloAccountId, threadId, threadType as 0 | 1, [sendSource], io, caption,
           );
           zaloMsgId = String(sendResult?.msgId || sendResult?.data?.msgId || '');
           content = JSON.stringify({ href: blob.publicUrl, name: asset.name, size: blob.sizeBytes, mime: blob.mimeType });
@@ -720,6 +817,9 @@ export async function mediaRoutes(app: FastifyInstance) {
           privacyMode: conversation.zaloAccount.privacyMode,
           ownerUserId: conversation.zaloAccount.ownerUserId,
         });
+        const sendTotalMs = Date.now() - sendStartedAt;
+        logger.info(`[media][perf] stage=send_total kind=${asset.kind} bytes=${blob.sizeBytes ?? 0} totalMs=${sendTotalMs}`);
+        reply.header('Server-Timing', `media-send;dur=${sendTotalMs}`);
         return { message: msg };
       } catch (err: any) {
         logger.error('[media] send error:', err);
@@ -1088,6 +1188,58 @@ export async function mediaRoutes(app: FastifyInstance) {
     },
   );
 
+  // ── PATCH /api/v1/media/folders/:id — sửa tên thư mục ─────────────────────
+  app.patch(
+    '/api/v1/media/folders/:id',
+    { preHandler: requireGrant('media', 'create') },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const user = request.user!;
+      const userId = (user as any).userId ?? user.id;
+      const { id } = request.params as { id: string };
+      const body = request.body as { name: string };
+      if (!body?.name?.trim()) return reply.status(400).send({ error: 'Tên thư mục bắt buộc' });
+
+      const folder = await prisma.mediaAlbum.findFirst({
+        where: { id, orgId: user.orgId },
+      });
+      if (!folder) return reply.status(404).send({ error: 'Thư mục không tồn tại' });
+
+      const updated = await prisma.mediaAlbum.update({
+        where: { id },
+        data: { name: body.name.trim() },
+      });
+      return { folder: { id: updated.id, name: updated.name } };
+    },
+  );
+
+  // ── DELETE /api/v1/media/folders/:id — xoá thư mục ───────────────────────
+  app.delete(
+    '/api/v1/media/folders/:id',
+    { preHandler: requireGrant('media', 'create') },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const user = request.user!;
+      const { id } = request.params as { id: string };
+
+      const folder = await prisma.mediaAlbum.findFirst({
+        where: { id, orgId: user.orgId },
+      });
+      if (!folder) return reply.status(404).send({ error: 'Thư mục không tồn tại' });
+
+      // Đưa các assets thuộc folder này về null trước khi xoá folder
+      await prisma.$transaction([
+        prisma.mediaAsset.updateMany({
+          where: { folderId: id, orgId: user.orgId },
+          data: { folderId: null },
+        }),
+        prisma.mediaAlbum.delete({
+          where: { id },
+        }),
+      ]);
+
+      return { success: true };
+    },
+  );
+
   // ── GET /api/v1/media/suggest?conversationId= — gợi ý ảnh theo NGỮ CẢNH (GĐ3a-4)
   // Match MediaAsset.tagIds với tag/dự án của Contact đang chat. Chỉ ảnh CÔNG KHAI
   // hoặc CỦA CHÍNH sale (không lộ ảnh riêng tư người khác — privacy).
@@ -1259,7 +1411,7 @@ export async function mediaRoutes(app: FastifyInstance) {
     async (request: FastifyRequest, reply: FastifyReply) => {
       const user = request.user!;
       const userId = (user as any).userId ?? user.id;
-      const body = request.body as { assetIds: string[]; conversationId: string; caption?: string };
+      const body = request.body as { assetIds: string[]; conversationId: string; caption?: string; urls?: string[] };
       if (!body?.assetIds?.length || !body.conversationId) return reply.status(400).send({ error: 'assetIds + conversationId required' });
       if (body.assetIds.length > 12) return reply.status(400).send({ error: 'Tối đa 12 ảnh/lần' });
 
@@ -1268,20 +1420,48 @@ export async function mediaRoutes(app: FastifyInstance) {
         where: { id: { in: body.assetIds }, orgId: user.orgId, archivedAt: null, kind: 'image',
           ...(canViewAll ? {} : { OR: [{ ownerUserId: userId }, { visibility: 'public' }] }) },
         include: { blobs: { where: { variantType: { in: ['original', 'watermarked'] } } } },
-      });
-      if (found.length === 0) return reply.status(404).send({ error: 'Không có ảnh hợp lệ' });
+      }) as any[];
 
-      // FIX 2026-06-12 (anh báo: album sai thứ tự): Prisma findMany với `in[]` KHÔNG giữ
-      // thứ tự assetIds (Postgres trả theo thứ tự nội bộ DB). Zalo zca-js thì gán idInGroup
-      // theo ĐÚNG thứ tự mảng truyền vào. → Phải sắp lại `assets` theo thứ tự body.assetIds
-      // (= thứ tự sale tick chọn) để album hiển thị đúng ý sale.
+      // Giải cứu: nếu DB local thiếu asset nhưng client cung cấp URL của ảnh (ảnh từ VPS R2)
+      const assets: any[] = [];
       const byId = new Map(found.map((a) => [a.id, a]));
-      const assets = body.assetIds.map((id) => byId.get(id)).filter((a): a is typeof found[number] => !!a);
+      try {
+        body.assetIds.forEach((id, idx) => {
+          if (!byId.has(id) && body.urls?.[idx]) assertUserProvidedMediaUrlAllowed(body.urls[idx]);
+        });
+      } catch (err) {
+        return reply.status(400).send({ error: (err as Error).message, code: 'MEDIA_URL_BLOCKED' });
+      }
+      body.assetIds.forEach((id, idx) => {
+        let a = byId.get(id);
+        if (!a && body.urls?.[idx]) {
+          a = {
+            id,
+            orgId: user.orgId,
+            kind: 'image',
+            name: 'Ảnh đính kèm',
+            ownerUserId: userId,
+            visibility: 'public',
+            watermarkEnabled: false,
+            thumbnailUrl: null,
+            blobs: [
+              {
+                variantType: 'original',
+                publicUrl: body.urls[idx],
+                sizeBytes: 0,
+              }
+            ]
+          };
+        }
+        if (a) assets.push(a);
+      });
+
+      if (assets.length === 0) return reply.status(404).send({ error: 'Không có ảnh hợp lệ' });
 
       // Chọn variant đúng cho từng ảnh: watermark BẬT → bản có logo, ngược lại bản gốc.
       const pickBlob = (a: typeof assets[number]) => {
-        const orig = a.blobs.find((b) => b.variantType === 'original');
-        const wm = a.blobs.find((b) => b.variantType === 'watermarked');
+        const orig = a.blobs.find((b: any) => b.variantType === 'original');
+        const wm = a.blobs.find((b: any) => b.variantType === 'watermarked');
         return (a.watermarkEnabled && wm) ? wm : orig;
       };
 
@@ -1308,20 +1488,24 @@ export async function mediaRoutes(app: FastifyInstance) {
       const io = (app as any).io as Server;
       // (Bỏ placeholder album → không cần userFullName/createMediaMessage ở đây nữa.)
 
-      // download tất cả ảnh về temp → gửi 1 lần (sendFile nhiều path).
-      const tmps: Array<{ path: string; cleanup: () => Promise<void> }> = [];
+      const albumStartedAt = Date.now();
+      const preparedCleanups: Array<() => Promise<void>> = [];
       try {
-        for (const a of assets) {
+        const prepareStartedAt = Date.now();
+        const sources = await mapConcurrent(assets, MEDIA_PREPARE_CONCURRENCY, async (a) => {
           const blob = pickBlob(a);
-          if (!blob) continue;
-          // KHÔNG truyền filename (name mất đuôi → file lạ). Để lấy đuôi .webp từ URL.
+          if (!blob) throw new Error(`Media ${a.id} has no stored data`);
+          const internal = await sourceForInternalBlob('image', blob);
+          if (internal) return internal;
           const tmp = await downloadMediaToTemp({ url: blob.publicUrl }, 'image');
-          tmps.push(tmp);
-        }
+          preparedCleanups.push(tmp.cleanup);
+          return tmp.path;
+        });
+        logger.info(`[media][perf] stage=prepare_album count=${sources.length} bytes=${assets.reduce((sum, a) => sum + (pickBlob(a)?.sizeBytes ?? 0), 0)} prepareMs=${Date.now() - prepareStartedAt}`);
         zaloRateLimiter.recordSend(conversation.zaloAccountId);
         // sendImage (KHÔNG sendFile) → album ảnh inline, không thành file.
         const sendResult: any = await zaloOps.sendImage(
-          conversation.zaloAccountId, threadId, threadType as 0 | 1, tmps.map((t) => t.path), io, body.caption ?? '',
+          conversation.zaloAccountId, threadId, threadType as 0 | 1, sources, io, body.caption ?? '',
         );
         // FIX 2026-06-12 (anh chốt — bug album hiển thị 8+1 rời realtime):
         // KHÔNG tạo placeholder 1-dòng cho album. Placeholder cũ (albumKey=null) hiện RỜI
@@ -1339,6 +1523,9 @@ export async function mediaRoutes(app: FastifyInstance) {
           });
         }
         const zaloMsgId = String(sendResult?.msgId || sendResult?.data?.msgId || '');
+        const albumTotalMs = Date.now() - albumStartedAt;
+        logger.info(`[media][perf] stage=send_album_total count=${assets.length} totalMs=${albumTotalMs}`);
+        reply.header('Server-Timing', `media-album-send;dur=${albumTotalMs}`);
         return { sent: assets.length, zaloMsgId, viaEcho: true };
       } catch (err: any) {
         logger.error('[media] album send error:', err);
@@ -1352,7 +1539,7 @@ export async function mediaRoutes(app: FastifyInstance) {
           code: isNet ? 'ALBUM_NETWORK' : undefined,
         });
       } finally {
-        for (const t of tmps) await t.cleanup().catch(() => {});
+        for (const cleanup of preparedCleanups) await cleanup().catch(() => {});
       }
     },
   );

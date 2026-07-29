@@ -79,7 +79,7 @@ export async function runAutoTagsAggregateBatch(): Promise<{ updated: number }> 
                JOIN friend_tags ft ON ft.friend_id = f.id AND ft.removed_at IS NULL
                JOIN tags t ON t.id = ft.tag_id
                WHERE f.contact_id = c.id
-                 AND t.source IN ('auto_detect', 'auto_score', 'auto_engagement')
+                 AND t.source IN ('auto_detect', 'auto_score')
               ),
               '[]'::json
             )

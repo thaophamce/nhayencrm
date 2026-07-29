@@ -41,4 +41,4 @@ if [ ! -d "$REPO_ROOT/frontend/node_modules" ]; then
   (cd "$REPO_ROOT/frontend" && npm install --legacy-peer-deps)
 fi
 
-echo "ZaloCRM workspace ready"
+echo "Nhà Yến CRM workspace ready"

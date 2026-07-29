@@ -11,7 +11,7 @@
 import { describe, it, expect } from 'vitest';
 import { createHash } from 'node:crypto';
 import sharp from 'sharp';
-import { compressImage, resolveSavedVisibility } from '../src/modules/media/media-service.js';
+import { compressImage, createImageThumbnail, resolveSavedVisibility } from '../src/modules/media/media-service.js';
 
 // Helper: dựng lại cách uploadBuffer tính key (media/{sha256}{ext}) để assert dedup.
 function deriveKey(buf: Buffer, ext: string): string {
@@ -69,6 +69,20 @@ describe('compressImage — nén + fallback (sharp)', () => {
     expect(out.compressed).toBe(false);
     expect(out.mimeType).toBe('image/gif');
     expect(out.buffer).toBe(fakeGif);
+  });
+});
+
+describe('createImageThumbnail', () => {
+  it('creates a lightweight WebP thumbnail no larger than 400px', async () => {
+    const source = await sharp({
+      create: { width: 2400, height: 1600, channels: 3, background: { r: 120, g: 80, b: 40 } },
+    }).jpeg({ quality: 92 }).toBuffer();
+    const thumbnail = await createImageThumbnail(source);
+    expect(thumbnail).not.toBeNull();
+    const metadata = await sharp(thumbnail!).metadata();
+    expect(metadata.format).toBe('webp');
+    expect(Math.max(metadata.width ?? 0, metadata.height ?? 0)).toBeLessThanOrEqual(400);
+    expect(thumbnail!.length).toBeLessThan(source.length);
   });
 });
 

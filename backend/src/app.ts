@@ -36,6 +36,9 @@ import { orgBrandingRoutes } from './modules/branding/org-branding-routes.js';
 import { zaloRoutes } from './modules/zalo/zalo-routes.js';
 import { customerListRoutes } from './modules/lists/list-routes.js';
 import { customerListEntryRoutes } from './modules/lists/list-entry-routes.js';
+import { blockRoutes } from './modules/block/block-routes.js';
+import { blockFolderRoutes } from './modules/block/block-folder-routes.js';
+import { broadcastRoutes } from './modules/broadcast/broadcast-routes.js';
 import { chatRoutes } from './modules/chat/chat-routes.js';
 import { folderRoutes } from './modules/chat/folder-routes.js';
 import { presetRoutes } from './modules/chat/preset-routes.js';
@@ -65,6 +68,11 @@ import { reportRoutes } from './modules/dashboard/report-routes.js';
 import { reportAnalyticsRoutes } from './modules/dashboard/report-analytics-routes.js';
 import { userRoutes } from './modules/auth/user-routes.js';
 import { teamRoutes } from './modules/auth/team-routes.js';
+import { ordersRoutes } from './modules/orders/orders-routes.js';
+import { deliveryRoutes } from './modules/delivery/delivery-routes.js';
+import { attendanceRoutes } from './modules/hr/attendance-routes.js';
+import { leaveRoutes } from './modules/hr/leave-routes.js';
+import { payrollRoutes } from './modules/hr/payroll-routes.js';
 import { orgRoutes } from './modules/auth/org-routes.js';
 import { zaloAccessRoutes } from './modules/zalo/zalo-access-routes.js';
 import { zaloSyncRoutes } from './modules/zalo/zalo-sync-routes.js';
@@ -94,6 +102,12 @@ import { chatOperationsRoutes, registerChatSocketHandlers } from './modules/chat
 import { groupRoutes } from './modules/zalo/group-routes.js';
 import { groupScanRoutes } from './modules/zalo/group-scan-routes.js';
 import { startGroupScanWorker, stopGroupScanWorker } from './modules/zalo/group-scan-queue.js';
+import { startBroadcastFireWorker, stopBroadcastFireWorker } from './modules/broadcast/broadcast-queue.js';
+import { broadcastTickProcessor } from './modules/broadcast/broadcast-fire-worker.js';
+import { startBroadcastScheduler, stopBroadcastScheduler } from './modules/broadcast/broadcast-scheduler.js';
+import { friendBlastRoutes } from './modules/friend-blast/friend-blast-routes.js';
+import { startFriendBlastWorker, stopFriendBlastWorker } from './modules/friend-blast/friend-blast-queue.js';
+import { friendBlastTickProcessor } from './modules/friend-blast/friend-blast-worker.js';
 import { groupModerationRoutes } from './modules/zalo/group-moderation-routes.js';
 import { friendRoutes } from './modules/zalo/friend-routes.js';
 import { profileRoutes } from './modules/zalo/profile-routes.js';
@@ -261,6 +275,11 @@ async function bootstrap() {
   await app.register(authRoutes);
   await app.register(brandingRoutes);
   await app.register(orgBrandingRoutes); // public org branding cho trang /login (pre-auth)
+  await app.register(ordersRoutes);
+  await app.register(deliveryRoutes); // Quản lý đơn hàng thiệp cưới
+  await app.register(attendanceRoutes); // HR: Chấm công (tự check-in) + cấu hình
+  await app.register(leaveRoutes); // HR: Nghỉ phép (gửi + duyệt)
+  await app.register(payrollRoutes); // HR: Lương (độc lập báo cáo lương designer)
   await app.register(zaloRoutes);
   await app.register(chatRoutes);
   await app.register(folderRoutes);
@@ -287,9 +306,6 @@ async function bootstrap() {
   await app.register(userPreferenceRoutes);
   await app.register(timelineRoutes);
   await app.register(scoringRoutes);
-  // Phase 8 — Engagement heatmap timeline + admin recompute/backfill
-  const { registerEngagementRoutes } = await import('./modules/engagement/engagement-routes.js');
-  await registerEngagementRoutes(app);
   // RBAC Phase Phân Quyền 2026-05-21 — Department + PermissionGroup (M2 Getfly Clone)
   const { registerDepartmentRoutes } = await import('./modules/rbac/department-routes.js');
   await registerDepartmentRoutes(app);
@@ -331,6 +347,14 @@ async function bootstrap() {
   await app.register(groupScanRoutes); // E1 Quét group (🟢 Community)
   await app.register(customerListRoutes); // Tệp khách hàng (🟢 Community)
   await app.register(customerListEntryRoutes);
+  await app.register(blockRoutes); // Khối nội dung (🟢 Community)
+  const { templateRoutes } = await import('./modules/block/template-routes.js');
+  await app.register(templateRoutes);
+  await app.register(blockFolderRoutes);
+  await app.register(broadcastRoutes); // Gửi loạt (🟢 Community)
+  await app.register(friendBlastRoutes); // Gửi tin nhắn bạn bè (🟢 Community)
+  const { groupBlastRoutes } = await import('./modules/friend-blast/group-blast-routes.js');
+  await app.register(groupBlastRoutes); // Gửi tin nhắn nhóm (🟢 Community)
   await app.register(groupModerationRoutes);
   await app.register(friendRoutes);
   await app.register(profileRoutes);
@@ -385,10 +409,14 @@ async function bootstrap() {
     startLabelsBackgroundSync(60_000); // realtime-ish 2-way pull every 60s
     // E1 Quét group (🟢 Community) — BullMQ worker xử lý group-scan job.
     if (config.nodeEnv !== 'test') startGroupScanWorker();
+    // Gửi loạt (🟢 Community) — BullMQ worker xử lý broadcast tick + poller broadcast scheduled.
+    if (config.nodeEnv !== 'test') {
+      startBroadcastFireWorker(broadcastTickProcessor);
+      startBroadcastScheduler();
+    }
+    // Gửi tin nhắn bạn bè (🟢 Community) — BullMQ worker xử lý friend-blast tick.
+    if (config.nodeEnv !== 'test') startFriendBlastWorker(friendBlastTickProcessor);
     startInteractionCron(); // daily silent_30d detection (02:00 VN)
-    // Phase 8 — Engagement heatmap classification (02:30 VN daily)
-    const { startEngagementCron } = await import('./modules/engagement/engagement-cron.js');
-    startEngagementCron();
     // Phase A — Real-time Zalo presence cache + bulk refresh 60s + socket emit
     const { startPresenceCron } = await import('./modules/zalo/presence-service.js');
     startPresenceCron(io);
@@ -472,6 +500,9 @@ async function bootstrap() {
       force.unref();
       try {
         await stopGroupScanWorker().catch((e) => logger.warn('[shutdown] stopGroupScanWorker lỗi:', e));
+        await stopBroadcastFireWorker().catch((e) => logger.warn('[shutdown] stopBroadcastFireWorker lỗi:', e));
+        stopBroadcastScheduler();
+        await stopFriendBlastWorker().catch((e) => logger.warn('[shutdown] stopFriendBlastWorker lỗi:', e));
         await app.close().catch((e) => logger.warn('[shutdown] app.close lỗi:', e));
         logger.info('[shutdown] đóng gọn xong.');
       } finally {

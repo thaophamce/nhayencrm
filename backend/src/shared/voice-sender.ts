@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
- * voice-sender.ts — Voice message upload and send service for ZaloCRM.
+ * voice-sender.ts — Voice message upload and send service for Nhà Yến CRM.
  * Accepts a local audio file path (m4a/mp3/ogg/wav/webm) and sends via zca-js api.sendVoice.
  * File size validated before upload (5MB Zalo limit).
  */

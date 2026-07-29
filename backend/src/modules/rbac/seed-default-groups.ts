@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
- * seed-default-groups.ts — Seed 7 default permission groups (system, is_system=true)
+ * seed-default-groups.ts — Seed 2 default permission groups (system, is_system=true)
+ * Gọn từ 7 xuống Admin + Sale (2026-07-14, anh chốt).
  *
  * Idempotent: chạy nhiều lần OK, chỉ tạo nếu group chưa tồn tại trong org.
  * Gọi từ migration script D13 hoặc admin endpoint.
@@ -57,17 +58,16 @@ export async function migrateLegacyUsersToPermissionGroups(orgId: string): Promi
   adminCount: number;
   memberCount: number;
 }> {
-  // Lấy ID của 3 group system mapping legacy role
-  const [adminGrp, ceoGrp, saleGrp] = await Promise.all([
+  // Lấy ID của 2 group system mapping legacy role (2026-07-14: owner/admin → Admin, member → Sale)
+  const [adminGrp, saleGrp] = await Promise.all([
     prisma.permissionGroup.findFirst({ where: { orgId, name: 'Admin', isSystem: true }, select: { id: true } }),
-    prisma.permissionGroup.findFirst({ where: { orgId, name: 'CEO', isSystem: true }, select: { id: true } }),
     prisma.permissionGroup.findFirst({ where: { orgId, name: 'Sale', isSystem: true }, select: { id: true } }),
   ]);
-  if (!adminGrp || !ceoGrp || !saleGrp) {
+  if (!adminGrp || !saleGrp) {
     throw new Error('Default groups chưa seed — chạy seedDefaultPermissionGroups() trước');
   }
 
-  // Migrate: owner → Admin, admin → CEO, member → Sale
+  // Migrate: owner → Admin, admin (role hệ thống) → Admin, member → Sale
   // Chỉ update user chưa có permission_group_id (idempotent)
   const [ownerRes, adminRes, memberRes] = await Promise.all([
     prisma.user.updateMany({
@@ -76,7 +76,7 @@ export async function migrateLegacyUsersToPermissionGroups(orgId: string): Promi
     }),
     prisma.user.updateMany({
       where: { orgId, role: 'admin', permissionGroupId: null },
-      data: { permissionGroupId: ceoGrp.id },
+      data: { permissionGroupId: adminGrp.id },
     }),
     prisma.user.updateMany({
       where: { orgId, role: 'member', permissionGroupId: null },

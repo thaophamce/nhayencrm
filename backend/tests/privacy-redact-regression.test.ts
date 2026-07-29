@@ -132,7 +132,7 @@ describe('redactContact — PII Cha HIỆN THẬT, chỉ preview tin nhắn aggr
   const contact = {
     id: 'c1', orgId: 'O1', fullName: 'Nguyen Van Tai', phone: '0901', email: 'a@b.c',
     lastInboundPreview: 'Em oi con hang khong', lastOutboundPreview: 'Da con anh',
-    leadScore: 70, engagementScore: 5,
+    leadScore: 70,
   };
   it('tên/SĐT/email HIỆN THẬT (tài sản công ty); preview tin nhắn bị che', () => {
     const r = redactContact(contact, ctxOther);

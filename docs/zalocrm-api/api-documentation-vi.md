@@ -2164,7 +2164,7 @@ Gửi tin nhắn qua một **nick Zalo đang kết nối** của tổ chức.
 {
   "zaloAccountId": "zalo-acc-123",
   "threadId": "zalo-uid-hoac-group-id",
-  "content": "Xin chào, ZCRM đây!",
+  "content": "Xin chào, Nhà Yến CRM đây!",
   "threadType": "user"
 }
 ```

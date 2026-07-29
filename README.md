@@ -1,8 +1,8 @@
-# ZCRM v3.4 — Quản lý nhiều tài khoản Zalo cá nhân
+# Nhà Yến CRM — Quản lý nhiều tài khoản Zalo cá nhân
 
 Hệ thống quản lý tập trung nhiều tài khoản Zalo cá nhân trên 1 giao diện web. Chat real-time, gửi ảnh/video/audio/file qua MinIO/S3/R2, cầu **Zalo ↔ Telegram** 2 chiều, AI assistant, tích hợp đa nền tảng, analytics nâng cao, PWA mobile.
 
-**Mã nguồn mở:** [github.com/locphamnguyen/ZaloCRM](https://github.com/locphamnguyen/ZaloCRM) — phát hành theo **AGPL-3.0** (dual-license thương mại).
+**Giấy phép:** Nhà Yến CRM phát triển trên nền mã nguồn mở [ZaloCRM](https://github.com/locphamnguyen/ZaloCRM), phát hành theo **AGPL-3.0**. Xem [LICENSE](LICENSE) và [NOTICE](NOTICE).
 
 ## Ảnh chụp giao diện
 
@@ -32,7 +32,7 @@ Hệ thống quản lý tập trung nhiều tài khoản Zalo cá nhân trên 1 
 - **Cầu Zalo ↔ Telegram** — Mirror tin nhắn **2 chiều** (vào/ra) giữa Zalo và Telegram, kèm **media** (ảnh/video/audio/file, giữ tên file gốc), realtime + badge chống lặp
 - **Chuông "đang theo dõi"** sau tên khách trong chat + **Phạm vi làm việc** (scope thành điều kiện load hội thoại)
 - **AI** — Quản lý API key + model provider per-org ngay trên giao diện
-- **API hoàn chỉnh cho ZCRM Mobile App** — Bộ REST API đầy đủ phục vụ ứng dụng di động (auth, chat, contacts, lịch hẹn, báo cáo, push)
+- **API hoàn chỉnh cho Nhà Yến CRM Mobile App** — Bộ REST API đầy đủ phục vụ ứng dụng di động (auth, chat, contacts, lịch hẹn, báo cáo, push)
 - **Public REST API** (X-API-Key) + tài liệu API (vi/en) + Postman collection
 - **Mã nguồn mở AGPL-3.0** — Relicense sang AGPL-3.0 (copyleft + §13 SaaS), dual-license thương mại, kèm CONTRIBUTING + DCO
 
@@ -411,7 +411,7 @@ docker exec zalo-crm-db psql -U crmuser -d zalocrm < backup-v2.1-<datetime>.sql
 
 ## API & Webhook
 
-> 📖 Hướng dẫn sử dụng đầy đủ (luôn cập nhật mới nhất): **https://docs.locnguyendata.com/**
+> 📖 Tài liệu API trong repo: [docs/zalocrm-api/](docs/zalocrm-api/).
 
 ### Xác thực API
 ```
@@ -437,88 +437,54 @@ Header: X-API-Key: your-api-key
 | `zalo.connected` | Zalo kết nối |
 | `zalo.disconnected` | Zalo mất kết nối |
 
-## Cộng đồng
+## Tài liệu, hỗ trợ và nguồn mã
 
-### Nhóm hỗ trợ Zalo
-Tham gia nhóm Zalo để được hỗ trợ nhanh, hỏi đáp và cập nhật:
+- **Tài liệu API:** [docs/zalocrm-api/](docs/zalocrm-api/)
+- **Hướng dẫn triển khai:** [docs/HUONG-DAN-TRIEN-KHAI-PRODUCTION-COMMUNITY.md](docs/HUONG-DAN-TRIEN-KHAI-PRODUCTION-COMMUNITY.md)
+- **Mã nguồn Nhà Yến CRM:** <https://github.com/thaophamce/nhayencrm>
+- **Dự án upstream ZaloCRM:** <https://github.com/locphamnguyen/ZaloCRM>
 
-<p align="left">
-  <a href="https://zalo.me/g/lyyt7xg9lynqaitrl26l">
-    <img src="docs/release-images/qr-group-zalo.png" alt="Zalo Group QR" width="200" />
-  </a>
-</p>
-
-- 📲 **Quét QR** bằng app Zalo, hoặc
-- 💬 **Zalo:** [Tham gia nhóm hỗ trợ](https://zalo.me/g/lyyt7xg9lynqaitrl26l)
-
-### Nhóm Telegram
-Tham gia nhóm Telegram để trao đổi, hỏi đáp, nhận thông báo bản phát hành mới:
-
-<p align="left">
-  <a href="https://t.me/+KKJ3SJSx6PA3NDE1">
-    <img src="docs/release-images/qr-group-telegram.png" alt="Telegram Group QR" width="200" />
-  </a>
-</p>
-
-- 📲 **Quét QR** ở trên bằng app Telegram, hoặc
-- 💬 **Telegram:** [Tham gia group](https://t.me/+KKJ3SJSx6PA3NDE1)
-
-## Dịch vụ & Hỗ trợ
-
-Bạn cần triển khai ZCRM cho doanh nghiệp, custom thêm tính năng riêng, hoặc tích hợp với hệ thống có sẵn? Liên hệ trực tiếp tôi để được tư vấn:
-
-- 🌐 **Website:** [https://locnguyendata.com](https://locnguyendata.com)
-- 📧 **Email:** [locnt@locnguyendata.com](mailto:locnt@locnguyendata.com)
-- 💬 **Telegram:** [Tham gia group](https://t.me/+KKJ3SJSx6PA3NDE1)
-
-### Dịch vụ cung cấp
-- **Setup & deploy** ZCRM trên server riêng (VPS / dedicated / cloud)
-- **Customize** giao diện, workflow, AI prompt theo nghiệp vụ doanh nghiệp
-- **Phát triển tính năng mới** theo yêu cầu (CRM module, AI agent, automation, dashboard riêng)
-- **Tích hợp** với hệ thống có sẵn: ERP, CRM khác (HubSpot, Salesforce), payment gateway, kế toán
-- **Đào tạo & support** team sử dụng, vận hành, troubleshoot
-- **Mở rộng zca-js** — fix bug, thêm tính năng đặc thù, tối ưu chống block
-
+Thông tin liên hệ nội bộ của Thiệp Cưới Nhà Yến cần được cấu hình theo kênh chính thức của công ty; tài liệu này không dùng thông tin hỗ trợ thương mại của tác giả upstream làm đầu mối hỗ trợ Nhà Yến CRM.
 ## Miễn trừ trách nhiệm & Thông báo pháp lý
 
-**ZCRM** là dự án mã nguồn mở độc lập, không chính thức, do bên thứ ba phát triển. Dự án **không** liên kết, không được tài trợ, không được chứng nhận và không có bất kỳ mối quan hệ nào với Zalo hoặc Công ty Cổ phần VNG.
+**Nhà Yến CRM** là dự án mã nguồn mở độc lập, không chính thức, do bên thứ ba phát triển. Dự án **không** liên kết, không được tài trợ, không được chứng nhận và không có bất kỳ mối quan hệ nào với Zalo hoặc Công ty Cổ phần VNG.
 
 "Zalo" là nhãn hiệu đã đăng ký của Công ty Cổ phần VNG. Mọi nhãn hiệu, nhãn hiệu dịch vụ và tên thương mại được nhắc tới trong dự án này thuộc sở hữu của chủ sở hữu tương ứng, được sử dụng duy nhất cho mục đích nhận diện và mô tả.
 
 Phần mềm này được cung cấp **chỉ cho mục đích học tập, nghiên cứu cá nhân và tự động hoá cá nhân hợp pháp**. Đây là công cụ dành cho lập trình viên để khám phá API nhắn tin từ góc độ nghiên cứu.
 
-ZCRM được xây dựng trên thư viện mã nguồn mở công khai `zca-js` (giấy phép MIT) thông qua cầu nối CLI `openzca`. **Không có mã nguồn độc quyền nào thuộc về Zalo hoặc VNG được sử dụng trong dự án này.**
+Nhà Yến CRM được xây dựng trên thư viện mã nguồn mở công khai `zca-js` (giấy phép MIT) thông qua cầu nối CLI `openzca`. **Không có mã nguồn độc quyền nào thuộc về Zalo hoặc VNG được sử dụng trong dự án này.**
 
 Việc sử dụng công cụ tự động hoá **có thể vi phạm Điều khoản Dịch vụ của Zalo** và có thể dẫn tới việc tài khoản bị khoá hoặc hạn chế. Người dùng **chịu hoàn toàn trách nhiệm** đảm bảo việc sử dụng tuân thủ pháp luật hiện hành, các quy định liên quan, và Điều khoản Dịch vụ của Zalo.
 
 Phần mềm được cung cấp **"nguyên trạng" (as is)**, không kèm bất kỳ bảo đảm nào, dù rõ ràng hay ngầm định. Tác giả và những người đóng góp **không chịu trách nhiệm** đối với bất kỳ thiệt hại nào phát sinh từ việc sử dụng phần mềm này.
 
-Khi sử dụng ZCRM, bạn xác nhận rằng đã đọc, hiểu và chấp nhận các điều khoản trên, đồng thời tự chịu trách nhiệm và rủi ro khi sử dụng công cụ này.
+Khi sử dụng Nhà Yến CRM, bạn xác nhận rằng đã đọc, hiểu và chấp nhận các điều khoản trên, đồng thời tự chịu trách nhiệm và rủi ro khi sử dụng công cụ này.
 
 ---
 
 ### Disclaimer & Legal Notice (English)
 
-**ZCRM** is an independent, unofficial, third-party open-source project. It is **not** affiliated with, endorsed by, sponsored by, or associated with Zalo or VNG Corporation in any way.
+**Nhà Yến CRM** is an independent, unofficial, third-party open-source project. It is **not** affiliated with, endorsed by, sponsored by, or associated with Zalo or VNG Corporation in any way.
 
 "Zalo" is a registered trademark of VNG Corporation. All trademarks, service marks, and trade names referenced herein are the property of their respective owners and are used solely for identification and descriptive purposes.
 
 This software is provided **for educational purposes, personal research, and legitimate personal automation only**. It is intended as a developer tool for exploring messaging APIs from a research perspective.
 
-ZCRM is built on the publicly available `zca-js` open-source library (MIT license) via the `openzca` CLI bridge. **No proprietary code belonging to Zalo or VNG Corporation is included in this project.**
+Nhà Yến CRM is built on the publicly available `zca-js` open-source library (MIT license) via the `openzca` CLI bridge. **No proprietary code belonging to Zalo or VNG Corporation is included in this project.**
 
 Using automation tools **may violate Zalo's Terms of Service** and could result in account suspension or restrictions. Users are **solely responsible** for ensuring their use complies with all applicable laws, regulations, and Zalo's Terms of Service.
 
 This software is provided **"as is"**, without warranty of any kind, express or implied. The authors and contributors **shall not be held liable** for any damages arising from the use of this software.
 
-By using ZCRM, you acknowledge that you understand and accept these terms and that you use this tool **at your own risk and responsibility**.
+By using Nhà Yến CRM, you acknowledge that you understand and accept these terms and that you use this tool **at your own risk and responsibility**.
 
 ## Giấy phép
 
 Copyright © 2026 **Nguyễn Tiến Lộc**.
 
-ZCRM là **phần mềm tự do** phát hành theo **GNU Affero General Public License v3.0 (AGPL-3.0)** —
-xem [LICENSE](LICENSE). Mã nguồn công khai: <https://github.com/locphamnguyen/ZaloCRM>.
+Nhà Yến CRM là **phần mềm tự do** phát hành theo **GNU Affero General Public License v3.0 (AGPL-3.0)** —
+xem [LICENSE](LICENSE). Mã nguồn phiên bản Nhà Yến CRM: <https://github.com/thaophamce/nhayencrm>.
 
 ### Copyleft + điều khoản mạng (AGPL §13) — bắt buộc
 Mọi bản **phân phối lại HOẶC cung cấp dưới dạng dịch vụ qua mạng (SaaS)** — kể cả bản đã chỉnh sửa — **bắt buộc**:
@@ -526,7 +492,7 @@ Mọi bản **phân phối lại HOẶC cung cấp dưới dạng dịch vụ qu
 - **Công khai mã nguồn đầy đủ** (kể cả phần bạn sửa) cho người dùng — gồm cả người dùng truy cập qua mạng.
 - Giữ nguyên thông báo bản quyền + giấy phép.
 
-→ Không ai có thể biến ZCRM thành sản phẩm **đóng/độc quyền** (kể cả host SaaS) mà không mở mã nguồn.
+→ Không ai có thể biến Nhà Yến CRM thành sản phẩm **đóng/độc quyền** (kể cả host SaaS) mà không mở mã nguồn.
 
 ### Giấy phép thương mại (dual-license)
 Nếu bạn muốn dùng ZCRM **không chịu ràng buộc copyleft của AGPL** (vd nhúng vào sản phẩm đóng,

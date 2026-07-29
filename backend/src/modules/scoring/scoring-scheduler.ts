@@ -15,6 +15,7 @@ import { logger } from '../../shared/utils/logger.js';
 import { runDecayAllOrgs } from './decay-cron.js';
 import { runStuckDetectionAllOrgs } from './stuck-detection.js';
 import { runAutoTagsAllOrgs } from './auto-tag.js';
+import { runSilenceScanAllOrgs } from './silence-scan.js';
 import { startBackfillCron, stopBackfillCron } from './backfill-cron.js';
 
 const HOUR_MS = 60 * 60 * 1000;
@@ -23,6 +24,13 @@ const DAY_MS = 24 * HOUR_MS;
 let decayTimer: NodeJS.Timeout | null = null;
 let stuckTimer: NodeJS.Timeout | null = null;
 let autoTagTimer: NodeJS.Timeout | null = null;
+let stuckInitialTimer: NodeJS.Timeout | null = null;
+let autoTagInitialTimer: NodeJS.Timeout | null = null;
+// MVP phân loại hội thoại (2026-07-19): quét ngày im 2 lần/ngày (07:00, 12:30).
+let silenceAmTimer: NodeJS.Timeout | null = null;
+let silencePmTimer: NodeJS.Timeout | null = null;
+let silenceAmInitialTimer: NodeJS.Timeout | null = null;
+let silencePmInitialTimer: NodeJS.Timeout | null = null;
 
 /**
  * Start scheduler. Idempotent — call once at app boot.
@@ -56,8 +64,10 @@ export function startScoringScheduler(opts?: {
 
   // ── Stuck detection: daily at stuckHour ───────────────────────────────
   if (stuckTimer) clearInterval(stuckTimer);
+  if (stuckInitialTimer) clearTimeout(stuckInitialTimer);
   const stuckMs = msUntilNextHourMatch(stuckHour);
-  setTimeout(() => {
+  stuckInitialTimer = setTimeout(() => {
+    stuckInitialTimer = null;
     void runStuckJob();
     // After first run, schedule every 24h
     stuckTimer = setInterval(() => {
@@ -71,8 +81,10 @@ export function startScoringScheduler(opts?: {
 
   // ── Auto-tag: daily at stuckHour+1 (run sau stuck detection để dùng latest stuckSince) ──
   if (autoTagTimer) clearInterval(autoTagTimer);
+  if (autoTagInitialTimer) clearTimeout(autoTagInitialTimer);
   const autoTagMs = msUntilNextHourMatch((stuckHour + 1) % 24);
-  setTimeout(() => {
+  autoTagInitialTimer = setTimeout(() => {
+    autoTagInitialTimer = null;
     void runAutoTagJob();
     autoTagTimer = setInterval(() => {
       void runAutoTagJob();
@@ -80,12 +92,55 @@ export function startScoringScheduler(opts?: {
   }, autoTagMs);
   logger.info({ firstRunInMs: autoTagMs }, 'Auto-tag scheduler started');
 
+  // ── Silence scan: 2 lần/ngày (07:00 + 12:30) — ghi Conversation.silenceLabel ──
+  if (silenceAmTimer) clearInterval(silenceAmTimer);
+  if (silenceAmInitialTimer) clearTimeout(silenceAmInitialTimer);
+  const silenceAmMs = msUntilNextTimeMatch(7, 0);
+  silenceAmInitialTimer = setTimeout(() => {
+    silenceAmInitialTimer = null;
+    void runSilenceJob();
+    silenceAmTimer = setInterval(() => {
+      void runSilenceJob();
+    }, DAY_MS);
+  }, silenceAmMs);
+
+  if (silencePmTimer) clearInterval(silencePmTimer);
+  if (silencePmInitialTimer) clearTimeout(silencePmInitialTimer);
+  const silencePmMs = msUntilNextTimeMatch(12, 30);
+  silencePmInitialTimer = setTimeout(() => {
+    silencePmInitialTimer = null;
+    void runSilenceJob();
+    silencePmTimer = setInterval(() => {
+      void runSilenceJob();
+    }, DAY_MS);
+  }, silencePmMs);
+  logger.info(
+    { amRunInMs: silenceAmMs, pmRunInMs: silencePmMs },
+    'Silence scan scheduler started'
+  );
+
   // ── Phase 6 polish — Backfill cron: tick mỗi 5 phút, chunk 100 friend/tick ──
   // Tự stop khi không còn Friend nào scoreUpdatedAt=null trong 90 ngày qua.
   startBackfillCron();
 }
 
 export function stopScoringScheduler(): void {
+  if (stuckInitialTimer) {
+    clearTimeout(stuckInitialTimer);
+    stuckInitialTimer = null;
+  }
+  if (autoTagInitialTimer) {
+    clearTimeout(autoTagInitialTimer);
+    autoTagInitialTimer = null;
+  }
+  if (silenceAmInitialTimer) {
+    clearTimeout(silenceAmInitialTimer);
+    silenceAmInitialTimer = null;
+  }
+  if (silencePmInitialTimer) {
+    clearTimeout(silencePmInitialTimer);
+    silencePmInitialTimer = null;
+  }
   if (decayTimer) {
     clearInterval(decayTimer);
     decayTimer = null;
@@ -97,6 +152,14 @@ export function stopScoringScheduler(): void {
   if (autoTagTimer) {
     clearInterval(autoTagTimer);
     autoTagTimer = null;
+  }
+  if (silenceAmTimer) {
+    clearInterval(silenceAmTimer);
+    silenceAmTimer = null;
+  }
+  if (silencePmTimer) {
+    clearInterval(silencePmTimer);
+    silencePmTimer = null;
   }
   stopBackfillCron();
 }
@@ -112,6 +175,21 @@ async function runAutoTagJob(): Promise<void> {
     );
   } catch (err) {
     logger.error({ err }, 'Auto-tag job failed');
+  }
+}
+
+async function runSilenceJob(): Promise<void> {
+  try {
+    const start = Date.now();
+    const results = await runSilenceScanAllOrgs();
+    const totalLabeled = results.reduce((sum, r) => sum + r.labeled, 0);
+    const totalCleared = results.reduce((sum, r) => sum + r.cleared, 0);
+    logger.info(
+      { totalLabeled, totalCleared, orgs: results.length, ms: Date.now() - start },
+      'Silence scan batch completed'
+    );
+  } catch (err) {
+    logger.error({ err }, 'Silence scan job failed');
   }
 }
 
@@ -148,6 +226,17 @@ function msUntilNextHourMatch(targetHour: number): number {
   const now = new Date();
   const target = new Date(now);
   target.setHours(targetHour, 0, 0, 0);
+  if (target.getTime() <= now.getTime()) {
+    target.setDate(target.getDate() + 1);
+  }
+  return target.getTime() - now.getTime();
+}
+
+// Minute-aware biến thể — cần cho lần quét 12:30 (msUntilNextHourMatch zero phút).
+function msUntilNextTimeMatch(targetHour: number, targetMinute: number): number {
+  const now = new Date();
+  const target = new Date(now);
+  target.setHours(targetHour, targetMinute, 0, 0);
   if (target.getTime() <= now.getTime()) {
     target.setDate(target.getDate() + 1);
   }

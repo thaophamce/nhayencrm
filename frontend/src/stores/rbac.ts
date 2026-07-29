@@ -27,6 +27,14 @@ export interface DepartmentNode {
   children: DepartmentNode[];
 }
 
+export interface MenuNode {
+  key: string | null;
+  action?: string;
+  label: string;
+  sensitive?: boolean;
+  children?: MenuNode[];
+}
+
 export interface PermissionGroupNode {
   id: string;
   name: string;
@@ -112,7 +120,7 @@ export const useRbacStore = defineStore('rbac', {
     departments: [] as DepartmentNode[],
     permissionGroups: [] as PermissionGroupNode[],
     users: [] as RbacUser[],
-    matrixMeta: null as null | { resources: string[]; actions: string[]; resourceActions: Record<string, string[]> },
+    matrixMeta: null as null | { resources: string[]; actions: string[]; resourceActions: Record<string, string[]>; menuTree?: MenuNode[] },
     loading: false,
   }),
   actions: {

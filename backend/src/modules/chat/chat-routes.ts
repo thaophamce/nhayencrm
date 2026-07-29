@@ -416,6 +416,101 @@ export async function chatRoutes(app: FastifyInstance) {
   });
 
   // ── List conversations (paginated, filterable) ──────────────────────────
+  app.get('/api/v1/conversations/picker', { preHandler: requireGrant('conversation', 'access') }, async (request: FastifyRequest, reply: FastifyReply) => {
+    const user = request.user!;
+    const { accountId = '', search = '', limit = '80', zaloLabelId = '', excludeId = '' } = request.query as {
+      accountId?: string;
+      search?: string;
+      limit?: string;
+      zaloLabelId?: string;
+      excludeId?: string;
+    };
+    if (!accountId) return reply.status(400).send({ error: 'accountId required' });
+
+    const { checkZaloAccess } = await import('../zalo/zalo-access-middleware.js');
+    const access = await checkZaloAccess({
+      userId: user.id,
+      orgId: user.orgId,
+      role: user.role,
+      zaloAccountId: accountId,
+      minPermission: 'read',
+    });
+    if (access !== 'ok') return reply.status(403).send({ error: 'Zalo account access denied' });
+
+    const take = Math.min(100, Math.max(1, parseInt(limit, 10) || 80));
+    const where: any = { orgId: user.orgId, zaloAccountId: accountId, deletedAt: null, isVirtual: false };
+    if (excludeId) where.id = { not: excludeId };
+
+    if (zaloLabelId) {
+      const nativeId = Number(zaloLabelId);
+      if (!Number.isInteger(nativeId)) return reply.status(400).send({ error: 'Invalid zaloLabelId' });
+      const label = await prisma.zaloLabel.findUnique({
+        where: { zaloAccountId_zaloLabelId: { zaloAccountId: accountId, zaloLabelId: nativeId } },
+        select: { conversations: true },
+      });
+      const threadIds = Array.isArray(label?.conversations) ? label.conversations.filter((value): value is string => typeof value === 'string') : [];
+      if (threadIds.length === 0) return { conversations: [] };
+      where.externalThreadId = { in: threadIds };
+    }
+
+    const query = search.trim();
+    if (query) {
+      const matchingFriends = await prisma.friend.findMany({
+        where: {
+          orgId: user.orgId,
+          zaloAccountId: accountId,
+          OR: [
+            { aliasInNick: { contains: query, mode: 'insensitive' } },
+            { zaloDisplayName: { contains: query, mode: 'insensitive' } },
+          ],
+        },
+        select: { zaloUidInNick: true },
+        take: 100,
+      });
+      const friendUids = matchingFriends.map((friend) => friend.zaloUidInNick);
+      where.OR = [
+        { groupName: { contains: query, mode: 'insensitive' } },
+        { contact: { OR: [
+          { fullName: { contains: query, mode: 'insensitive' } },
+          { crmName: { contains: query, mode: 'insensitive' } },
+          { phone: { contains: query } },
+        ] } },
+        ...(friendUids.length ? [{ externalThreadId: { in: friendUids } }] : []),
+      ];
+    }
+
+    const conversations = await prisma.conversation.findMany({
+      where,
+      select: {
+        id: true,
+        threadType: true,
+        externalThreadId: true,
+        groupName: true,
+        groupAvatarUrl: true,
+        lastMessageAt: true,
+        contact: { select: { fullName: true, crmName: true, avatarUrl: true } },
+      },
+      orderBy: [{ lastMessageAt: { sort: 'desc', nulls: 'last' } }, { id: 'asc' }],
+      take,
+    });
+    const userUids = conversations
+      .filter((conversation) => conversation.threadType === 'user' && conversation.externalThreadId)
+      .map((conversation) => conversation.externalThreadId!);
+    const friendships = userUids.length
+      ? await prisma.friend.findMany({
+          where: { orgId: user.orgId, zaloAccountId: accountId, zaloUidInNick: { in: userUids } },
+          select: { zaloUidInNick: true, aliasInNick: true, zaloDisplayName: true, zaloAvatarUrl: true },
+        })
+      : [];
+    const friendshipByUid = new Map(friendships.map((friend) => [friend.zaloUidInNick, friend]));
+    return {
+      conversations: conversations.map((conversation) => ({
+        ...conversation,
+        friendship: conversation.externalThreadId ? friendshipByUid.get(conversation.externalThreadId) ?? null : null,
+      })),
+    };
+  });
+
   app.get('/api/v1/conversations', { preHandler: requireGrant('conversation', 'access') }, async (request: FastifyRequest, reply: FastifyReply) => {
     const user = request.user!;
     const {
@@ -427,10 +522,13 @@ export async function chatRoutes(app: FastifyInstance) {
       // Filter params
       unread = '',
       unreplied = '',
+      orderStatus = '',
       from = '',
       to = '',
       dateFrom = '',            // alias cho FilterRail
       dateTo = '',
+      lastInboundFrom = '',
+      lastInboundTo = '',
       tags = '',
       tab = '',
       threadType = '',          // user | group
@@ -449,7 +547,6 @@ export async function chatRoutes(app: FastifyInstance) {
       stuck = '',               // 'true' → friends.some.stuckSince != null
       ready = '',               // 'true' → score >= 80
       zaloLabels = '',          // CSV: filter by Zalo Real labels
-      engagementPattern = '',   // Phase 8 — CSV: hot,champion,stable,cooling,cold
       // 2026-06-08 — Cột 1 sidebar deep filter (trước đây BE bỏ qua → "nút chết").
       stages = '',              // CSV statusId: lọc theo Trạng thái KH (Status table)
       stuckDuration = '',       // '>3d'|'>7d'|'>14d'|'>30d' → Friend.stuckSince cũ hơn ngưỡng
@@ -465,6 +562,9 @@ export async function chatRoutes(app: FastifyInstance) {
       //   'bot_no_sale' → sau lastInboundAt CHỈ có bot, KHÔNG có tin sale thật
       //   'sale_replied'→ có tin sale thật (self + user/user_native) sau lastInboundAt
       messageReplyState = '',
+      // MVP phân loại hội thoại (2026-07-19) — lọc theo nhãn ngày im (Conversation.silenceLabel).
+      // CSV: hot,warm,cool,cold. Kết hợp threadType để tách SALES (user) / DESIGN (group).
+      silenceLabels = '',
     } = request.query as QueryParams;
 
     // T5-A (YC2): hội thoại nick đã XÓA-có-uid hiện lại (đọc-only) → DISPLAYABLE thay archivedAt:null.
@@ -573,17 +673,21 @@ export async function chatRoutes(app: FastifyInstance) {
       const kinds = relationshipKindAny.split(',').map(s => s.trim()).filter(Boolean);
       if (kinds.length > 0) contactWhere.friends = { some: { relationshipKind: { in: kinds } } };
     }
-    // Phase 8 — Engagement pattern filter (1+ pattern from heatmap classification)
-    if (engagementPattern) {
-      const patterns = engagementPattern.split(',').map((s) => s.trim()).filter(Boolean);
-      if (patterns.length === 1) contactWhere.engagementPattern = patterns[0];
-      else if (patterns.length > 1) contactWhere.engagementPattern = { in: patterns };
-    }
     if (Object.keys(contactWhere).length > 0) where.contact = contactWhere;
 
     // Advanced filters
     if (unread === 'true') where.unreadCount = { gt: 0 };
     if (unreplied === 'true') where.isReplied = false;
+    if (orderStatus) where.order = { status: orderStatus };
+
+    // MVP phân loại hội thoại (2026-07-19) — lọc theo nhãn ngày im.
+    if (silenceLabels) {
+      const labelList = silenceLabels
+        .split(',')
+        .map((s) => s.trim())
+        .filter((s) => ['hot', 'warm', 'cool', 'cold'].includes(s));
+      if (labelList.length > 0) where.silenceLabel = { in: labelList };
+    }
 
     // Phase 6+ Quick Pills filters — apply qua Contact + Friend
     // Stuck → có ít nhất 1 Friend với stuckSince != null
@@ -760,6 +864,25 @@ export async function chatRoutes(app: FastifyInstance) {
       }
     }
 
+    // Khoảng ngày của tin KH gửi cuối cùng, tính per-conversation.
+    // some >= from đảm bảo mốc inbound cuối >= from;
+    // `none > to` + `some contact`
+    // đảm bảo mốc inbound cuối <= hết ngày to.
+    if (lastInboundFrom || lastInboundTo) {
+      const inboundRules: any[] = [];
+      if (lastInboundFrom) {
+        const d = new Date(lastInboundFrom);
+        if (!isNaN(d.getTime())) inboundRules.push({ messages: { some: { senderType: 'contact', sentAt: { gte: d } } } });
+      }
+      if (lastInboundTo) {
+        const d = new Date(lastInboundTo + 'T23:59:59.999Z');
+        if (!isNaN(d.getTime())) {
+          inboundRules.push({ messages: { some: { senderType: 'contact' } } });
+          inboundRules.push({ messages: { none: { senderType: 'contact', sentAt: { gt: d } } } });
+        }
+      }
+      if (inboundRules.length) where.AND = [...(where.AND || []), ...inboundRules];
+    }
     // Date range — accept cả from/to legacy lẫn dateFrom/dateTo mới
     const dFrom = dateFrom || from;
     const dTo = dateTo || to;
@@ -821,9 +944,6 @@ export async function chatRoutes(app: FastifyInstance) {
               hasZalo: true,
               tags: true,
               leadScore: true,
-              engagementPattern: true,
-              engagementScore: true,
-              engagementTrend: true,
               statusId: true,
               assignedUserId: true,
               priorityScore: true,
@@ -842,7 +962,7 @@ export async function chatRoutes(app: FastifyInstance) {
               _count: { select: { contactAccess: true } },
             },
           },
-          zaloAccount: { select: { id: true, displayName: true, avatarUrl: true, zaloUid: true, privacyMode: true, ownerUserId: true, archivedAt: true } },
+          zaloAccount: { select: { id: true, displayName: true, avatarUrl: true, zaloUid: true, status: true, privacyMode: true, ownerUserId: true, archivedAt: true } },
           pins: { select: { id: true } },
           messages: {
             take: 1,
@@ -2318,6 +2438,19 @@ export async function chatRoutes(app: FastifyInstance) {
     await prisma.conversation.updateMany({
       where: { id, orgId: user.orgId },
       data: { unreadCount: 0 },
+    });
+
+    return { success: true };
+  });
+
+  // ── Mark conversation as unread ──────────────────────────────────────────
+  app.post('/api/v1/conversations/:id/mark-unread', async (request: FastifyRequest, reply: FastifyReply) => {
+    const user = request.user!;
+    const { id } = request.params as { id: string };
+
+    await prisma.conversation.updateMany({
+      where: { id, orgId: user.orgId },
+      data: { unreadCount: 1 },
     });
 
     return { success: true };

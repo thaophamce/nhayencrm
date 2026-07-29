@@ -68,23 +68,22 @@ const badgeKind = computed<BadgeKind>(() => {
     return null;
   }
 
+  // Bỏ dòng tên Sale CRM theo yêu cầu của user (2026-07-13)
+  const via = props.message.sentVia;
+  if (via === 'user' || via === 'user_native') return null;
+
   const meta = props.message.metadata?.sender;
   if (meta?.kind) {
-    // Legacy 'user_native' → map về 'user_crm' (giữ syncedFromNative flag)
-    if (meta.kind === 'user_native') return 'user_crm';
+    if (meta.kind === 'user_native' || meta.kind === 'user_crm') return null;
     return meta.kind as BadgeKind;
   }
 
-  const via = props.message.sentVia;
-  // 'user' + 'user_native' đều map về 'user_crm', distinguish qua syncedFromNative
-  if (via === 'user' || via === 'user_native') return 'user_crm';
   if (via === 'automation') return 'bot_automation';
   if (via === 'ai_assistant') return 'bot_ai';
   if (via === 'system') return 'bot_system';
 
-  // Tin self mà không có sentVia/metadata.sender → vẫn show user_crm
-  // (Anh chốt 2026-06-02: LUÔN show badge cho mọi tin outbound)
-  return 'user_crm';
+  // Tin self mà không có sentVia/metadata.sender → ẩn luôn (không show user_crm)
+  return null;
 });
 
 // Determine syncedFromNative flag (cho icon 🔄 trailing)

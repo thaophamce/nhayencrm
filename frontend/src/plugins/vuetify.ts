@@ -7,7 +7,7 @@ import * as components from 'vuetify/components';
 import * as directives from 'vuetify/directives';
 
 /**
- * Vuetify theme — REDESIGN HS Holding CRM (migration 2026-06-05).
+ * Vuetify theme — REDESIGN Nhà Yến CRM (migration 2026-06-05).
  * `hsLight` (default) = bộ token HS (teal-navy shell + metallic blue #1786be),
  * mirror PART 1 của hs-crm-theme.css. `smax-light`/`legacy-dark` giữ fallback
  * cho các view chưa migrate; sẽ rút ở cụm cleanup cuối.
@@ -22,22 +22,22 @@ export const vuetify = createVuetify({
       'hsLight': {
         dark: false,
         colors: {
-          primary: '#1786be',          // --brand
-          'primary-darken-1': '#0f6fa0',
-          secondary: '#5bb8e5',        // --brand-bright
-          accent: '#0b5880',           // --brand-700
-          background: '#f7f9fc',       // --surface-2
+          primary: '#1A6FD4',          // --brand
+          'primary-darken-1': '#1a6fd4',
+          secondary: '#4DA3FF',        // --brand-bright
+          accent: '#FFB84D',           // --brand-700
+          background: '#F7F8FC',       // --surface-2
           surface: '#ffffff',
-          'surface-variant': '#f1f4f9',
-          success: '#12b76a',
-          warning: '#f5a524',
-          error: '#f04438',
-          info: '#1786be',
-          'nav-a': '#0e445a',
-          'nav-b': '#06222f',
-          'nav-accent': '#5bb8e5',
-          'on-surface': '#141a24',
-          'on-background': '#141a24',
+          'surface-variant': '#F1F3F9',
+          success: '#2EC4B6',
+          warning: '#FF9F1C',
+          error: '#FF5A5F',
+          info: '#4DA3FF',
+          'nav-a': '#2F80ED',
+          'nav-b': '#1a6fd4',
+          'nav-accent': '#FFB84D',
+          'on-surface': '#1E202C',
+          'on-background': '#1E202C',
           'on-primary': '#ffffff',
         },
         variables: {
@@ -89,7 +89,7 @@ export const vuetify = createVuetify({
   },
   defaults: {
     // HS defaults: nút bo md không uppercase, card bo lg viền, chip pill
-    VBtn: { variant: 'flat', rounded: 'md', style: 'text-transform:none;letter-spacing:0;' },
+    VBtn: { variant: 'flat', rounded: 'md', style: 'text-transform:none;letter-spacing:0;font-weight:700;' },
     VTextField: { variant: 'outlined', density: 'compact' },
     VSelect: { variant: 'outlined', density: 'compact' },
     VAutocomplete: { variant: 'outlined', density: 'compact' },

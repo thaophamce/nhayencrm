@@ -156,25 +156,10 @@ async function handleZaloReaction(accountId: string, io: Server | null, reaction
       }],
     });
 
-    // Phase 8 — Engagement aggregate: count only KH-on-Sale reactions
-    // (KH thả ❤️ vào tin sale gửi). Skip nếu sale thả vào tin KH (không phải signal).
     const isAddAction = !!rawIcon && rType >= 0;
     if (isAddAction && conversation.contactId && message.senderType === 'self') {
-      void (async () => {
-        try {
-          const { incrementDailyAggregate } = await import('../engagement/engagement-service.js');
-          await incrementDailyAggregate({
-            contactId: conversation.contactId!,
-            orgId: conversation.orgId,
-            reaction: 1,
-          });
-        } catch {
-          // silent — engagement best-effort
-        }
-      })();
-
       // ── I5 FIX 2026-06-03 — Nối reaction vào automation luồng bám đuổi ──
-      // Trước fix: handleZaloReaction chỉ lưu emoji + engagement, KHÔNG gọi
+      // Trước fix: handleZaloReaction chỉ lưu emoji, KHÔNG gọi
       // onCustomerReaction (hàm mồ côi) → KH thả 😡 vào tin sequence vẫn bị gửi tin
       // tiếp (không pause 48h), không trừ điểm, không báo nội bộ. Anh chốt 2026-06-03:
       // tích cực báo dạng tích cực, tiêu cực báo dạng tiêu cực.

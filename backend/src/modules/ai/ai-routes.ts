@@ -4,7 +4,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { authMiddleware } from '../auth/auth-middleware.js';
 import { requireGrant } from '../rbac/rbac-middleware.js';
 import { requireZaloAccess } from '../zalo/zalo-access-middleware.js';
-import { getAiConfig, getAiUsage, updateAiConfig, generateAiOutput, aiFormatRichText, aiGenerateSalesHandoffMessage } from './ai-service.js';
+import { getAiConfig, getAiUsage, updateAiConfig, generateAiOutput, aiFormatRichText, aiGenerateSalesHandoffMessage, generateKbChatReply, type KbChatMessage } from './ai-service.js';
 // M53 2026-05-30 — Trợ Lý AI Virtual Chat
 import { DEFAULT_VIRTUAL_CHAT_PROMPT } from './prompts/virtual-chat-assistant.js';
 import {
@@ -171,6 +171,30 @@ export async function aiRoutes(app: FastifyInstance) {
     }
   });
 
+  app.post('/api/v1/ai/kb-chat', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const body = request.body as { messages?: unknown };
+      if (!Array.isArray(body.messages) || body.messages.length === 0) {
+        return reply.status(400).send({ error: 'messages là bắt buộc' });
+      }
+      const messages: KbChatMessage[] = [];
+      for (const raw of body.messages) {
+        const m = raw as { role?: unknown; content?: unknown };
+        const role = m.role === 'assistant' ? 'assistant' : 'user';
+        const content = typeof m.content === 'string' ? m.content.trim() : '';
+        if (content) messages.push({ role, content: content.slice(0, 4000) });
+      }
+      if (messages.length === 0) return reply.status(400).send({ error: 'Nội dung tin nhắn trống' });
+      if (messages[messages.length - 1].role !== 'user') {
+        return reply.status(400).send({ error: 'Tin nhắn cuối phải là của khách' });
+      }
+      return await generateKbChatReply({ orgId: request.user!.orgId, messages });
+    } catch (err) {
+      logger.error('[ai] kb-chat error:', err);
+      return sendHandledError(reply, err, 'Không tạo được câu trả lời AI');
+    }
+  });
+
   app.post('/api/v1/ai/summarize/:id', { preHandler: requireZaloAccess('read') }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const { id } = request.params as { id: string };
@@ -218,7 +242,7 @@ export async function aiRoutes(app: FastifyInstance) {
           where: { id: body.contactId, orgId: user.orgId, mergedInto: null },
           select: {
             id: true, fullName: true, crmName: true, phone: true,
-            engagementPattern: true, status: true,
+            status: true,
             priorityScore: true, leadScore: true,
             nextAppointment: true,
             statusRef: { select: { name: true } },
@@ -280,7 +304,6 @@ export async function aiRoutes(app: FastifyInstance) {
           statusLabel: contact.statusRef?.name || contact.status,
           priorityScore: contact.priorityScore,
           leadScore: contact.leadScore,
-          engagementPattern: contact.engagementPattern,
           nextAppointmentAt: upcomingAppt?.appointmentDate || contact.nextAppointment || null,
           nextAppointmentLocation: upcomingAppt?.location || null,
         },

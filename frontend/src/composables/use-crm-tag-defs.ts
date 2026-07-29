@@ -66,7 +66,8 @@ export async function refreshTagDefs(): Promise<void> {
 
 /** Lookup tag def theo name. Return null nếu không có. */
 export function findTagDef(name: string): CrmTagDef | null {
-  return tagsByName.get(name) || null;
+  const cleaned = cleanTagName(name).toLowerCase();
+  return tagDefs.value.find(t => cleanTagName(t.name).toLowerCase() === cleaned) || tagsByName.get(name) || null;
 }
 
 /** Check xem tag name có phải Zalo-managed không.
@@ -90,7 +91,7 @@ export function tagColor(name: string): string {
   if (def?.color) return def.color;
   // Fallback: Zalo-mirror tag chưa fetch được def → blue mặc định
   if (name.startsWith('🔵 ')) return '#0068FF';
-  return '#6B7280';  // gray
+  return '#2F80ED';  // fallback to brand blue
 }
 
 export function useCrmTagDefs() {

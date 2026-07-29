@@ -633,7 +633,113 @@ export async function chatOperationsRoutes(app: FastifyInstance) {
     } catch (err) { return handleError(err, reply); }
   });
 
+  // ── Ghim TIN NHẮN (CRM-only, SDK Zalo không hỗ trợ pin từng tin — chỉ pin hội
+  //    thoại). Lưu riêng bảng pinned_messages, hiện thanh cuộn phía trên khung chat. ──
+
+  // ── POST /:id/messages/:msgId/pin ─────────────────────────────────────────────
+  app.post('/api/v1/conversations/:id/messages/:msgId/pin', chatAccess, async (request: FastifyRequest, reply: FastifyReply) => {
+    const user = request.user!;
+    const { id, msgId } = request.params as { id: string; msgId: string };
+
+    const conv = await getConversation(id, user.orgId, reply);
+    if (!conv) return;
+
+    const message = await prisma.message.findFirst({ where: { id: msgId, conversationId: id } });
+    if (!message) return reply.status(404).send({ error: 'Message not found' });
+
+    try {
+      const pin = await prisma.pinnedMessage.upsert({
+        where: { conversationId_messageId: { conversationId: id, messageId: msgId } },
+        update: {},
+        create: { id: randomUUID(), orgId: user.orgId, conversationId: id, messageId: msgId, pinnedByUserId: user.id },
+      });
+      const io = (app as any).io as Server;
+      io?.emit('chat:message-pinned', { conversationId: id, messageId: msgId, pinnedAt: pin.pinnedAt });
+      return { success: true, pin };
+    } catch (err) { return handleError(err, reply); }
+  });
+
+  // ── DELETE /:id/messages/:msgId/pin ───────────────────────────────────────────
+  app.delete('/api/v1/conversations/:id/messages/:msgId/pin', chatAccess, async (request: FastifyRequest, reply: FastifyReply) => {
+    const user = request.user!;
+    const { id, msgId } = request.params as { id: string; msgId: string };
+
+    const conv = await getConversation(id, user.orgId, reply);
+    if (!conv) return;
+
+    try {
+      await prisma.pinnedMessage.deleteMany({ where: { conversationId: id, messageId: msgId } });
+      const io = (app as any).io as Server;
+      io?.emit('chat:message-unpinned', { conversationId: id, messageId: msgId });
+      return { success: true };
+    } catch (err) { return handleError(err, reply); }
+  });
+
+  // ── GET /:id/pinned-messages — danh sách tin đã ghim, mới nhất trước ──────────
+  app.get('/api/v1/conversations/:id/pinned-messages', chatAccess, async (request: FastifyRequest, reply: FastifyReply) => {
+    const user = request.user!;
+    const { id } = request.params as { id: string };
+
+    const conv = await getConversation(id, user.orgId, reply);
+    if (!conv) return;
+
+    try {
+      const pins = await prisma.pinnedMessage.findMany({
+        where: { conversationId: id },
+        orderBy: { pinnedAt: 'desc' },
+        include: {
+          message: {
+            select: { id: true, content: true, contentType: true, senderName: true, senderType: true, sentAt: true, isDeleted: true },
+          },
+          pinnedBy: { select: { id: true, fullName: true } },
+        },
+      });
+      return { pins };
+    } catch (err) { return handleError(err, reply); }
+  });
+
   // ── POST /sticker ────────────────────────────────────────────────────────────
+  // GET /mute-status — đọc trạng thái tắt thông báo trực tiếp từ Zalo.
+  app.get('/api/v1/conversations/:id/mute-status', chatAccess, async (request: FastifyRequest, reply: FastifyReply) => {
+    const user = request.user!;
+    const { id } = request.params as { id: string };
+    const conv = await getConversation(id, user.orgId, reply);
+    if (!conv) return;
+    try {
+      const state = await zaloOps.getMutedConversations(conv.zaloAccountId) as {
+        chatEntries?: Array<{ id: string }>; groupChatEntries?: Array<{ id: string }>;
+      };
+      const entries = conv.threadType === 'group' ? state.groupChatEntries : state.chatEntries;
+      return { muted: (entries || []).some(entry => entry.id === conv.externalThreadId) };
+    } catch (err) { return handleError(err, reply); }
+  });
+
+  // POST /mute + /unmute — đồng bộ trạng thái thông báo với Zalo.
+  app.post('/api/v1/conversations/:id/mute', chatAccess, async (request: FastifyRequest, reply: FastifyReply) => {
+    const user = request.user!;
+    const { id } = request.params as { id: string };
+    const conv = await getConversation(id, user.orgId, reply);
+    if (!conv) return;
+    try {
+      const threadType = conv.threadType === 'group' ? 1 : 0;
+      const result = await zaloOps.setConversationMute(conv.zaloAccountId, true, conv.externalThreadId || '', threadType);
+      return { success: true, muted: true, result };
+    } catch (err) { return handleError(err, reply); }
+  });
+
+  app.post('/api/v1/conversations/:id/unmute', chatAccess, async (request: FastifyRequest, reply: FastifyReply) => {
+    const user = request.user!;
+    const { id } = request.params as { id: string };
+    const conv = await getConversation(id, user.orgId, reply);
+    if (!conv) return;
+    try {
+      const threadType = conv.threadType === 'group' ? 1 : 0;
+      const result = await zaloOps.setConversationMute(conv.zaloAccountId, false, conv.externalThreadId || '', threadType);
+      return { success: true, muted: false, result };
+    } catch (err) { return handleError(err, reply); }
+  });
+
+
   // Body: { stickerId, cateId, type } — đúng shape zca-js SendStickerPayload
   app.post('/api/v1/conversations/:id/sticker', chatAccess, async (request: FastifyRequest, reply: FastifyReply) => {
     const user = request.user!;

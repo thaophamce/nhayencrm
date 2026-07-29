@@ -220,15 +220,13 @@ export async function dashboardActionHubRoutes(app: FastifyInstance): Promise<vo
         prisma.careSession.count({ where: { orgId: viewer.orgId, ownerUserId: targetUserId, state: 'closed', closedAt: { gte: monthStart } } }),
       ]);
 
-      // 📊 Điểm số KH (Lead/Tương tác/Ưu tiên) — trung bình + 3-bucket histogram.
-      // REUSE Contact.leadScore/engagementScore/priorityScore (scoring cron 02:30).
+      // 📊 Điểm số KH (Lead/Ưu tiên) — trung bình + 3-bucket histogram.
+      // REUSE Contact.leadScore/priorityScore (scoring cron 02:30).
       const scoreWhere = { orgId: viewer.orgId, assignedUserId: targetUserId };
-      const [scoreAvg, leadBucketsHi, leadBucketsMid, engBucketsHi, engBucketsMid, prioHigh] = await Promise.all([
-        prisma.contact.aggregate({ where: scoreWhere, _avg: { leadScore: true, engagementScore: true } }),
+      const [scoreAvg, leadBucketsHi, leadBucketsMid, prioHigh] = await Promise.all([
+        prisma.contact.aggregate({ where: scoreWhere, _avg: { leadScore: true } }),
         prisma.contact.count({ where: { ...scoreWhere, leadScore: { gte: 70 } } }),
         prisma.contact.count({ where: { ...scoreWhere, leadScore: { gte: 40, lt: 70 } } }),
-        prisma.contact.count({ where: { ...scoreWhere, engagementScore: { gte: 70 } } }),
-        prisma.contact.count({ where: { ...scoreWhere, engagementScore: { gte: 40, lt: 70 } } }),
         prisma.contact.count({ where: { ...scoreWhere, priorityScore: { gte: 70 } } }),
       ]);
 
@@ -418,10 +416,8 @@ export async function dashboardActionHubRoutes(app: FastifyInstance): Promise<vo
         // 📊 Điểm số KH
         scores: {
           leadAvg: Math.round(scoreAvg._avg.leadScore ?? 0),
-          engagementAvg: Math.round(scoreAvg._avg.engagementScore ?? 0),
           priorityHigh: prioHigh,
           leadHi: leadBucketsHi, leadMid: leadBucketsMid,
-          engHi: engBucketsHi, engMid: engBucketsMid,
         },
         // 🏷️ Trạng thái KH
         statusBreakdown: statusGroups.map((g) => ({ status: g.status ?? 'khac', count: g._count })),

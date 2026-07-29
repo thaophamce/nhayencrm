@@ -24,20 +24,36 @@ export function formatConvTime(dateStr: string | null, tickMs: number): string {
   if (!dateStr) return '';
   const date = new Date(dateStr);
   const nowDate = new Date(tickMs);
-  const diffMs = nowDate.getTime() - date.getTime();
-  const diffMins = Math.floor(diffMs / 60000);
-  if (diffMins < 1) return 'Now';
-  if (diffMins < 60) return `${diffMins}p`;
-  const diffHours = Math.floor(diffMins / 60);
+
   const p = getOrgParts(date);
   const nowP = getOrgParts(nowDate);
   if (!p || !nowP) return '';
-  if (diffHours < 24) {
+
+  const diffMs = nowDate.getTime() - date.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  if (diffMins < 1) return 'Mới đây';
+  if (diffMins < 60) return `${diffMins} phút`;
+
+  const diffHours = Math.floor(diffMins / 60);
+
+  // Cùng ngày (Hôm nay): Hiển thị chính xác giờ
+  if (p.day === nowP.day && p.month === nowP.month && p.year === nowP.year) {
     return `${String(p.hour).padStart(2, '0')}:${String(p.minute).padStart(2, '0')}`;
   }
-  const diffDays = Math.floor(diffHours / 24);
-  if (diffDays === 1) return 'Hôm qua';
-  if (diffDays < 7) return `${diffDays}d`;
+
+  // Hôm qua (chênh lệch ngày bằng 1 hoặc trong vòng 24-48 giờ nếu khác ngày)
+  const isYesterday = (nowP.day - p.day === 1 && p.month === nowP.month && p.year === nowP.year) ||
+                      (diffHours >= 12 && diffHours < 48 && p.day !== nowP.day);
+  if (isYesterday) {
+    return `${diffHours} giờ`;
+  }
+
+  // 2 ngày trở lên
+  const diffDays = Math.max(2, Math.floor(diffHours / 24));
+  if (diffDays < 30) {
+    return `${diffDays} ngày`;
+  }
+
   const dd = String(p.day).padStart(2, '0');
   const mm = String(p.month).padStart(2, '0');
   if (p.year === nowP.year) return `${dd}/${mm}`;

@@ -1,5 +1,5 @@
 /**
- * seed-demo-data.ts — Tạo dữ liệu DEMO cho ZaloCRM (org "Thiên Phúc").
+ * seed-demo-data.ts — Tạo dữ liệu DEMO cho Nhà Yến CRM (org "Nhà Yến").
  * Gồm: 5 phòng ban, 30 nhân viên, ~120 khách hàng, và kịch bản marketing demo
  * (templates, blocks, sequences, triggers, broadcasts, care-sessions).
  *
@@ -94,7 +94,7 @@ async function main() {
           orgId: ORG_ID,
           fullName: name,
           phone,
-          email: `nv${empSeq}.demo@locnguyendata.com`,
+          email: `nv${empSeq}.demo@nhayencrm.local`,
           passwordHash,
           role: deptIdx === 0 ? 'admin' : 'member',
           isActive: true,
@@ -141,10 +141,10 @@ async function main() {
     data: { orgId: ORG_ID, name: 'Mẫu tin chung', createdById: owner.id, visibility: 'public' },
   });
   const templates = [
-    { name: 'Chào khách mới', shortcut: '/chao', content: 'Dạ em chào anh/chị ạ! Em là tư vấn viên bên Thiên Phúc, anh/chị cần em hỗ trợ gì ạ?' },
+    { name: 'Chào khách mới', shortcut: '/chao', content: 'Dạ em chào anh/chị ạ! Em là tư vấn viên bên Nhà Yến, anh/chị cần em hỗ trợ gì ạ?' },
     { name: 'Gửi báo giá', shortcut: '/baogia', content: 'Dạ em gửi anh/chị bảng báo giá chi tiết ạ. Anh/chị tham khảo giúp em nhé!' },
     { name: 'Nhắc hẹn', shortcut: '/nhachen', content: 'Dạ em nhắc anh/chị mình có lịch hẹn vào ngày mai ạ. Anh/chị sắp xếp được không ạ?' },
-    { name: 'Cảm ơn sau mua', shortcut: '/camon', content: 'Em cảm ơn anh/chị đã tin tưởng Thiên Phúc ạ! Có gì cần hỗ trợ anh/chị nhắn em nhé.' },
+    { name: 'Cảm ơn sau mua', shortcut: '/camon', content: 'Em cảm ơn anh/chị đã tin tưởng Nhà Yến ạ! Có gì cần hỗ trợ anh/chị nhắn em nhé.' },
     { name: 'Chăm sóc định kỳ', shortcut: '/csdk', content: 'Dạ anh/chị dạo này khoẻ không ạ? Bên em có chương trình ưu đãi mới, em gửi anh/chị tham khảo nhé!' },
   ];
   for (const t of templates) {
@@ -163,8 +163,8 @@ async function main() {
   });
   const blocks: { id: string; name: string }[] = [];
   const blockDefs = [
-    { name: 'Kết bạn khách FB', actionType: 'request_friend', content: { greetingVariants: ['Chào anh/chị, em là tư vấn viên bên Thiên Phúc, kết bạn để em hỗ trợ mình ạ!', 'Em chào anh/chị, em bên Thiên Phúc ạ, anh/chị kết bạn giúp em nhé!'] } },
-    { name: 'Tin chào lead mới', actionType: 'send_message', content: { textVariants: ['Dạ em chào anh/chị, em hỗ trợ tư vấn sản phẩm bên Thiên Phúc ạ!', 'Em chào anh/chị ạ, anh/chị quan tâm sản phẩm nào để em tư vấn kỹ hơn ạ?'] } },
+    { name: 'Kết bạn khách FB', actionType: 'request_friend', content: { greetingVariants: ['Chào anh/chị, em là tư vấn viên bên Nhà Yến, kết bạn để em hỗ trợ mình ạ!', 'Em chào anh/chị, em bên Nhà Yến ạ, anh/chị kết bạn giúp em nhé!'] } },
+    { name: 'Tin chào lead mới', actionType: 'send_message', content: { textVariants: ['Dạ em chào anh/chị, em hỗ trợ tư vấn sản phẩm bên Nhà Yến ạ!', 'Em chào anh/chị ạ, anh/chị quan tâm sản phẩm nào để em tư vấn kỹ hơn ạ?'] } },
     { name: 'Tin gửi ưu đãi', actionType: 'send_message', content: { textVariants: ['Bên em đang có ưu đãi giảm 20% cho khách mới ạ, anh/chị tham khảo nhé!'] } },
     { name: 'Tin nhắc chốt đơn', actionType: 'send_message', content: { textVariants: ['Dạ ưu đãi áp dụng đến cuối tuần này thôi ạ, anh/chị cân nhắc sớm giúp em nhé!'] } },
   ];
@@ -281,7 +281,7 @@ async function main() {
   // ── 10. CHAT GIẢ + FRIEND + ENGAGEMENT + APPOINTMENTS ──────────────
   // Cần nick Zalo connected. Ưu tiên env SEED_NICK_ID, fallback nick đã resolve ở mục 9.
   const nickId = process.env.SEED_NICK_ID || nick?.id || null;
-  let nChat = 0, nMsg = 0, nFriend = 0, nEng = 0, nAppt = 0;
+  let nChat = 0, nMsg = 0, nFriend = 0, nAppt = 0;
   if (!nickId) {
     console.log('  ⚠ Không có nick Zalo → bỏ qua chat/engagement/appointments.');
   } else {
@@ -400,29 +400,6 @@ async function main() {
         },
       });
       nFriend++;
-
-      // ContactEngagementDaily — 5..20 ngày gần đây
-      const engDays = randInt(5, 20);
-      for (let d = 0; d < engDays; d++) {
-        const date = new Date(NOW - d * DAY);
-        date.setHours(0, 0, 0, 0);
-        const inb = randInt(0, 4);
-        await prisma.contactEngagementDaily.create({
-          data: {
-            orgId: ORG_ID,
-            contactId: cc.id,
-            date,
-            inboundMsgCount: inb,
-            outboundMsgCount: randInt(0, 4),
-            reactionCount: randInt(0, 2),
-            mediaShareCount: randInt(0, 1),
-            quoteReplyCount: randInt(0, 1),
-            customerInitiated: inb > 0 && Math.random() < 0.5,
-            dailyIntensity: randInt(0, 100),
-          },
-        });
-        nEng++;
-      }
     }
 
     // ── Appointments (~25) ──
@@ -451,14 +428,14 @@ async function main() {
       });
       nAppt++;
     }
-    console.log(`   → ${nChat} hội thoại, ${nMsg} tin nhắn, ${nFriend} friend, ${nEng} engagement-daily, ${nAppt} lịch hẹn.`);
+    console.log(`   → ${nChat} hội thoại, ${nMsg} tin nhắn, ${nFriend} friend, ${nAppt} lịch hẹn.`);
   }
 
   console.log('\n✅ HOÀN TẤT seed demo:');
-  console.log(`   - 5 phòng ban, 30 nhân viên (mật khẩu: ${DEMO_PASSWORD}, login bằng phone 0901000001..030 hoặc email nvN.demo@locnguyendata.com)`);
+  console.log(`   - 5 phòng ban, 30 nhân viên (mật khẩu: ${DEMO_PASSWORD}, login bằng phone 0901000001..030 hoặc email nvN.demo@nhayencrm.local)`);
   console.log('   - 120 khách hàng demo');
   console.log('   - Marketing: 5 templates, 4 blocks, 3 sequences, 3 broadcasts, 4 triggers, ~12 care-sessions');
-  console.log(`   - Chat: ${nChat} hội thoại virtual, ${nMsg} tin nhắn, ${nFriend} friend, ${nEng} engagement-daily, ${nAppt} lịch hẹn`);
+  console.log(`   - Chat: ${nChat} hội thoại virtual, ${nMsg} tin nhắn, ${nFriend} friend, ${nAppt} lịch hẹn`);
 }
 
 main()

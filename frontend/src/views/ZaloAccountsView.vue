@@ -19,7 +19,7 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/></svg>
           Refresh
         </button>
-        <button class="btn btn-primary" @click="openAddDialog">
+        <button v-if="canCreateZalo" class="btn btn-primary" @click="openAddDialog">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
           Kết nối kênh
         </button>
@@ -93,6 +93,7 @@
         :accounts="visibleAccounts"
         :reconnecting-ids="reconnectingIds"
         :group-by="simpleGroupBy"
+        :can-create="canCreateZalo"
         @reconnect="onCardReconnect"
         @delete="onConfirmDelete"
         @disconnect="onCardDisconnect"
@@ -247,6 +248,32 @@
         </div>
       </div>
     </div>
+    <!-- SYNC LOADER MODAL -->
+    <div v-if="syncLoading" class="modal-backdrop">
+      <div class="modal text-center" style="max-width: 420px; padding: 32px 24px; border-radius: 16px;">
+        <div class="d-flex flex-column align-center justify-center">
+          <v-progress-circular
+            indeterminate
+            color="#0068FF"
+            size="56"
+            width="5"
+            class="mb-4"
+          ></v-progress-circular>
+
+          <h3 class="text-h6 font-weight-bold mb-2" style="color: #1a252f;">
+            {{ syncActionLabel }}
+          </h3>
+
+          <p class="text-body-2 text-grey-darken-2 mb-4 px-2" style="line-height: 1.6;">
+            CRM đang thực hiện đồng bộ trực tiếp với máy chủ Zalo. Quá trình tải dữ liệu này có thể mất từ 1 - 3 phút. Vui lòng giữ tab này mở.
+          </p>
+
+          <div style="font-size: 13px; color: #0068FF; background: #f0f7ff; padding: 10px 16px; border-radius: 8px; width: 100%; border: 1px solid #c2e0ff; font-weight: bold;">
+            {{ currentProgressMessage || '☕ Đang kết nối và chuẩn bị tải dữ liệu...' }}
+          </div>
+        </div>
+      </div>
+    </div>
 
     <!-- ACCESS DIALOG (reuse existing) -->
     <ZaloAccessDialog
@@ -301,7 +328,7 @@ const {
   relativeTime, statusLabel, uptimeColor,
   // QR/socket from base composable
   showQRDialog, qrImage, qrScanned, scannedName, qrError, qrSessionDead, duplicateInfo,
-  currentLoginAccountId,
+  currentLoginAccountId, syncProgress,
   deleting,
   addAccount, loginAccount, deleteAccount,
   cancelQR, setupSocket,
@@ -343,6 +370,13 @@ const lastRefresh = ref(new Date());
 const showAccessDialog = ref(false);
 const accessTargetId = ref('');
 const accessTargetName = ref('');
+const syncLoading = ref(false);
+const syncActionLabel = ref('');
+const activeSyncAccountId = ref('');
+const currentProgressMessage = computed(() => {
+  const accountProgress = syncProgress.value[activeSyncAccountId.value];
+  return accountProgress ? accountProgress.message : '';
+});
 
 const deleteTarget = computed(() => filtered.value.find((a) => a.id === deleteTargetId.value));
 
@@ -358,6 +392,9 @@ const reconnectingIds = ref<Set<string>>(new Set());
 // RBAC 2026-06-08 — quản lý nick + sửa liên lạc nội bộ của sale theo grants 'zalo_account.edit'
 // (owner/admin tự bypass). Thay cho check legacy role.
 const canManageZalo = computed(() => authStore.canAccess('zalo_account', 'edit'));
+// RBAC 2026-07-14 — chặn sale tự tạo nick mới; ẩn nút "Kết nối kênh" nếu không có grant create.
+// Reconnect nick sẵn có (per-row) vẫn hiện cho mọi user thấy nick đó, không phụ thuộc grant này.
+const canCreateZalo = computed(() => authStore.canAccess('zalo_account', 'create'));
 // GỠ 2026-06-10 (CEO-review): bỏ 'internal-contact' khỏi tab hợp lệ — URL hack
 // ?tab=internal-contact sẽ rơi về 'manage'. Cơ chế setup thủ công đã gỡ.
 type TabKey = 'manage' | 'privacy' | 'internal-contact' | 'archived';
@@ -695,13 +732,29 @@ async function onDrawerAction(payload: { accountId: string; action: string }) {
   try {
     switch (payload.action) {
       case 'sync-contacts':
-        await api.post(`/zalo-accounts/${id}/sync-contacts`);
-        await refreshAll();
-        toast.push('Đồng bộ danh bạ thành công', 'success');
+        activeSyncAccountId.value = id;
+        syncActionLabel.value = 'Đang đồng bộ danh bạ Zalo...';
+        syncLoading.value = true;
+        try {
+          const res = await api.post(`/zalo-accounts/${id}/sync-contacts`, {}, { timeout: 300000 });
+          await refreshAll();
+          const stats = res.data || {};
+          toast.push(`Đồng bộ danh bạ thành công: Thêm mới ${stats.created || 0}, cập nhật ${stats.updated || 0}, liên kết ${stats.linked || 0}/${stats.total || 0} liên hệ.`, 'success');
+        } finally {
+          syncLoading.value = false;
+        }
         break;
       case 'sync-history':
-        await api.post(`/zalo-accounts/${id}/sync-history`);
-        toast.push('Đồng bộ lịch sử chat thành công', 'success');
+        activeSyncAccountId.value = id;
+        syncActionLabel.value = 'Đang đồng bộ lịch sử chat...';
+        syncLoading.value = true;
+        try {
+          const res = await api.post(`/zalo-accounts/${id}/sync-history`, {}, { timeout: 300000 });
+          const stats = res.data || {};
+          toast.push(`Đồng bộ lịch sử thành công: ${stats.friendsSynced || 0} bạn bè, ${stats.groupsSynced || 0} nhóm, ${stats.messagesBackfilled || 0} tin nhắn.`, 'success');
+        } finally {
+          syncLoading.value = false;
+        }
         break;
       case 'reconnect': {
         // 2026-06-21: "Kết nối lại" = quét QR mới (không reconnect ngầm báo ảo).
@@ -817,6 +870,13 @@ onMounted(async () => {
   setupSocket();
   await Promise.all([refreshAll(), fetchDeptTree(), loadPrivacyCounter(), loadInternalContactBadge(), loadSdkLimits()]);
   lastRefresh.value = new Date();
+
+  // Bấm Kết nối từ Bảng điều khiển -> tự động mở popup Connect Wizard
+  if (route.query.connect === '1') {
+    openAddDialog();
+    // Xóa query param để khi reload trang không tự động bật lại wizard
+    router.replace({ query: { ...route.query, connect: undefined } });
+  }
 
   // Light polling — refresh stats every 60s while page is open.
   // No refresh of enriched list to avoid blowing away in-flight selection state.

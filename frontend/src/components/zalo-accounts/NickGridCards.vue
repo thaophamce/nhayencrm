@@ -11,7 +11,7 @@
     <div v-if="!accounts.length" class="ngc-empty">
       <v-icon size="42" color="grey">mdi-cellphone-link-off</v-icon>
       <p>Bạn chưa kết nối nick Zalo nào</p>
-      <button class="btn btn-primary" @click="$emit('add')">
+      <button v-if="props.canCreate !== false" class="btn btn-primary" @click="$emit('add')">
         <v-icon size="16">mdi-plus</v-icon> Kết nối nick đầu tiên
       </button>
     </div>
@@ -133,7 +133,7 @@ function discElapsed(iso: string | null): string {
 
 // accounts: EnrichedAccount[] từ parent — component chỉ đọc field hiển thị (type lỏng).
 // groupBy: 'status' (mặc định, nhóm theo trạng thái) | 'owner' (mục 1 2026-06-11, nhóm theo người dùng).
-const props = defineProps<{ accounts: any[]; reconnectingIds?: Set<string>; groupBy?: 'status' | 'owner' }>();
+const props = defineProps<{ accounts: any[]; reconnectingIds?: Set<string>; groupBy?: 'status' | 'owner'; canCreate?: boolean }>();
 function isReconnecting(id: string): boolean {
   return props.reconnectingIds?.has(id) ?? false;
 }

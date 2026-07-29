@@ -49,3 +49,24 @@ secrets/
 # Telegram
 public-key-telegram
 public-key-telegram-product
+# Local runtime/API scratch files — never commit
+.runtime/
+.tmp-*
+.tmp_*
+backend/uploads/
+backend/check_mt.js
+backend/query_users_local.js
+backend/update_pass.js
+backend/src/test_delivery_orders.ts
+backend/src/test_detail_endpoint.ts
+/output/
+/mockups/
+/*.zip
+/*.patch
+/quick-reply-*-backup-*.jsonl
+/docker/hotfix-context/
+/docker-compose.hotfix.yml
+/docker-compose.rollback.yml
+
+# Firebase Admin credentials (never commit)
+*-firebase-adminsdk-*.json

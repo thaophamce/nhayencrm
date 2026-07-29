@@ -2,7 +2,7 @@
 <!-- Copyright (C) 2026 Nguyễn Tiến Lộc -->
 <template>
   <div class="score-banner">
-    <!-- 3 stat cards row — Priority ở giữa rộng 15% hơn -->
+    <!-- 2 stat cards row — Priority rộng 15% hơn -->
     <div class="sb-stats">
       <div
         class="sb-card lead"
@@ -24,17 +24,6 @@
         <div class="sb-num">{{ priorityDisplay }}</div>
         <div class="sb-lbl">Priority</div>
         <div class="sb-trend" :class="priorityTagClass">{{ priorityTagText }}</div>
-      </div>
-
-      <div
-        class="sb-card eng"
-        @mouseenter="hovered = 'eng'"
-        @mouseleave="hovered = null"
-      >
-        <div class="sb-icon">💬</div>
-        <div class="sb-num">{{ engagementDisplay }}</div>
-        <div class="sb-lbl">Engagement</div>
-        <div class="sb-trend" :class="engagementTrendClass">{{ engagementTrendText }}</div>
       </div>
     </div>
 
@@ -66,41 +55,16 @@
       <template v-else-if="hovered === 'priority'">
         <div class="tt-title"><span class="tt-icon">🎯</span> Priority Score</div>
         <div class="tt-def">
-          <strong>Điểm ưu tiên gọi hôm nay (0-100).</strong> KHÔNG tự đo — là tổng hợp 3 yếu tố:
+          <strong>Điểm ưu tiên gọi hôm nay (0-100).</strong> Hiện tại = Lead Score.
         </div>
-        <div class="tt-formula">Priority = Lead × 55% + Engagement × 30% + bonus trend</div>
         <div class="tt-section">Cách tăng điểm:</div>
         <ul class="tt-list">
-          <li>Mọi hành động tăng Lead hoặc Engagement (xem 2 tooltip kia)</li>
-          <li>Tạo momentum: nhắn KH đều 3-4 ngày liên tục → trend Engagement ↑ → <strong>bonus +10</strong></li>
-          <li>Tránh để KH im lặng &gt; 7 ngày → trend ↓ → <strong>trừ -5</strong></li>
-          <li>Đặt lịch hẹn KH sắp tới → bonus event (phase tiếp)</li>
+          <li>Mọi hành động tăng Lead (xem tooltip kia)</li>
         </ul>
         <div class="tt-action">
           <strong style="color:#FCA5A5">Cao (&gt;80)</strong> = ưu tiên #1, gọi ngay ·
           <strong>Trung (30-60)</strong> = nuôi đều ·
           <strong style="color:#9CA3AF">Thấp (&lt;30)</strong> = bỏ qua tuần này
-        </div>
-      </template>
-
-      <!-- 💬 Engagement -->
-      <template v-else-if="hovered === 'eng'">
-        <div class="tt-title"><span class="tt-icon">💬</span> Engagement Score</div>
-        <div class="tt-def">
-          <strong>Mức tương tác 4 tuần qua (0-100).</strong> KHÔNG đọc nội dung — chỉ đếm hành vi của KH.
-        </div>
-        <div class="tt-section">Cách tăng điểm (sale làm gì để KH hành động):</div>
-        <ul class="tt-list">
-          <li>Hỏi xin ảnh / giấy tờ / CMND → KH gửi → <strong>+15</strong> mỗi tin</li>
-          <li>Khuyến khích KH gọi voice → <strong>+30</strong> mỗi voice</li>
-          <li>Gửi content kích thích phản ứng (meme, ảnh sản phẩm đẹp) → KH thả ❤️ → <strong>+30</strong></li>
-          <li>Im lặng có chiến lược 1-2 ngày → KH chủ động nhắn trước → <strong>+20/ngày</strong></li>
-          <li>Gửi tin nhắn để KH reply lại → <strong>+5</strong> mỗi tin (cả 2 chiều)</li>
-          <li>Gửi sticker thân thiện → KH thả sticker lại → engagement signal</li>
-        </ul>
-        <div class="tt-action">
-          <strong style="color:#FCA5A5">Trend ↑</strong> = đang nóng lên ·
-          <strong style="color:#9CA3AF">Trend ↓</strong> = nguội đi (so 7 ngày này vs 7 ngày trước)
         </div>
       </template>
     </div>
@@ -118,36 +82,23 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 
-type ScoreKey = 'lead' | 'priority' | 'eng';
+type ScoreKey = 'lead' | 'priority';
 const hovered = ref<ScoreKey | null>(null);
 
 interface ScoreData {
   lead: number | null;
-  engagement: number | null;
   priority: number | null;
-  engagementTrend: number | null;
-  engagementPattern: string | null;
 }
 
 const props = defineProps<{
   scores: ScoreData;
 }>();
 
-const PATTERN_LABELS: Record<string, string> = {
-  hot: '🔥 Nóng lên',
-  champion: '💎 Champion',
-  stable: '📈 Ổn định',
-  cooling: '⚠ Đang nguội',
-  cold: '😴 Lạnh',
-  noise: 'Chưa đủ data',
-};
-
 const EMPTY_TAG = '—';
 
 // Display values cho số chính — '0' khi null để layout không nhảy
 const leadDisplay = computed(() => props.scores.lead ?? 0);
 const priorityDisplay = computed(() => props.scores.priority ?? 0);
-const engagementDisplay = computed(() => props.scores.engagement ?? 0);
 
 const leadTrendText = computed(() => {
   const score = props.scores.lead;
@@ -181,31 +132,6 @@ const priorityTagClass = computed(() => {
   return 'tag-cold';
 });
 
-const engagementTrendText = computed(() => {
-  const trend = props.scores.engagementTrend;
-  const pattern = props.scores.engagementPattern;
-  if (trend === null && !pattern) return EMPTY_TAG;
-  if (pattern && PATTERN_LABELS[pattern]) return PATTERN_LABELS[pattern];
-  if (trend !== null && trend !== undefined) {
-    if (trend >= 20) return `↑ +${trend}%`;
-    if (trend <= -20) return `↓ ${trend}%`;
-    return '→ Ổn định';
-  }
-  return EMPTY_TAG;
-});
-const engagementTrendClass = computed(() => {
-  const trend = props.scores.engagementTrend;
-  const pattern = props.scores.engagementPattern;
-  if (trend === null && !pattern) return 'tag-empty';
-  if (pattern === 'hot' || pattern === 'champion') return 'tag-hot';
-  if (pattern === 'cooling' || pattern === 'cold') return 'tag-cold';
-  if (pattern === 'noise') return 'tag-empty';
-  if (trend !== null && trend !== undefined) {
-    if (trend >= 20) return 'tag-hot';
-    if (trend <= -20) return 'tag-cold';
-  }
-  return 'tag-warm';
-});
 </script>
 
 <style scoped>
@@ -217,10 +143,10 @@ const engagementTrendClass = computed(() => {
   position: relative;
 }
 
-/* 3 stat cards row — Priority center 15% wider để emphasize hierarchy */
+/* 2 stat cards row — Priority 15% wider để emphasize hierarchy */
 .sb-stats {
   display: grid;
-  grid-template-columns: 1fr 1.15fr 1fr;
+  grid-template-columns: 1fr 1.15fr;
   gap: 1px;
   background: #E4E5E9;
   position: relative;
@@ -275,14 +201,6 @@ const engagementTrendClass = computed(() => {
     rgba(255, 255, 255, 1) 100%
   );
 }
-.sb-card.eng {
-  background: linear-gradient(
-    180deg,
-    rgba(59, 130, 246, 0.22) 0%,
-    rgba(59, 130, 246, 0.10) 50%,
-    rgba(255, 255, 255, 1) 100%
-  );
-}
 
 .sb-icon {
   font-size: 13px;
@@ -305,7 +223,6 @@ const engagementTrendClass = computed(() => {
 }
 .sb-card.lead .sb-num { color: #F59E0B; }
 .sb-card.priority .sb-num { color: #EF4444; }
-.sb-card.eng .sb-num { color: #3B82F6; }
 
 .sb-lbl {
   font-size: 10px;
@@ -400,7 +317,6 @@ const engagementTrendClass = computed(() => {
 }
 .sb-tooltip.tt-lead .tt-arrow { left: 14%; }
 .sb-tooltip.tt-priority .tt-arrow { left: 50%; transform: translateX(-50%) rotate(45deg); }
-.sb-tooltip.tt-eng .tt-arrow { right: 14%; }
 
 .sb-tooltip .tt-title {
   font-size: 13.5px;
