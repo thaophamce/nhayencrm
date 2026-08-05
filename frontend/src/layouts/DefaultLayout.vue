@@ -19,7 +19,34 @@
 <!-- Primary nav tabs -->
       <nav class="nav-tabs">
         <template v-for="tab in visiblePrimaryTabs" :key="tab.path">
+          <!-- 1. Nút có subItems con → v-menu open-on-hover -->
+          <v-menu v-if="tab.subItems && tab.subItems.length > 0" open-on-hover :close-on-content-click="true">
+            <template #activator="{ props: act }">
+              <RouterLink
+                :to="tab.path"
+                class="nav-tab"
+                :class="{ active: isActive(tab) }"
+                v-bind="act"
+              >
+                <v-icon :icon="tab.icon" size="16" class="ic-svg" />{{ tab.label }}
+              </RouterLink>
+            </template>
+            <v-list density="compact" min-width="220" class="nav-dropdown-list">
+              <v-list-subheader>{{ tab.label }}</v-list-subheader>
+              <template v-for="sub in tab.subItems" :key="sub.path + (sub.action || '')">
+                <v-list-item
+                  v-if="!sub.resource || authStore.canAccess(sub.resource, sub.action || 'access')"
+                  :to="sub.path"
+                  :title="sub.label"
+                  :prepend-icon="sub.icon"
+                />
+              </template>
+            </v-list>
+          </v-menu>
+
+          <!-- 2. Nút đơn thường (Dashboard, Tin nhắn) -->
           <RouterLink
+            v-else
             :to="tab.path"
             class="nav-tab"
             :class="{ active: isActive(tab) }"
@@ -318,68 +345,98 @@ onMounted(() => {
 
 });
 
+interface SubItem {
+  path: string;
+  label: string;
+  icon: string;
+  resource?: string;
+  action?: string;
+}
+
 interface NavTab {
   path: string;
   label: string;
   icon: string;
   matchPrefix?: string;
-  // RBAC 2026-06-08 — resource cần để thấy tab. Không có resource = luôn hiện.
   resource?: string;
+  subItems?: SubItem[];
 }
 
-// HD-first redesign 2026-05-28 (anh chốt Variant A): 7 primary tabs + 2 dropdown.
-// Bỏ: "KH đình trệ" (move vào Dashboard alert), "Phân tích" (gộp Báo cáo dropdown),
-//     "Báo cáo" tab riêng (gộp dropdown), Automation legacy dropdown (Marketing thay).
-// Icons MDI line stroke-2 (mdi-*-outline) thay emoji để nhất quán + đổi màu theo theme.
 const primaryTabs: NavTab[] = [
-  { path: '/',                       label: 'Dashboard',   icon: 'mdi-view-dashboard-outline', matchPrefix: '/$', resource: 'dashboard' },
-  { path: '/chat',                   label: 'Tin nhắn',    icon: 'mdi-message-text-outline', resource: 'conversation' },
-  { path: '/pancake-orders',         label: 'Giao vận', icon: 'mdi-truck-delivery-outline', resource: 'delivery' },
-  { path: '/orders',                 label: 'Đơn thiết kế', icon: 'mdi-palette-outline', resource: 'orders' },
-  { path: '/salary',                 label: 'Nhân sự', icon: 'mdi-calendar-account-outline' },
+  { path: '/', label: 'Dashboard', icon: 'mdi-view-dashboard-outline', matchPrefix: '/$', resource: 'dashboard' },
+  { path: '/chat', label: 'Tin nhắn', icon: 'mdi-message-text-outline', resource: 'conversation' },
+  {
+    path: '/pancake-orders',
+    label: 'Giao vận',
+    icon: 'mdi-truck-delivery-outline',
+    resource: 'delivery',
+    subItems: [
+      { path: '/pancake-orders?tab=overview', label: 'Tổng quan', icon: 'mdi-view-dashboard-outline', resource: 'delivery', action: 'access' },
+      { path: '/pancake-orders?tab=delivery', label: 'Giao vận', icon: 'mdi-clipboard-list-outline', resource: 'delivery', action: 'create' },
+      { path: '/pancake-orders?tab=reports', label: 'Báo cáo', icon: 'mdi-chart-box-outline', resource: 'delivery', action: 'view_all' },
+      { path: '/pancake-orders?tab=products', label: 'Áo + Ảnh', icon: 'mdi-tshirt-crew-outline', resource: 'delivery', action: 'edit' },
+      { path: '/pancake-orders?tab=business', label: 'Doanh thu', icon: 'mdi-finance', resource: 'delivery_business', action: 'access' },
+      { path: '/pancake-orders?tab=activity', label: 'Hoạt động gần đây', icon: 'mdi-history', resource: 'delivery', action: 'view_all' },
+      { path: '/pancake-orders?tab=pancake', label: 'Đơn Pancake', icon: 'mdi-store-outline', resource: 'delivery', action: 'access' },
+    ],
+  },
+  {
+    path: '/orders',
+    label: 'Đơn thiết kế',
+    icon: 'mdi-palette-outline',
+    resource: 'orders',
+    subItems: [
+      { path: '/orders?tab=overview', label: 'Tổng quan', icon: 'mdi-view-dashboard-outline', resource: 'orders', action: 'access' },
+      { path: '/orders?tab=list', label: 'Đơn hàng', icon: 'mdi-format-list-bulleted', resource: 'orders', action: 'create' },
+      { path: '/orders?tab=salary', label: 'Lương thiết kế', icon: 'mdi-cash-multiple', resource: 'orders_salary', action: 'access' },
+      { path: '/orders?tab=report', label: 'Báo cáo', icon: 'mdi-chart-box-outline', resource: 'orders', action: 'view_all' },
+    ],
+  },
+  {
+    path: '/salary',
+    label: 'Nhân sự',
+    icon: 'mdi-calendar-account-outline',
+    subItems: [
+      { path: '/salary?tab=checkin', label: 'Chấm công', icon: 'mdi-clock-check-outline', resource: 'attendance', action: 'access' },
+      { path: '/salary?tab=leaveAdmin', label: 'Duyệt nghỉ phép', icon: 'mdi-calendar-check-outline', resource: 'leave', action: 'edit' },
+      { path: '/salary?tab=config', label: 'Cấu hình chấm công', icon: 'mdi-cog-outline', resource: 'attendance', action: 'view_all' },
+      { path: '/salary?tab=table', label: 'Bảng lương', icon: 'mdi-table-account', resource: 'payroll', action: 'view_all' },
+      { path: '/salary?tab=salaryMine', label: 'Phiếu lương của tôi', icon: 'mdi-file-document-outline', resource: 'payroll', action: 'access' },
+    ],
+  },
+  {
+    path: '/finance',
+    label: 'Tài chính',
+    icon: 'mdi-finance',
+    resource: 'finance',
+    subItems: [
+      { path: '/finance?tab=overview', label: 'Tổng quan', icon: 'mdi-view-dashboard-outline', resource: 'finance', action: 'access' },
+      { path: '/finance?tab=reserve', label: 'Quỹ dự phòng', icon: 'mdi-shield-check-outline', resource: 'finance', action: 'create' },
+      { path: '/finance?tab=profit', label: 'Quỹ lợi nhuận', icon: 'mdi-trending-up', resource: 'finance', action: 'edit' },
+      { path: '/finance?tab=debts', label: 'Công nợ', icon: 'mdi-account-cash-outline', resource: 'finance', action: 'delete' },
+      { path: '/finance?tab=cashflow', label: 'Dòng tiền', icon: 'mdi-swap-horizontal', resource: 'finance', action: 'view_all' },
+    ],
+  },
+  {
+    path: '/marketing/friend-blast',
+    label: 'Marketing',
+    icon: 'mdi-bullhorn-outline',
+    matchPrefix: '/marketing',
+    subItems: [
+      { path: '/marketing/friend-blast', label: 'Gửi tin nhắn bạn bè', icon: 'mdi-message-fast-outline', resource: 'friend_blast', action: 'access' },
+      { path: '/marketing/group-blast', label: 'Gửi tin nhắn nhóm', icon: 'mdi-account-group-outline', resource: 'broadcast', action: 'access' },
+      { path: '/marketing/unfriend-blast', label: 'Huỷ kết bạn hàng loạt', icon: 'mdi-account-minus-outline', resource: 'friend_blast', action: 'edit' },
+      { path: '/marketing/group-leave-blast', label: 'Rời nhóm hàng loạt', icon: 'mdi-logout-variant', resource: 'broadcast', action: 'edit' },
+    ],
+  },
 ];
-
-// RBAC 2026-06-09 — tab Marketing là module gồm nhiều chức năng. Hiện nếu user có
-// quyền BẤT KỲ chức năng nào, và trỏ tới chức năng ĐẦU TIÊN user có quyền (vd Sale
-// chỉ có Khối → tab Marketing trỏ thẳng /marketing/blocks). Thứ tự = thứ tự sidebar.
-const MARKETING_FUNCTIONS: Array<{ path: string; resource: string }> = [
-  { path: '/marketing/triggers',     resource: 'trigger' },
-  { path: '/marketing/care-sessions',resource: 'care_session' },
-  { path: '/marketing/sequences',    resource: 'sequence' },
-  { path: '/marketing/blocks',       resource: 'block' },
-  { path: '/marketing/broadcasts',   resource: 'broadcast' },
-  { path: '/marketing/lists',        resource: 'customer_list' },
-];
-const marketingEntry = computed(() =>
-  MARKETING_FUNCTIONS.find((f) => authStore.canAccess(f.resource))?.path ?? null,
-);
 
 // RBAC 2026-06-08 — chỉ hiện tab user có quyền (Dashboard + Lịch hẹn luôn hiện).
 const visiblePrimaryTabs = computed(() => {
-  const tabs = primaryTabs.filter((t) => {
+  return primaryTabs.filter((t) => {
     if (t.path === '/salary') return authStore.canAccess('attendance') || authStore.canAccess('payroll');
     return !t.resource || authStore.canAccess(t.resource);
   });
-  // Tab Marketing — edition-aware (open-core):
-  //  - EE: menu Marketing đầy đủ (triggers/sequences/…); hiện khi có quyền ≥1 chức năng.
-  //  - Community: menu Marketing RIÊNG, chỉ Quét nhóm + Tệp khách hàng (route /marketing
-  //    chỉ đăng ký khi !isExtension — xem router). KHÔNG dùng marketingEntry (resource EE).
-  if (isExtension && marketingEntry.value) {
-    tabs.push({
-      path: marketingEntry.value,
-      label: 'Marketing',
-      icon: 'mdi-bullhorn-outline',
-      matchPrefix: '/marketing',
-    });
-  } else if (!isExtension) {
-    tabs.push({
-      path: '/marketing/friend-blast',
-      label: 'Marketing',
-      icon: 'mdi-bullhorn-outline',
-      matchPrefix: '/marketing',
-    });
-  }
-  return tabs;
 });
 // (2026-06-10) Bỏ showOrgGroup/showCrmGroup — dropdown redesign thành lối tắt phẳng,
 // lọc per-item theo grants trực tiếp, không còn subheader nhóm cần gate.

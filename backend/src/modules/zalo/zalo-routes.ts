@@ -8,6 +8,7 @@ import type { FastifyInstance } from 'fastify';
 import { Prisma } from '@prisma/client';
 import { authMiddleware } from '../auth/auth-middleware.js';
 import { zaloPool } from './zalo-pool.js';
+import { resolveZaloStatus } from './zalo-status.js';
 import { prisma, tenantTransaction } from '../../shared/database/prisma-client.js';
 import { getZaloScope, canManageAccount, requireAccountManagement, requireAccountVisible } from './zalo-scope.js';
 import { requireGrant } from '../rbac/rbac-middleware.js';
@@ -50,14 +51,20 @@ export async function zaloRoutes(app: FastifyInstance): Promise<void> {
     });
 
     // Merge live status from pool; mask proxy credentials; thêm canManage flag
-    return accounts.map((a) => ({
-      ...a,
-      proxyUrl: a.proxyUrl ? maskProxyUrl(a.proxyUrl) : null,
-      hasProxy: !!a.proxyUrl,
-      liveStatus: zaloPool.getStatus(a.id),
-      canManage: canManageAccount(a.ownerUserId, userId, user.role),
-      isOwnedByMe: a.ownerUserId === userId,
-    }));
+    return accounts.map((a) => {
+      const liveStatus = resolveZaloStatus(a.status, zaloPool.getInstance(a.id)?.status);
+      return {
+        ...a,
+        // `status` là trạng thái hiệu lực để mọi consumer cũ cũng đọc đúng.
+        // `liveStatus` giữ tương thích cho các màn hình đã ưu tiên trạng thái realtime.
+        status: liveStatus,
+        proxyUrl: a.proxyUrl ? maskProxyUrl(a.proxyUrl) : null,
+        hasProxy: !!a.proxyUrl,
+        liveStatus,
+        canManage: canManageAccount(a.ownerUserId, userId, user.role),
+        isOwnedByMe: a.ownerUserId === userId,
+      };
+    });
   });
 
   // POST /api/v1/zalo-accounts — create a new account record

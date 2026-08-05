@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { computed } from 'vue';
 import type { ShiftKey } from '@/constants/hr';
 
 export interface ShiftView {
@@ -11,8 +12,10 @@ export interface ShiftView {
   checkinLabel?: string;
 }
 
-defineProps<{ shifts: ShiftView[]; selected: ShiftKey; submitting?: ShiftKey | null; networkError?: string }>();
+const props=defineProps<{ shifts: ShiftView[]; selected: ShiftKey; submitting?: ShiftKey | null; networkError?: string }>();
 const emit = defineEmits<{ (e:'select', value:ShiftKey):void; (e:'checkin', value:ShiftKey):void }>();
+const selectedView=computed(()=>props.shifts.find(s=>s.key===props.selected));
+const checkinLabel=computed(()=>{const view=selectedView.value;if(!view)return'Chưa có ca phù hợp';if(['done','late'].includes(view.state))return'Ca này đã chấm công';if(view.state==='upcoming')return`Mở lúc ${view.time.split('–')[0].trim()}`;if(view.state==='ended')return'Ca đã kết thúc';return`Chấm công ${view.label.toLowerCase()}`});
 </script>
 
 <template>
@@ -50,12 +53,12 @@ const emit = defineEmits<{ (e:'select', value:ShiftKey):void; (e:'checkin', valu
 
     <v-btn
       block color="primary" size="large" class="card-checkin"
-      :disabled="['done','late'].includes(shifts.find(s => s.key === selected)?.state || '')"
+      :disabled="selectedView?.state !== 'active'"
       :loading="submitting === selected"
       prepend-icon="mdi-fingerprint"
       @click="emit('checkin', selected)"
     >
-      {{ ['done','late'].includes(shifts.find(s => s.key === selected)?.state || '') ? 'Ca này đã chấm công' : shifts.find(s => s.key === selected)?.state === 'ended' ? 'Ca đã kết thúc' : `Chấm công ${shifts.find(s => s.key === selected)?.label.toLowerCase()}` }}
+      {{ checkinLabel }}
     </v-btn>
   </section>
 </template>

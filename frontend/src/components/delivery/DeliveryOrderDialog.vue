@@ -1,7 +1,7 @@
 <template>
   <v-dialog
     v-model="open"
-    :max-width="isEditing ? 1120 : 720"
+    :max-width="isEditing ? 1320 : 720"
     scrollable
     :fullscreen="mobile"
     class="delivery-order-dialog"
@@ -50,13 +50,35 @@
               </div>
 
               <div class="field-grid two">
-                <v-text-field v-model="form.orderCode" label="Mã đơn *" placeholder="VD: DH1284" :rules="requiredCode" prepend-inner-icon="mdi-barcode" />
+                <v-text-field class="order-code-field" v-model="form.orderCode" label="Mã đơn *" placeholder="VD: DH1284" :rules="requiredCode" prepend-inner-icon="mdi-barcode" />
                 <v-text-field v-model="form.createdDate" type="date" label="Ngày lên đơn *" />
                 <v-text-field v-model.number="form.quantity" type="number" min="1" label="Số lượng" prepend-inner-icon="mdi-counter" />
-                <v-text-field v-model.number="form.totalAmount" type="number" min="0" label="Tổng tiền *" suffix="đ" @focus="$event.target?.select()" />
-                <v-text-field v-model.number="form.deposit" type="number" min="0" label="Đặt cọc" suffix="đ" @focus="$event.target?.select()" />
+                <v-text-field
+                  :model-value="displayTotalAmount"
+                  label="Tổng tiền *"
+                  suffix="đ"
+                  @update:model-value="onUpdateTotalAmount"
+                  @blur="onBlurTotalAmount"
+                  @focus="$event.target?.select()"
+                />
+                <v-text-field
+                  :model-value="displayDeposit"
+                  label="Đặt cọc"
+                  suffix="đ"
+                  @update:model-value="onUpdateDeposit"
+                  @blur="onBlurDeposit"
+                  @focus="$event.target?.select()"
+                />
                 <v-select v-model="form.paymentStatus" :items="paymentStatuses" item-title="label" item-value="value" label="Trạng thái thanh toán" />
                 <v-select v-model="form.deliveryMethod" :items="deliveryMethods" item-title="label" item-value="value" label="Hình thức giao *" />
+                <v-select
+                  v-if="form.deliveryMethod === 'pickup'"
+                  v-model="form.warehouseName"
+                  :items="workshopOptions"
+                  label="Xưởng nhận hàng *"
+                  placeholder="-- Chọn xưởng --"
+                  :rules="[(v: string) => !!v || 'Vui lòng chọn xưởng nhận hàng']"
+                />
               </div>
 
               <v-textarea v-model="form.notes" label="Ghi chú đơn hàng" placeholder="Thông tin cần lưu ý cho đơn hàng..." rows="4" no-resize />
@@ -130,7 +152,7 @@ import { computed, reactive, ref, watch } from 'vue';
 import { useDisplay } from 'vuetify';
 import { api } from '@/api';
 import { useToast } from '@/composables/use-toast';
-import { paymentStatuses, deliveryMethods } from '@/constants/delivery';
+import { paymentStatuses, deliveryMethods, workshopOptions } from '@/constants/delivery';
 
 const props = withDefaults(defineProps<{
   modelValue?: boolean;
@@ -160,7 +182,13 @@ const productTypes = [
   { value: 'anh', label: 'Ảnh', icon: 'mdi-image-outline' },
 ];
 const requiredCode = [(value: string) => !!value?.trim() || 'Vui lòng nhập mã đơn'];
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => {
+  const d = new Date();
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
 const blank = () => ({
   orderCode: '', productType: 'invitation', quantity: 1, createdDate: today(), totalAmount: 0, deposit: 0,
   paymentStatus: 'unpaid', deliveryMethod: 'viettelpost', deliveryStatus: 'pending', warehouseName: '',
@@ -172,10 +200,54 @@ const isEditing = computed(() => Boolean(props.model?.id || props.model?.orderCo
 const remaining = computed(() => form.paymentStatus === 'paid' ? 0 : Math.max(0, Number(form.totalAmount || 0) - Number(form.deposit || 0)));
 const trackingSummary = computed(() => tracking.value?.trackingCode ? `Mã vận đơn ${tracking.value.trackingCode}` : 'Đồng bộ trực tiếp từ Pancake');
 
+const displayTotalAmount = ref<string>('0');
+const displayDeposit = ref<string>('0');
+const totalAmountDirty = ref(false);
+const depositDirty = ref(false);
+
+function parseAmountInput(val: string): number {
+  const clean = String(val || '').replace(/[^0-9]/g, '');
+  const num = Number(clean) || 0;
+  return num > 0 ? num * 1000 : 0;
+}
+
+function formatNumberWithDots(val: number): string {
+  if (!val) return '0';
+  return new Intl.NumberFormat('vi-VN').format(val);
+}
+
+function onUpdateTotalAmount(val: string) {
+  displayTotalAmount.value = val;
+  totalAmountDirty.value = true;
+  form.totalAmount = parseAmountInput(val);
+}
+
+function onBlurTotalAmount() {
+  if (totalAmountDirty.value) form.totalAmount = parseAmountInput(displayTotalAmount.value);
+  displayTotalAmount.value = formatNumberWithDots(form.totalAmount);
+  totalAmountDirty.value = false;
+}
+
+function onUpdateDeposit(val: string) {
+  displayDeposit.value = val;
+  depositDirty.value = true;
+  form.deposit = parseAmountInput(val);
+}
+
+function onBlurDeposit() {
+  if (depositDirty.value) form.deposit = parseAmountInput(displayDeposit.value);
+  displayDeposit.value = formatNumberWithDots(form.deposit);
+  depositDirty.value = false;
+}
+
 watch(() => [open.value, props.model], () => {
   if (!open.value) return;
   Object.assign(form, blank(), props.model || {});
   form.createdDate = toDateInput(props.model?.createdDate) || today();
+  displayTotalAmount.value = formatNumberWithDots(form.totalAmount);
+  displayDeposit.value = formatNumberWithDots(form.deposit);
+  totalAmountDirty.value = false;
+  depositDirty.value = false;
   tracking.value = null;
   codTouched.value = Number(props.model?.codAmount || 0) > 0;
   if (!codTouched.value) form.codAmount = remaining.value;
@@ -218,6 +290,13 @@ function formatDateTime(value?: string) {
 }
 async function save() {
   if (saving.value) return;
+  // Normalize typed values, but never multiply an existing formatted amount again.
+  if (totalAmountDirty.value) form.totalAmount = parseAmountInput(displayTotalAmount.value);
+  if (depositDirty.value) form.deposit = parseAmountInput(displayDeposit.value);
+  displayTotalAmount.value = formatNumberWithDots(form.totalAmount);
+  displayDeposit.value = formatNumberWithDots(form.deposit);
+  totalAmountDirty.value = false;
+  depositDirty.value = false;
   const result = await formRef.value?.validate();
   if (result && !result.valid) return;
   saving.value = true;
@@ -237,11 +316,12 @@ async function save() {
 </script>
 
 <style scoped>
-.order-modal{height:min(860px,calc(100vh - 32px));overflow:hidden;background:var(--surface-2,#F7F8FC);color:#172033;border:1px solid rgba(255,255,255,.18);box-shadow:0 28px 80px rgba(15,23,42,.3)!important}.modal-header{height:76px;flex:0 0 auto;display:flex;align-items:center;gap:12px;padding:0 22px;background:#1A6FD4;color:#fff}.header-mark{width:40px;height:40px;border-radius:18px;display:grid;place-items:center;background:rgba(255,255,255,.16);color:#fff;border:1px solid rgba(255,255,255,.2)}.header-copy{min-width:0}.header-copy h2{margin:0;font-size:18px;line-height:1.3;font-weight:800}.header-copy p{margin:3px 0 0;color:rgba(255,255,255,.78);font-size:12px}.close-button{margin-left:auto!important;color:#fff!important;background:rgba(255,255,255,.1)}.modal-body{padding:18px!important;overflow:auto}.form-layout{display:grid;grid-template-columns:minmax(330px,.78fr) minmax(500px,1.22fr);gap:16px;align-items:start}.order-column{background:#fff;border:1px solid #dfe5ed;border-radius:18px;padding:16px;box-shadow:0 5px 20px rgba(31,41,55,.04)}.details-column{display:grid;gap:14px}.form-card{background:#fff;border:1px solid #dfe5ed;border-radius:18px;overflow:hidden;box-shadow:0 5px 20px rgba(31,41,55,.04)}.section-heading{display:flex;align-items:center;gap:10px;padding:13px 14px;border-bottom:1px solid #edf0f5}.section-heading.standalone{padding:0 0 13px;border-bottom:0}.section-heading h3{font-size:13px;line-height:1.35;margin:0;text-transform:uppercase;letter-spacing:.025em;font-weight:800;color:#253248}.section-heading p{font-size:11px;color:#7d899b;margin:2px 0 0}.section-icon{width:32px;height:32px;display:grid;place-items:center;border-radius:10px;flex:0 0 auto}.section-icon.amber{background:var(--brand-soft,#EBF3FF);color:var(--brand,#2F80ED)}.section-icon.blue{background:var(--brand-soft,#EBF3FF);color:var(--brand,#2F80ED)}.section-icon.green{background:#e6f8ee;color:#158a4e}.card-content{padding:14px 14px 2px}.product-picker{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:16px}.product-picker button{height:48px;border:1px solid #dbe2eb;border-radius:10px;background:#fff;color:#657187;display:flex;align-items:center;justify-content:center;gap:7px;font:inherit;font-size:13px;font-weight:700;cursor:pointer;transition:.18s ease}.product-picker button:hover{border-color:#88afe6;background:#f7faff}.product-picker button.active{color:var(--brand-700,#1565c0);border-color:var(--brand,#2F80ED);background:var(--brand-soft,#EBF3FF);box-shadow:0 0 0 2px rgba(47,128,237,.1)}.field-grid{display:grid;gap:0 10px}.field-grid.two{grid-template-columns:repeat(2,minmax(0,1fr))}.field-grid.three{grid-template-columns:repeat(3,minmax(0,1fr))}.payment-summary{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;border-top:1px solid #edf0f5;padding-top:14px}.payment-summary div{padding:10px;border-radius:10px;background:#f7f9fc}.payment-summary span,.footer-balance span{display:block;color:#7b8798;font-size:10px;text-transform:uppercase;letter-spacing:.05em}.payment-summary strong{display:block;font-size:13px;margin-top:4px;color:#253248}.payment-summary .remaining{background:#edf8f3}.payment-summary .remaining strong{color:#0b9a58}.tracking-heading>.v-btn{margin-left:auto}.tracking-content{padding:12px 16px}.tracking-overview{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.tracking-code{padding:3px 8px;border:1px solid #dce3ec;border-radius:7px;background:#f7f9fc;font-size:11px;font-weight:700}.tracking-status{padding:3px 8px;border-radius:999px;background:#EBF3FF;color:#1A6FD4;font-size:11px;font-weight:700}.tracking-overview a{font-size:11px;color:#1A6FD4}.tracking-meta{display:flex;flex-wrap:wrap;gap:6px 18px;padding:10px 0;border-bottom:1px solid #edf0f5;color:#536075;font-size:11px}.tracking-meta b{color:#253248}.tracking-list{padding:8px 16px 12px}.tracking-event{position:relative;display:flex;gap:10px;padding:7px 0 7px 2px}.tracking-event:not(:last-child):before{content:"";position:absolute;left:6px;top:19px;bottom:-8px;width:1px;background:#dbe5de}.tracking-dot{width:9px;height:9px;border-radius:50%;background:#28a765;margin-top:4px;box-shadow:0 0 0 3px #e5f7ed;z-index:1}.tracking-event strong,.tracking-event small{display:block}.tracking-event strong{font-size:12px}.tracking-event small{font-size:11px;color:#7b8798;margin-top:2px}.tracking-empty{display:flex;align-items:center;justify-content:center;gap:8px;padding:18px;color:#93a0b2;font-size:12px}.modal-footer{min-height:68px;flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:11px 22px;background:#fff;border-top:1px solid #dfe5ed}.footer-balance strong{display:block;color:#08a85d;font-size:18px;margin-top:2px}.footer-actions{display:flex;gap:9px}.cancel-button{border-color:#d8dfe8}.order-modal :deep(.v-field){border-radius:10px;background:#fff}.order-modal :deep(.v-field__input){font-size:13px}.order-modal :deep(.v-label){font-size:12px}.order-modal :deep(.v-input__details){min-height:14px;padding-top:2px}.order-modal :deep(.v-textarea .v-field__input){line-height:1.45}.order-modal :deep(.v-btn){font-weight:700}
+.order-modal{height:min(860px,calc(100vh - 32px));overflow:hidden;background:var(--surface-2,#F7F8FC);color:#172033;border:1px solid rgba(255,255,255,.18);box-shadow:0 28px 80px rgba(15,23,42,.3)!important}.modal-header{height:76px;flex:0 0 auto;display:flex;align-items:center;gap:12px;padding:0 22px;background:#1A6FD4;color:#fff}.header-mark{width:40px;height:40px;border-radius:18px;display:grid;place-items:center;background:rgba(255,255,255,.16);color:#fff;border:1px solid rgba(255,255,255,.2)}.header-copy{min-width:0}.header-copy h2{margin:0;font-size:18px;line-height:1.3;font-weight:800}.header-copy p{margin:3px 0 0;color:rgba(255,255,255,.78);font-size:12px}.close-button{margin-left:auto!important;color:#fff!important;background:rgba(255,255,255,.1)}.modal-body{padding:18px!important;overflow:auto}.form-layout{display:grid;grid-template-columns:minmax(500px,1fr) minmax(500px,1fr);gap:16px;align-items:start}.order-column{background:#fff;border:1px solid #dfe5ed;border-radius:18px;padding:16px;box-shadow:0 5px 20px rgba(31,41,55,.04)}.details-column{display:grid;gap:14px}.form-card{background:#fff;border:1px solid #dfe5ed;border-radius:18px;overflow:hidden;box-shadow:0 5px 20px rgba(31,41,55,.04)}.section-heading{display:flex;align-items:center;gap:10px;padding:13px 14px;border-bottom:1px solid #edf0f5}.section-heading.standalone{padding:0 0 13px;border-bottom:0}.section-heading h3{font-size:13px;line-height:1.35;margin:0;text-transform:uppercase;letter-spacing:.025em;font-weight:800;color:#253248}.section-heading p{font-size:11px;color:#7d899b;margin:2px 0 0}.section-icon{width:32px;height:32px;display:grid;place-items:center;border-radius:10px;flex:0 0 auto}.section-icon.amber{background:var(--brand-soft,#EBF3FF);color:var(--brand,#2F80ED)}.section-icon.blue{background:var(--brand-soft,#EBF3FF);color:var(--brand,#2F80ED)}.section-icon.green{background:#e6f8ee;color:#158a4e}.card-content{padding:14px 14px 2px}.product-picker{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:16px}.product-picker button{height:48px;border:1px solid #dbe2eb;border-radius:10px;background:#fff;color:#657187;display:flex;align-items:center;justify-content:center;gap:7px;font:inherit;font-size:13px;font-weight:700;cursor:pointer;transition:.18s ease}.product-picker button:hover{border-color:#88afe6;background:#f7faff}.product-picker button.active{color:var(--brand-700,#1565c0);border-color:var(--brand,#2F80ED);background:var(--brand-soft,#EBF3FF);box-shadow:0 0 0 2px rgba(47,128,237,.1)}.field-grid{display:grid;gap:0 10px}.field-grid.two{grid-template-columns:repeat(2,minmax(0,1fr))}.field-grid.three{grid-template-columns:repeat(3,minmax(0,1fr))}.payment-summary{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;border-top:1px solid #edf0f5;padding-top:14px}.payment-summary div{padding:10px;border-radius:10px;background:#f7f9fc}.payment-summary span,.footer-balance span{display:block;color:#7b8798;font-size:10px;text-transform:uppercase;letter-spacing:.05em}.payment-summary strong{display:block;font-size:13px;margin-top:4px;color:#253248}.payment-summary .remaining{background:#edf8f3}.payment-summary .remaining strong{color:#0b9a58}.tracking-heading>.v-btn{margin-left:auto}.tracking-content{padding:12px 16px}.tracking-overview{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.tracking-code{padding:3px 8px;border:1px solid #dce3ec;border-radius:7px;background:#f7f9fc;font-size:11px;font-weight:700}.tracking-status{padding:3px 8px;border-radius:999px;background:#EBF3FF;color:#1A6FD4;font-size:11px;font-weight:700}.tracking-overview a{font-size:11px;color:#1A6FD4}.tracking-meta{display:flex;flex-wrap:wrap;gap:6px 18px;padding:10px 0;border-bottom:1px solid #edf0f5;color:#536075;font-size:11px}.tracking-meta b{color:#253248}.tracking-list{padding:8px 16px 12px}.tracking-event{position:relative;display:flex;gap:10px;padding:7px 0 7px 2px}.tracking-event:not(:last-child):before{content:"";position:absolute;left:6px;top:19px;bottom:-8px;width:1px;background:#dbe5de}.tracking-dot{width:9px;height:9px;border-radius:50%;background:#28a765;margin-top:4px;box-shadow:0 0 0 3px #e5f7ed;z-index:1}.tracking-event strong,.tracking-event small{display:block}.tracking-event strong{font-size:12px}.tracking-event small{font-size:11px;color:#7b8798;margin-top:2px}.tracking-empty{display:flex;align-items:center;justify-content:center;gap:8px;padding:18px;color:#93a0b2;font-size:12px}.modal-footer{min-height:68px;flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:11px 22px;background:#fff;border-top:1px solid #dfe5ed}.footer-balance strong{display:block;color:#08a85d;font-size:18px;margin-top:2px}.footer-actions{display:flex;gap:9px}.cancel-button{border-color:#d8dfe8}.order-modal :deep(.v-field){border-radius:10px;background:#fff}.order-modal :deep(.v-field__input){font-size:13px}.order-modal :deep(.v-label){font-size:12px}.order-modal :deep(.v-input__details){min-height:14px;padding-top:2px}.order-modal :deep(.v-textarea .v-field__input){line-height:1.45}.order-modal :deep(.v-btn){font-weight:700}
 @media(max-width:900px){.order-modal{height:100%;border-radius:0!important}.modal-header{height:68px;padding:0 14px}.modal-body{padding:12px!important}.form-layout{grid-template-columns:1fr}.order-column{padding:14px}.modal-footer{padding:10px 14px}}
 @media(max-width:600px){.header-mark{display:none}.header-copy h2{font-size:16px}.field-grid.two,.field-grid.three{grid-template-columns:1fr}.product-picker button{height:44px}.payment-summary{grid-template-columns:1fr 1fr}.payment-summary .remaining{grid-column:1/-1}.modal-footer{position:sticky;bottom:0}.footer-balance strong{font-size:15px}.footer-actions .v-btn{min-width:0;padding-inline:12px}}
 
 /* Popup giao vận: chữ lớn, đậm, dễ đọc. */
+@media(min-width:601px){.field-grid.two{grid-template-columns:minmax(0,1.2fr) minmax(0,.8fr)}}
 .order-modal:not(.is-editing){height:auto;max-height:calc(100vh - 32px)}
 .form-layout:not(.is-editing){display:block;max-width:100%}
 .form-layout:not(.is-editing) .order-column{width:100%}

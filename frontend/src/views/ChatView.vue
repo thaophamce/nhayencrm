@@ -75,6 +75,8 @@
       :messages="messages"
       :loading="loadingMsgs"
       :sending="sendingMsg"
+      :rate-limit-seconds="rateLimitSeconds"
+      :rate-limit-total-seconds="rateLimitTotalSeconds"
       :ai-suggestion="aiSuggestion"
       :ai-suggestion-loading="aiSuggestionLoading"
       :ai-suggestion-error="aiSuggestionError"
@@ -196,7 +198,7 @@ const router = useRouter();
 
 const {
   conversations, selectedConvId, selectedConv, messages,
-  loadingConvs, loadingMsgs, sendingMsg, searchQuery, accountFilter, extraFilters,
+  loadingConvs, loadingMsgs, sendingMsg, rateLimitSeconds, rateLimitTotalSeconds, searchQuery, accountFilter, extraFilters,
   aiSuggestion, aiSuggestionLoading, aiSuggestionError,
   aiSummary, aiSummaryLoading, aiSentiment, aiSentimentLoading,
   fetchConversations, fetchAiConfig, fetchMessages, selectConversation, sendMessage,
@@ -284,6 +286,7 @@ function exitRelatedMode() {
 const {
   accounts: zaloAccounts, fetchAccounts: fetchZaloAccounts,
   loginAccount, qrImage, qrScanned, scannedName, qrError, qrSessionDead, cancelQR,
+  setupSocket: setupZaloQrSocket,
 } = useZaloAccounts();
 
 // Chế độ an toàn (2026-07-23): banner/overlay "mất kết nối" trong MessageThread bấm
@@ -739,7 +742,7 @@ async function onSwitchToNickConv(convId: string) {
   if (!conversations.value.find(c => c.id === convId)) {
     await fetchConversations();
   }
-  router.push({ name: 'Chat', params: { convId } });
+  router.push({ name: 'Chat', params: { convId }, query: route.query });
 }
 
 // Cột phải mặc định luôn hiện cho từng hội thoại. Đóng chỉ áp dụng hội thoại đang mở;
@@ -773,7 +776,7 @@ function onSelectConv(convId: string) {
     void selectConversation(convId).then(() => refreshPriorityUnread());
     return;
   }
-  router.push({ name: 'Chat', params: { convId } });
+  router.push({ name: 'Chat', params: { convId }, query: route.query });
 }
 
 // Watch route → select conv khi convId thay đổi (deep-link, back/forward, mới click)
@@ -789,7 +792,10 @@ watch(
       void selectConversation(id).then(() => {
         // Sau resolve: selectedConv đã có (từ list HOẶC selectedConvDetail). Đọc nick của nó.
         const convNick = (selectedConv.value as any)?.zaloAccount?.id as string | undefined;
-        if (!relatedMode.value && shouldAdoptNickScope(workScope.accountIds.value, convNick) && convNick) {
+        if (route.query.source !== 'pancake'
+          && !relatedMode.value
+          && shouldAdoptNickScope(workScope.accountIds.value, convNick)
+          && convNick) {
           // setScope idempotent (đã check shouldAdopt → chắc chắn đổi). Persist localStorage
           // rồi reload → restoreScope nạp scope mới → cột 2 + cột 3 đều đúng nick B (hết split-brain).
           workScope.setScope([convNick]);
@@ -854,6 +860,7 @@ onMounted(async () => {
     fetchAiConfig();
     initSocket();
     registerSocketListeners(getSocket());
+    setupZaloQrSocket();
 
     // Wait for Zalo accounts to finish loading
     await accountsPromise;

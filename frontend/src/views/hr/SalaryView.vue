@@ -96,7 +96,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
 import { api } from '@/api';
 import { useAuthStore } from '@/stores/auth';
 import { formatVnd, formatMonthLabel, currentPeriod } from '@/constants/hr';
@@ -126,7 +126,19 @@ const visibleTabs = computed(() =>
   ].filter((t) => t.show),
 );
 
-const activeTab = ref(visibleTabs.value[0]?.value ?? 'checkin');
+import { useRoute } from 'vue-router';
+
+const route = useRoute();
+const activeTab = ref((route.query.tab as string) || visibleTabs.value[0]?.value || 'checkin');
+
+watch(
+  () => route.query.tab,
+  (newTab) => {
+    if (newTab && typeof newTab === 'string') {
+      activeTab.value = newTab;
+    }
+  },
+);
 
 function handleDashboardNavigate(target: 'leave' | 'history' | 'payroll') {
   const desired = target === 'leave' ? 'leave' : target === 'history' ? 'attendanceMine' : 'salaryMine';

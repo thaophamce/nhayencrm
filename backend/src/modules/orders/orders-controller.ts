@@ -3,6 +3,9 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import { prisma } from '../../shared/database/prisma-client.js';
 import { ORDER_STATUS_VALUES } from './order-status.js';
+import { calculateImportedMonthlySalaryStats } from './design-salary-calculator.js';
+import { userHasGrant } from '../rbac/permission-group-service.js';
+import type { Action } from '../rbac/permission-types.js';
 
 // Cấu hình lương mặc định đồng bộ từ Tracker
 const SALARY_CONFIG = {
@@ -11,18 +14,13 @@ const SALARY_CONFIG = {
   DESIGN_FEE: 100000
 };
 
-async function isAdminOrManagerUser(userId: string, role: string): Promise<boolean> {
-  if (role === 'owner' || role === 'admin') return true;
-  const u = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { permissionGroup: { select: { name: true } } },
-  });
-  return u?.permissionGroup?.name === 'Admin' || u?.permissionGroup?.name === 'Manager';
+async function canManageDesignOrders(userId: string, action: Action): Promise<boolean> {
+  return userHasGrant(userId, 'orders', action);
 }
 
 export async function getOrders(request: FastifyRequest, reply: FastifyReply) {
   const user = request.user!;
-  const { search, designerId, status, limit = 20, offset = 0 } = request.query as any;
+  const { search, designerId, status, dateFrom, dateTo, limit = 20, offset = 0 } = request.query as any;
 
   const where: any = { orgId: user.orgId };
   const parsedLimit = Number(limit);
@@ -39,12 +37,18 @@ export async function getOrders(request: FastifyRequest, reply: FastifyReply) {
   if (status) {
     where.status = status;
   }
+  if (dateFrom || dateTo) {
+    where.createdAt = {};
+    if (dateFrom) where.createdAt.gte = new Date(dateFrom);
+    if (dateTo) {
+      const end = new Date(dateTo);
+      end.setDate(end.getDate() + 1);
+      where.createdAt.lt = end;
+    }
+  }
 
   // Nếu user là nhân viên bình thường (Designer), chỉ cho phép họ xem đơn hàng được gán cho chính họ
-  const isAdminOrManager = await isAdminOrManagerUser(user.id, user.role);
-  if (!isAdminOrManager) {
-    where.designerId = user.id;
-  }
+  // Shared board: every authenticated user can view orders in their organization.
 
   try {
     const [orders, total] = await Promise.all([
@@ -100,7 +104,7 @@ export async function getOrderByConversation(request: FastifyRequest, reply: Fas
 
 export async function createOrder(request: FastifyRequest, reply: FastifyReply) {
   const user = request.user!;
-  const isAdminOrManager = await isAdminOrManagerUser(user.id, user.role);
+  const isAdminOrManager = await canManageDesignOrders(user.id, 'create');
 
   if (!isAdminOrManager) {
     return reply.status(403).send({ error: 'Bạn không có quyền tạo đơn hàng' });
@@ -136,8 +140,19 @@ export async function createOrder(request: FastifyRequest, reply: FastifyReply) 
 
     const orderStatus = status || 'demo';
 
-    const order = await prisma.order.create({
-      data: {
+    const now = new Date();
+    const nowIso = now.toISOString();
+    const timestamps: Record<string, string> = {};
+    if (orderStatus === 'approved') {
+      timestamps.designing = nowIso;
+      timestamps.approved = nowIso;
+    } else {
+      timestamps[orderStatus] = nowIso;
+    }
+    const hasStartedDesigning = orderStatus === 'designing' || orderStatus === 'approved';
+
+    const order = await prisma.$transaction(async tx => {
+      const created = await tx.order.create({ data: {
         orderCode,
         fileCount: Number(fileCount) || 0,
         deadline: deadline ? new Date(deadline) : null,
@@ -149,37 +164,23 @@ export async function createOrder(request: FastifyRequest, reply: FastifyReply) 
         orgId: user.orgId,
         status: orderStatus,
         conversationId: conversationId || null,
-      }
+        timestamps,
+        fileCountHistory: hasStartedDesigning ? [{ count: Number(fileCount) || 0, changedAt: nowIso }] : [],
+        designFeeTickedAt: hasDesignFee ? now : null,
+      }});
+      await tx.orderStatusHistory.create({ data: {
+        orderId: created.id,
+        status: orderStatus,
+        changedById: user.id,
+      }});
+      return created;
     });
 
     // Tạo lịch sử trạng thái ban đầu
-    await prisma.orderStatusHistory.create({
-      data: {
-        orderId: order.id,
-        status: orderStatus,
-        changedById: user.id,
-      }
-    });
+    /* Initial history is written once inside the transaction above. */
 
     // Nếu gán luôn designer và trạng thái là designing hoặc approved, ghi nhận lịch sử tương ứng
-    if (designerId && (orderStatus === 'designing' || orderStatus === 'approved')) {
-      await prisma.orderStatusHistory.create({
-        data: {
-          orderId: order.id,
-          status: 'designing',
-          changedById: user.id,
-        }
-      });
-      if (orderStatus === 'approved') {
-        await prisma.orderStatusHistory.create({
-          data: {
-            orderId: order.id,
-            status: 'approved',
-            changedById: user.id,
-          }
-        });
-      }
-    }
+    /* Salary milestones live in timestamps/fileCountHistory, not duplicate status rows. */
 
     return order;
   } catch (error) {
@@ -206,7 +207,7 @@ export async function updateOrder(request: FastifyRequest, reply: FastifyReply) 
       return reply.status(404).send({ error: 'Đơn hàng không tồn tại' });
     }
 
-    const isAdminOrManager = await isAdminOrManagerUser(user.id, user.role);
+    const isAdminOrManager = await canManageDesignOrders(user.id, 'edit');
 
     if (!isAdminOrManager) {
       // Designer chỉ được chuyển trạng thái đơn hàng của chính mình và ghi chú
@@ -216,19 +217,31 @@ export async function updateOrder(request: FastifyRequest, reply: FastifyReply) 
 
       const updateData: any = {};
       if (status && status !== existing.status) {
+        const nowIso = new Date().toISOString();
+        const timestamps = existing.timestamps && typeof existing.timestamps === 'object' && !Array.isArray(existing.timestamps)
+          ? { ...(existing.timestamps as Record<string, unknown>) }
+          : {};
+        const fileCountHistory = Array.isArray(existing.fileCountHistory)
+          ? [...existing.fileCountHistory] as Array<Record<string, unknown>>
+          : [];
+        if ((status === 'designing' || status === 'approved') && !timestamps.designing) {
+          timestamps.designing = nowIso;
+          fileCountHistory.push({ count: existing.fileCount, changedAt: nowIso });
+        }
+        timestamps[status] = nowIso;
         updateData.status = status;
-        await prisma.orderStatusHistory.create({
-          data: { orderId: id, status, changedById: user.id }
-        });
+        updateData.timestamps = timestamps;
+        updateData.fileCountHistory = fileCountHistory;
       }
       if (notes !== undefined) {
         updateData.notes = notes;
       }
 
-      const updated = await prisma.order.update({
-        where: { id },
-        data: updateData,
-        include: { designer: true }
+      const updated = await prisma.$transaction(async tx => {
+        if (status && status !== existing.status) {
+          await tx.orderStatusHistory.create({ data: { orderId: id, status, changedById: user.id } });
+        }
+        return tx.order.update({ where: { id }, data: updateData, include: { designer: true } });
       });
       return updated;
     }
@@ -236,25 +249,51 @@ export async function updateOrder(request: FastifyRequest, reply: FastifyReply) 
     // Admin/Manager cập nhật thoải mái
     const updateData: any = {};
     if (orderCode) updateData.orderCode = orderCode;
-    if (fileCount !== undefined) updateData.fileCount = Number(fileCount);
+    const now = new Date();
+    const nowIso = now.toISOString();
+    const nextFileCount = fileCount !== undefined ? Number(fileCount) : existing.fileCount;
+    const timestamps = existing.timestamps && typeof existing.timestamps === 'object' && !Array.isArray(existing.timestamps)
+      ? { ...(existing.timestamps as Record<string, unknown>) }
+      : {};
+    const fileCountHistory = Array.isArray(existing.fileCountHistory)
+      ? [...existing.fileCountHistory] as Array<Record<string, unknown>>
+      : [];
+    const nextStatus = status || existing.status;
+    if (fileCount !== undefined) {
+      updateData.fileCount = nextFileCount;
+      if (nextFileCount !== existing.fileCount && (timestamps.designing || nextStatus === 'designing' || nextStatus === 'approved')) {
+        fileCountHistory.push({ count: nextFileCount, changedAt: nowIso });
+        updateData.fileCountHistory = fileCountHistory;
+      }
+    }
     if (deadline !== undefined) updateData.deadline = deadline ? new Date(deadline) : null;
     if (isUrgent !== undefined) updateData.isUrgent = !!isUrgent;
-    if (hasDesignFee !== undefined) updateData.hasDesignFee = !!hasDesignFee;
+    if (hasDesignFee !== undefined) {
+      updateData.hasDesignFee = !!hasDesignFee;
+      if (!!hasDesignFee !== existing.hasDesignFee) updateData.designFeeTickedAt = hasDesignFee ? now : null;
+    }
     if (isOutsource !== undefined) updateData.isOutsource = !!isOutsource;
     if (designerId !== undefined) updateData.designerId = designerId || null;
     if (notes !== undefined) updateData.notes = notes;
 
     if (status && status !== existing.status) {
       updateData.status = status;
-      await prisma.orderStatusHistory.create({
-        data: { orderId: id, status, changedById: user.id }
-      });
+      if ((status === 'designing' || status === 'approved') && !timestamps.designing) {
+        timestamps.designing = nowIso;
+        if (fileCount === undefined || nextFileCount === existing.fileCount) {
+          fileCountHistory.push({ count: nextFileCount, changedAt: nowIso });
+        }
+      }
+      timestamps[status] = nowIso;
+      updateData.timestamps = timestamps;
+      updateData.fileCountHistory = fileCountHistory;
     }
 
-    const updated = await prisma.order.update({
-      where: { id },
-      data: updateData,
-      include: { designer: true }
+    const updated = await prisma.$transaction(async tx => {
+      if (status && status !== existing.status) {
+        await tx.orderStatusHistory.create({ data: { orderId: id, status, changedById: user.id } });
+      }
+      return tx.order.update({ where: { id }, data: updateData, include: { designer: true } });
     });
     return updated;
   } catch (error) {
@@ -265,7 +304,7 @@ export async function updateOrder(request: FastifyRequest, reply: FastifyReply) 
 
 export async function deleteOrder(request: FastifyRequest, reply: FastifyReply) {
   const user = request.user!;
-  const isAdminOrManager = await isAdminOrManagerUser(user.id, user.role);
+  const isAdminOrManager = await canManageDesignOrders(user.id, 'delete');
 
   if (!isAdminOrManager) {
     return reply.status(403).send({ error: 'Bạn không có quyền xóa đơn hàng' });
@@ -289,50 +328,33 @@ export async function deleteOrder(request: FastifyRequest, reply: FastifyReply) 
 
 export async function getSalaryReport(request: FastifyRequest, reply: FastifyReply) {
   const user = request.user!;
-  const { month } = request.query as { month?: string }; // định dạng YYYY-MM
+  const { month } = request.query as { month?: string };
 
   const targetMonth = month || new Date().toISOString().slice(0, 7);
-  const startDate = new Date(`${targetMonth}-01T00:00:00.000Z`);
-  const endDate = new Date(new Date(startDate).setMonth(startDate.getMonth() + 1));
 
   try {
-    // 1. Lấy tất cả designer (nhân viên trong tổ chức)
     const designers = await prisma.user.findMany({
       where: { orgId: user.orgId },
       select: { id: true, fullName: true, role: true }
     });
 
-    // 2. Lấy toàn bộ đơn hàng có hoạt động trong tháng này
-    const histories = await prisma.orderStatusHistory.findMany({
-      where: {
-        changedAt: { gte: startDate, lt: endDate },
-        order: { orgId: user.orgId }
+    // CRM-native orders: salary derived from OrderStatusHistory rows
+    const salaryOrders = await prisma.order.findMany({
+      where: { orgId: user.orgId, designerId: { not: null } },
+      select: {
+        designerId: true, fileCount: true, fileCountHistory: true, timestamps: true,
+        status: true, hasDesignFee: true, designFeeTickedAt: true,
       },
-      include: {
-        order: true
-      }
     });
+    const salaryStats = calculateImportedMonthlySalaryStats(salaryOrders, targetMonth);
 
     const reportData = designers.map(d => {
-      // Lọc các hoạt động thiết kế của designer này
-      const designerHistories = histories.filter(h => h.order.designerId === d.id);
+      const stats = salaryStats.get(d.id);
+      const orderCount = stats?.orderCount ?? 0;
+      const totalFiles = stats?.totalFiles ?? 0;
+      const approvedCount = stats?.approvedCount ?? 0;
+      const designFeeCount = stats?.designFeeCount ?? 0;
 
-      // Tổng số đơn (distinct) mà designer có hoạt động trong tháng
-      const orderCount = new Set(designerHistories.map(h => h.orderId)).size;
-
-      // Tính tổng số file thiết kế mới nhận trong tháng (lần đầu chuyển sang 'designing' hoặc tạo thẳng designing trong tháng)
-      const designingOrders = designerHistories.filter(h => h.status === 'designing');
-      const totalFiles = designingOrders.reduce((sum, h) => sum + h.order.fileCount, 0);
-
-      // Tính tổng đơn chốt in trong tháng (chuyển sang 'approved' trong tháng)
-      const approvedOrders = designerHistories.filter(h => h.status === 'approved');
-      const approvedCount = approvedOrders.length;
-
-      // Tính số lượng phí thiết kế (+100.000đ/đơn) được hưởng trong tháng này
-      const designFeeOrders = designerHistories.filter(h => h.order.hasDesignFee && h.status === 'designing');
-      const designFeeCount = designFeeOrders.length;
-
-      // Tính lương và thưởng
       const fileSalary = totalFiles * SALARY_CONFIG.PER_FILE;
       const bonusSalary = approvedCount * SALARY_CONFIG.APPROVED_BONUS;
       const designFeeSalary = designFeeCount * SALARY_CONFIG.DESIGN_FEE;
@@ -353,11 +375,7 @@ export async function getSalaryReport(request: FastifyRequest, reply: FastifyRep
     });
 
     reportData.sort((a, b) => b.totalSalary - a.totalSalary);
-
-    return {
-      month: targetMonth,
-      report: reportData
-    };
+    return { month: targetMonth, report: reportData };
   } catch (error) {
     console.error('[OrdersController] getSalaryReport error:', error);
     return reply.status(500).send({ error: 'Không thể tính toán báo cáo lương' });
@@ -372,13 +390,8 @@ export async function getOrderStats(request: FastifyRequest, reply: FastifyReply
   const startDate = new Date(`${targetMonth}-01T00:00:00.000Z`);
   const endDate = new Date(new Date(startDate).setMonth(startDate.getMonth() + 1));
 
-  const isAdminOrManager = await isAdminOrManagerUser(user.id, user.role);
-
   try {
     const baseWhere: any = { orgId: user.orgId };
-    if (!isAdminOrManager) {
-      baseWhere.designerId = user.id;
-    }
 
     // Đếm tổng theo trạng thái (toàn bộ, không giới hạn tháng)
     const grouped = await prisma.order.groupBy({

@@ -4,6 +4,7 @@ import { ref, computed, nextTick } from 'vue';
 import { api } from '@/api/index';
 import { Socket } from 'socket.io-client';
 import { createAppSocket } from '@/api/socket';
+import { createClientId } from '@/utils/client-id';
 import type { Contact } from '@/composables/use-contacts';
 import { useAuthStore } from '@/stores/auth';
 import { applyPendingTags, registerPendingTags } from '@/composables/use-pending-mutations';
@@ -13,6 +14,10 @@ import { classifyIncoming } from '@/composables/work-scope-logic';
 import { useToast } from '@/composables/use-toast';
 import { reconcileOptimisticMessage } from '@/composables/optimistic-message-reconcile';
 import { markAiFollowUpStale } from '@/composables/use-ai-follow-up';
+import {
+  usePancakeChatSession,
+  type PancakeConversation,
+} from '@/composables/use-pancake-chat-session';
 
 interface ZaloAccount {
   id: string;
@@ -286,9 +291,18 @@ const conversationsCache = {
   },
   set(key: string, value: { data: Conversation[]; fetchedAt: number }) {
     inMemoryConvCache.set(key, value);
-    try {
-      sessionStorage.setItem(CONV_CACHE_PREFIX + key, JSON.stringify(value));
-    } catch {}
+    // TrÃ¬ hoÃ£n stringify + sessionStorage cá»§a tá»›i 300 há»™i thoáº¡i Ä‘á»ƒ
+    // response má»›i Ä‘Æ°á»£c paint trÆ°á»›c, khÃ´ng khá»±ng ngay khi Ä‘á»•i tab.
+    const persist = () => {
+      try {
+        sessionStorage.setItem(CONV_CACHE_PREFIX + key, JSON.stringify(value));
+      } catch {}
+    };
+    const requestIdle = (window as unknown as {
+      requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
+    }).requestIdleCallback;
+    if (requestIdle) requestIdle(persist, { timeout: 1500 });
+    else window.setTimeout(persist, 0);
   },
   delete(key: string) {
     inMemoryConvCache.delete(key);
@@ -381,6 +395,66 @@ export function useChat() {
   const loadingConvs = ref(false);
   const loadingMsgs = ref(false);
   const sendingMsg = ref(false);
+  const rateLimitSeconds = ref(0);
+  const rateLimitTotalSeconds = ref(0);
+  let rateLimitTimer: ReturnType<typeof setInterval> | null = null;
+  function startRateLimitCountdown(seconds: number) {
+    const value = Math.max(1, Math.ceil(seconds));
+    rateLimitSeconds.value = value;
+    rateLimitTotalSeconds.value = value;
+    if (rateLimitTimer) clearInterval(rateLimitTimer);
+    rateLimitTimer = setInterval(() => {
+      rateLimitSeconds.value = Math.max(0, rateLimitSeconds.value - 1);
+      if (rateLimitSeconds.value === 0 && rateLimitTimer) {
+        clearInterval(rateLimitTimer);
+        rateLimitTimer = null;
+      }
+    }, 1000);
+  }
+  const pancakeSession = usePancakeChatSession();
+  const isPancakeMode = () => import.meta.env.DEV
+    && new URLSearchParams(window.location.search).get('source') === 'pancake'
+    && Boolean(pancakeSession.preview.value?.connection.id);
+
+  function pancakeConversationToConversation(item: PancakeConversation): Conversation {
+    const account = pancakeSession.preview.value!.connection;
+    return {
+      id: item.id,
+      threadType: item.isGroup ? 'group' : 'user',
+      contact: item.isGroup ? null : ({
+        id: `pancake:${item.id}`,
+        fullName: item.name,
+        avatarUrl: item.avatarUrl,
+      } as Contact),
+      zaloAccount: {
+        id: account.id,
+        displayName: account.displayName,
+        avatarUrl: null,
+        status: 'connected',
+      },
+      groupName: item.isGroup ? item.name : null,
+      groupAvatarUrl: item.isGroup ? item.avatarUrl : null,
+      externalThreadId: item.id,
+      friendship: item.isGroup ? null : {
+        relationshipKind: 'chatting_stranger',
+        friendshipStatus: 'none',
+        becameFriendAt: null,
+        firstMessageAt: null,
+        zaloDisplayName: item.name,
+        zaloAvatarUrl: item.avatarUrl,
+      },
+      lastMessageAt: item.updatedAt,
+      unreadCount: 0,
+      isReplied: false,
+      messages: item.snippet ? [{
+        content: item.snippet,
+        contentType: 'text',
+        senderType: 'other',
+        sentAt: item.updatedAt || new Date(0).toISOString(),
+        isDeleted: false,
+      }] : [],
+    };
+  }
   // Wave 1 (2026-05-21) — KH đang gõ realtime. Key = conversationId (FE map từ
   // threadId qua selectedConv). Value = timestamp ms cuối cùng nhận typing event.
   // Auto-clear sau 5s không có event mới (timer per conv).
@@ -407,6 +481,10 @@ export function useChat() {
   const aiUsage = ref({ usedToday: 0, maxDaily: 500, remaining: 500, enabled: true });
   const aiConfig = ref<AiConfig>({ provider: 'anthropic', model: 'claude-sonnet-4-6', maxDaily: 500, enabled: true });
   let socket: Socket | null = null;
+  let pancakeConversationTimer: ReturnType<typeof setInterval> | null = null;
+  let pancakeMessageTimer: ReturnType<typeof setInterval> | null = null;
+  let pancakeConversationSyncing = false;
+  let pancakeMessageSyncing = false;
   let convSyncTimer: ReturnType<typeof setTimeout> | null = null;
   // work-scope 2026-06-15 — badge "N tin nick khác": đếm tin OUT-OF-SCOPE per nick.
   // CHỈ đếm nick CÓ QUYỀN (server đã lọc nên accountId tới đây luôn trong quyền). Reset
@@ -452,10 +530,33 @@ export function useChat() {
   }
 
   const extraFilters = ref<Record<string, string>>({});
+  let conversationFetchController: AbortController | null = null;
+  let conversationFetchSequence = 0;
 
   async function fetchConversations(opts?: { bypassCache?: boolean }) {
+    if (isPancakeMode()) {
+      const connectionId = pancakeSession.preview.value!.connection.id;
+      loadingConvs.value = conversations.value.length === 0;
+      try {
+        const { data } = await api.get(
+          `/dev/pancake-chat/connections/${encodeURIComponent(connectionId)}/conversations`,
+        );
+        pancakeSession.connect(data);
+        const query = searchQuery.value.trim().toLocaleLowerCase('vi');
+        conversations.value = (data.conversations as PancakeConversation[])
+          .filter((item) => !query
+            || item.name.toLocaleLowerCase('vi').includes(query)
+            || (item.snippet ?? '').toLocaleLowerCase('vi').includes(query))
+          .map(pancakeConversationToConversation);
+      } catch (err) {
+        console.error('Failed to fetch Pancake conversations:', err);
+      } finally {
+        loadingConvs.value = false;
+      }
+      return;
+    }
     const params = {
-      limit: 100,
+      limit: 300,
       search: searchQuery.value,
       accountId: accountFilter.value || undefined,
       ...extraFilters.value,
@@ -491,8 +592,16 @@ export function useChat() {
       if (conversations.value.length === 0) loadingConvs.value = true;
     }
 
+    // Chuyá»ƒn tab/filter nhanh cÃ³ thá»ƒ phÃ¡t nhiá»u request liÃªn tiáº¿p. Há»§y
+    // request cÅ© vÃ  chá»‰ cho response má»›i nháº¥t render danh sÃ¡ch 300 dÃ²ng.
+    conversationFetchController?.abort();
+    const controller = new AbortController();
+    conversationFetchController = controller;
+    const requestSequence = ++conversationFetchSequence;
+
     try {
-      const res = await api.get('/conversations', { params });
+      const res = await api.get('/conversations', { params, signal: controller.signal });
+      if (requestSequence !== conversationFetchSequence) return;
       // Apply pending optimistic mutations (tag assigns chưa được BE confirm) trước khi
       // replace state — tránh fetchConversations chạy giữa lúc BE đang sync wipe UI optimistic.
       const fresh = applyPendingTags(res.data.conversations as Conversation[]);
@@ -502,10 +611,14 @@ export function useChat() {
       // Merge để giữ detail fields (Contact full ~50 field từ /conversations/:id)
       // không bị wipe bởi narrow list response (14 field).
       conversations.value = mergeConvListPreserveDetail(conversations.value, fresh, preserveIds);
-    } catch (err) {
+    } catch (err: any) {
+      if (err?.code === 'ERR_CANCELED' || err?.name === 'CanceledError' || controller.signal.aborted) return;
       console.error('Failed to fetch conversations:', err);
     } finally {
-      loadingConvs.value = false;
+      if (requestSequence === conversationFetchSequence) {
+        loadingConvs.value = false;
+        if (conversationFetchController === controller) conversationFetchController = null;
+      }
     }
   }
 
@@ -581,6 +694,52 @@ export function useChat() {
   }
 
   async function fetchMessages(convId: string) {
+    if (isPancakeMode()) {
+      const connectionId = pancakeSession.preview.value!.connection.id;
+      if (messagesConvId.value !== convId) messages.value = [];
+      messagesConvId.value = convId;
+      loadingMsgs.value = messages.value.length === 0;
+      try {
+        const { data } = await api.get(
+          `/dev/pancake-chat/connections/${encodeURIComponent(connectionId)}`
+          + `/conversations/${encodeURIComponent(convId)}/messages`,
+          { params: { currentCount: 0 } },
+        );
+        messages.value = (data.messages as Array<{
+          id: string; content: string; sentAt: string | null; senderName: string;
+          isSelf: boolean; isRemoved: boolean;
+          attachments: Array<{ type: string; url: string; title: string; mimeType: string }>;
+        }>).map((item) => {
+          const image = item.attachments.find((attachment) =>
+            attachment.mimeType.startsWith('image/')
+            || attachment.type.toLowerCase().includes('image')
+            || /\.(png|jpe?g|gif|webp)(?:$|\?)/i.test(attachment.url));
+          const file = item.attachments[0];
+          return {
+            id: item.id,
+            content: image?.url || item.content || file?.url || '',
+            contentType: image ? 'image' : 'text',
+            senderType: item.isSelf ? 'self' : 'other',
+            senderName: item.senderName || null,
+            sentAt: item.sentAt || new Date(0).toISOString(),
+            isDeleted: item.isRemoved,
+            zaloMsgId: item.id,
+            zaloMsgIdNum: null,
+            albumKey: null,
+            albumIndex: null,
+            albumTotal: null,
+            reply: null,
+            reactions: [],
+            isLocal: false,
+          } satisfies Message;
+        }).sort(compareMessages);
+      } catch (err) {
+        console.error('Failed to fetch Pancake messages:', err);
+      } finally {
+        loadingMsgs.value = false;
+      }
+      return;
+    }
     // Switch conv → wholesale reset messages.value để không mix tin từ conv cũ.
     // Nếu cùng conv (refresh) → giữ messages hiện tại cho merge logic phía dưới.
     if (messagesConvId.value !== convId) {
@@ -732,6 +891,7 @@ export function useChat() {
     // nối tiếp. fetchMessages gate việc paint thread; detail + mark-read KHÔNG cần cho
     // bong bóng tin nên không nên xếp hàng sau nhau. Tiết kiệm ~1 round-trip mỗi lần mở conv.
     await fetchMessages(convId);
+    if (isPancakeMode()) return;
     const detailTask = (async () => {
       try {
         const convDetail = await api.get(`/conversations/${convId}`);
@@ -809,12 +969,27 @@ export function useChat() {
 
   async function sendMessageTo(conversationId: string, content: string, replyMessageId?: string | null, styles?: Array<{ st: string; start: number; len: number }>, mentions?: Array<{ uid: string; pos: number; len: number }>) {
     if (!content.trim()) return;
+    if (isPancakeMode()) {
+      const connectionId = pancakeSession.preview.value!.connection.id;
+      sendingMsg.value = true;
+      try {
+        await api.post(
+          `/dev/pancake-chat/connections/${encodeURIComponent(connectionId)}`
+          + `/conversations/${encodeURIComponent(conversationId)}/messages`,
+          { message: content.trim() },
+        );
+        await fetchMessages(conversationId);
+      } finally {
+        sendingMsg.value = false;
+      }
+      return;
+    }
     sendingMsg.value = true;
     // Optimistic UI 2026-07-22 (anh duyệt): hiện bong bóng NGAY khi bấm, trạng thái
     // "đang gửi", KHÔNG chờ round-trip Zalo (sendMessage của zca-js là gọi mạng đồng bộ,
     // ~0.3–5s). echoId khớp cả echo HTTP (res.data.echoId) lẫn socket (data.echoId) để
     // thay placeholder tại chỗ — tránh trùng bong bóng khi socket echo về trước/sau.
-    const echoId = crypto.randomUUID();
+    const echoId = createClientId();
     const placeholderId = `local-${echoId}`;
     const nowIso = new Date().toISOString();
     const isCurrentConv = conversationId === selectedConvId.value;
@@ -873,6 +1048,11 @@ export function useChat() {
       // để sale thấy lý do thay vì gửi vào hư không.
       const e = err as { response?: { status?: number; data?: { error?: string } } };
       const status = e?.response?.status;
+      if (status === 429) {
+        const reason = e?.response?.data?.error || '';
+        const wait = Number(reason.match(/(?:đợi|wait)\s+(\d+)\s*(?:giây|seconds?)/i)?.[1] || 60);
+        startRateLimitCountdown(wait);
+      }
       if (status !== 403 && !(status && status >= 500)) {
         useToast().error(e?.response?.data?.error || 'Không gửi được tin nhắn, vui lòng thử lại.');
       }
@@ -900,6 +1080,31 @@ export function useChat() {
   }
 
   function initSocket() {
+    if (isPancakeMode()) {
+      realtimeOffline.value = false;
+      const syncConversations = async () => {
+        if (pancakeConversationSyncing || document.hidden) return;
+        pancakeConversationSyncing = true;
+        try {
+          await fetchConversations({ bypassCache: true });
+        } finally {
+          pancakeConversationSyncing = false;
+        }
+      };
+      const syncSelectedMessages = async () => {
+        const convId = selectedConvId.value;
+        if (!convId || pancakeMessageSyncing || document.hidden) return;
+        pancakeMessageSyncing = true;
+        try {
+          await fetchMessages(convId);
+        } finally {
+          pancakeMessageSyncing = false;
+        }
+      };
+      pancakeConversationTimer = setInterval(() => void syncConversations(), 12_000);
+      pancakeMessageTimer = setInterval(() => void syncSelectedMessages(), 4_000);
+      return;
+    }
     window.addEventListener('friend-crm-tags-changed', onFriendCrmTagsChanged);
     socket = createAppSocket({
       // Badge "mất kết nối realtime" — cập nhật cờ cho header chat đọc.
@@ -1311,6 +1516,14 @@ export function useChat() {
   }
 
   function destroySocket() {
+    if (pancakeConversationTimer) {
+      clearInterval(pancakeConversationTimer);
+      pancakeConversationTimer = null;
+    }
+    if (pancakeMessageTimer) {
+      clearInterval(pancakeMessageTimer);
+      pancakeMessageTimer = null;
+    }
     window.removeEventListener('friend-crm-tags-changed', onFriendCrmTagsChanged);
     document.removeEventListener('visibilitychange', onVisible);
     window.removeEventListener('online', onOnline);
@@ -1334,6 +1547,8 @@ export function useChat() {
     loadingConvs,
     loadingMsgs,
     sendingMsg,
+    rateLimitSeconds,
+    rateLimitTotalSeconds,
     searchQuery,
     accountFilter,
     extraFilters,

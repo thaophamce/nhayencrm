@@ -8,13 +8,49 @@
       </div>
 
       <div class="header-right">
-        <div class="search-box">
-          <v-icon size="18" color="#8C8F9E">mdi-magnify</v-icon>
-          <input
-            v-model="quickSearch"
-            placeholder="Tìm đơn hàng nhanh..."
-            @keyup.enter="handleSearch"
-          />
+        <div class="search-combobox">
+          <div class="search-box" :class="{ focused: searchFocused }">
+            <v-icon size="18" color="#8C8F9E">mdi-magnify</v-icon>
+            <input
+              v-model="quickSearch"
+              role="combobox"
+              aria-label="Tìm đơn hàng"
+              aria-autocomplete="list"
+              :aria-expanded="showSearchSuggestions"
+              aria-controls="delivery-search-suggestions"
+              placeholder="Tìm theo mã đơn, tên hoặc SĐT..."
+              autocomplete="off"
+              @focus="searchFocused = true"
+              @blur="closeSearchSuggestions"
+              @keydown.down.prevent="moveSearchSelection(1)"
+              @keydown.up.prevent="moveSearchSelection(-1)"
+              @keydown.enter.prevent="handleSearch"
+              @keydown.esc="searchFocused = false"
+            />
+            <v-progress-circular v-if="searchLoading" indeterminate size="16" width="2" color="#1A6FD4" />
+          </div>
+          <div v-if="showSearchSuggestions" id="delivery-search-suggestions" class="search-suggestions" role="listbox">
+            <button
+              v-for="(order, index) in searchResults"
+              :key="order.id || order.orderCode"
+              type="button"
+              class="search-suggestion"
+              :class="{ selected: index === selectedSearchIndex }"
+              role="option"
+              :aria-selected="index === selectedSearchIndex"
+              @mousedown.prevent="selectSearchResult(order)"
+            >
+              <span class="suggestion-icon"><v-icon size="18">mdi-package-variant-closed</v-icon></span>
+              <span class="suggestion-copy">
+                <strong>{{ order.orderCode }}</strong>
+                <small>{{ [order.recipientName, order.recipientPhone].filter(Boolean).join(' · ') || 'Đơn giao vận' }}</small>
+              </span>
+              <b>{{ formatMoney(order.totalAmount) }}</b>
+            </button>
+            <div v-if="!searchLoading && searchResults.length === 0" class="search-empty">
+              Không tìm thấy đơn phù hợp
+            </div>
+          </div>
         </div>
 
         <div class="period-select-wrap">
@@ -57,7 +93,7 @@
                 <v-icon size="20" color="#00B69B">mdi-cash-multiple</v-icon>
               </div>
             </div>
-            <div class="kpi-value">{{ formatMoney(displayData.revenue || 933720000) }}</div>
+            <div class="kpi-value">{{ formatMoney(displayData.revenue ?? 0) }}</div>
             <div class="kpi-subtext text-danger">
               <v-icon size="14" style="transform: rotate(180deg)">mdi-triangle</v-icon>
               <span>9% so với kỳ trước</span>
@@ -94,37 +130,38 @@
             <div class="card-head">
               <div class="card-head-title">
                 <h2>KPI Doanh thu tháng</h2>
-                <span class="badge-fire">🔥 Hoàn thành cả 2 mục tiêu!</span>
+                <span v-if="goalStage === 'completed'" class="badge-fire">🔥 Hoàn thành cả 2 mục tiêu!</span>
+                <span v-else class="goal-guidance">{{ goalGuidance }}</span>
               </div>
-              <div class="goal-percent-badge">
-                <span class="percent-num">100%</span>
-                <span class="percent-sub">Mục tiêu 2</span>
+              <div class="goal-percent-badge" :class="{ pending: goalStage !== 'completed' }">
+                <span class="percent-num">{{ goalPercent }}%</span>
+                <span class="percent-sub">Mục tiêu {{ currentGoalNumber }}</span>
               </div>
             </div>
 
             <div class="goal-progress-wrap">
               <div class="goal-progress-bar">
-                <div class="progress-fill" style="width: 100%"></div>
+                <div class="progress-fill" :style="{ width: `${overallProgressPercent}%` }"></div>
               </div>
 
               <div class="goal-markers">
-                <span class="marker-item active">✓ MT1: 719.000.000 đ</span>
-                <span class="marker-item active">✓ MT2: 918.901.000 đ</span>
+                <span class="marker-item" :class="{ active: monthlyRevenue >= MONTHLY_REVENUE_GOAL_1 }"><template v-if="monthlyRevenue >= MONTHLY_REVENUE_GOAL_1">✓ </template>MT1: {{ formatMoney(MONTHLY_REVENUE_GOAL_1) }}</span>
+                <span class="marker-item" :class="{ active: monthlyRevenue >= MONTHLY_REVENUE_GOAL_2 }"><template v-if="monthlyRevenue >= MONTHLY_REVENUE_GOAL_2">✓ </template>MT2: {{ formatMoney(MONTHLY_REVENUE_GOAL_2) }}</span>
               </div>
             </div>
 
             <div class="goal-bottom-metrics">
               <div class="goal-metric">
                 <span class="m-label">Hiện tại</span>
-                <b class="m-val">{{ formatMoney(displayData.revenue || 933720000) }}</b>
+                <b class="m-val">{{ formatMoney(displayData.revenue ?? 0) }}</b>
               </div>
               <div class="goal-metric">
-                <span class="m-label">Còn thiếu Mục tiêu 2</span>
-                <b class="m-val text-muted">—</b>
+                <span class="m-label">Còn thiếu Mục tiêu {{ currentGoalNumber }}</span>
+                <b class="m-val" :class="goalRemaining > 0 ? 'text-danger' : 'text-muted'">{{ goalRemaining > 0 ? formatMoney(goalRemaining) : '—' }}</b>
               </div>
               <div class="goal-metric">
                 <span class="m-label">Chưa thu</span>
-                <b class="m-val text-warning">{{ formatMoney(displayData.outstanding || 6635000) }}</b>
+                <b class="m-val text-warning">{{ formatMoney(displayData.outstanding ?? 0) }}</b>
               </div>
             </div>
           </div>
@@ -167,7 +204,7 @@
 
               <div class="conversion-footer font-weight-medium">
                 <span>Tổng doanh thu</span>
-                <b>{{ formatMoney(displayData.revenue || 933720000) }}</b>
+                <b>{{ formatMoney(displayData.revenue ?? 0) }}</b>
               </div>
             </div>
           </div>
@@ -354,13 +391,19 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { api } from '@/api';
 
 const emit = defineEmits<{ (e: 'open-detail', code: string): void }>();
 
 const period = ref('month');
 const quickSearch = ref('');
+const searchFocused = ref(false);
+const searchLoading = ref(false);
+const searchResults = ref<any[]>([]);
+const selectedSearchIndex = ref(-1);
+let searchTimer: ReturnType<typeof setTimeout> | undefined;
+let searchRequestId = 0;
 const loading = ref(false);
 const data = ref<any>({});
 const overdueOrdersRaw = ref<any[]>([]);
@@ -373,6 +416,19 @@ const dateRangeDisplay = computed(() => {
 });
 
 const displayData = computed(() => data.value || {});
+const showSearchSuggestions = computed(() => searchFocused.value && quickSearch.value.trim().length >= 2);
+const MONTHLY_REVENUE_GOAL_1 = 719_000_000;
+const MONTHLY_REVENUE_GOAL_2 = 918_901_000;
+const monthlyRevenue = computed(() => Math.max(0, Number(displayData.value.revenue) || 0));
+const goalStage = computed(() => monthlyRevenue.value >= MONTHLY_REVENUE_GOAL_2
+  ? 'completed'
+  : monthlyRevenue.value >= MONTHLY_REVENUE_GOAL_1 ? 'goal2' : 'goal1');
+const currentGoalNumber = computed(() => goalStage.value === 'goal1' ? 1 : 2);
+const currentGoalAmount = computed(() => currentGoalNumber.value === 1 ? MONTHLY_REVENUE_GOAL_1 : MONTHLY_REVENUE_GOAL_2);
+const goalPercent = computed(() => Math.min(100, Math.round((monthlyRevenue.value / currentGoalAmount.value) * 100)));
+const overallProgressPercent = computed(() => Math.min(100, (monthlyRevenue.value / MONTHLY_REVENUE_GOAL_2) * 100));
+const goalRemaining = computed(() => Math.max(0, currentGoalAmount.value - monthlyRevenue.value));
+const goalGuidance = computed(() => `Đang hướng tới Mục tiêu ${currentGoalNumber.value}`);
 
 const overdueList = computed(() => {
   if (data.value.overdueOrders && Array.isArray(data.value.overdueOrders) && data.value.overdueOrders.length > 0) {
@@ -430,9 +486,51 @@ async function loadData() {
   }
 }
 
+watch(quickSearch, (value) => {
+  selectedSearchIndex.value = -1;
+  if (searchTimer) clearTimeout(searchTimer);
+  const query = value.trim();
+  if (query.length < 2) {
+    searchResults.value = [];
+    searchLoading.value = false;
+    return;
+  }
+  searchTimer = setTimeout(() => void fetchSearchSuggestions(query), 250);
+});
+
+async function fetchSearchSuggestions(query: string) {
+  const requestId = ++searchRequestId;
+  searchLoading.value = true;
+  try {
+    const { data: response } = await api.get('/delivery/orders', { params: { search: query, limit: 6 } });
+    if (requestId === searchRequestId) searchResults.value = response?.orders || [];
+  } catch {
+    if (requestId === searchRequestId) searchResults.value = [];
+  } finally {
+    if (requestId === searchRequestId) searchLoading.value = false;
+  }
+}
+
 function handleSearch() {
-  if (!quickSearch.value) return;
-  emit('open-detail', quickSearch.value.trim());
+  const order = searchResults.value[selectedSearchIndex.value] || searchResults.value[0];
+  if (order) selectSearchResult(order);
+}
+
+function selectSearchResult(order: any) {
+  if (!order?.orderCode) return;
+  quickSearch.value = order.orderCode;
+  searchFocused.value = false;
+  emit('open-detail', order.orderCode);
+}
+
+function moveSearchSelection(direction: number) {
+  if (!searchResults.value.length) return;
+  const next = selectedSearchIndex.value + direction;
+  selectedSearchIndex.value = next < 0 ? searchResults.value.length - 1 : next % searchResults.value.length;
+}
+
+function closeSearchSuggestions() {
+  window.setTimeout(() => { searchFocused.value = false; }, 120);
 }
 
 function openOrder(code: string) {
@@ -549,6 +647,54 @@ onMounted(loadData);
   width: 100%;
   color: #1E202C;
 }
+
+.search-combobox {
+  position: relative;
+  min-width: 300px;
+}
+
+.search-box.focused {
+  border-color: #1A6FD4;
+  box-shadow: 0 0 0 3px rgba(26, 111, 212, 0.12);
+}
+
+.search-suggestions {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  overflow: hidden;
+  border: 1px solid #DCE3EC;
+  border-radius: 10px;
+  background: #FFFFFF;
+  box-shadow: 0 12px 30px rgba(31, 41, 55, 0.16);
+}
+
+.search-suggestion {
+  width: 100%;
+  min-height: 58px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border: 0;
+  border-bottom: 1px solid #EDF0F5;
+  background: #FFFFFF;
+  color: #253248;
+  text-align: left;
+  cursor: pointer;
+}
+
+.search-suggestion:last-child { border-bottom: 0; }
+.search-suggestion:hover,.search-suggestion.selected { background: #F2F7FD; }
+.suggestion-icon { width: 32px; height: 32px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 8px; background: #EBF3FF; color: #1A6FD4; }
+.suggestion-copy { min-width: 0; flex: 1; }
+.suggestion-copy strong,.suggestion-copy small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.suggestion-copy strong { font-size: 13px; }
+.suggestion-copy small { margin-top: 2px; color: #7B8798; font-size: 11px; }
+.search-suggestion > b { flex: 0 0 auto; color: #1A6FD4; font-size: 12px; }
+.search-empty { padding: 16px; color: #7B8798; font-size: 12px; text-align: center; }
 
 .period-select {
   padding: 8px 14px;
@@ -690,6 +836,7 @@ onMounted(loadData);
 
 .card-head-title {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 10px;
 }
@@ -701,6 +848,13 @@ onMounted(loadData);
   background: #FFFBE6;
   padding: 2px 8px;
   border-radius: 8px;
+}
+
+.goal-guidance {
+  flex-basis: 100%;
+  font-size: 12px;
+  color: #8C8F9E;
+  font-weight: 600;
 }
 
 .goal-percent-badge {
@@ -715,6 +869,10 @@ onMounted(loadData);
   line-height: 1;
 }
 
+.goal-percent-badge.pending .percent-num {
+  color: #FA8C16;
+}
+
 .percent-sub {
   font-size: 11px;
   color: #7B8798;
@@ -726,11 +884,23 @@ onMounted(loadData);
 }
 
 .goal-progress-bar {
+  position: relative;
   height: 12px;
   background: #EAECEF;
   border-radius: 6px;
   overflow: hidden;
   margin-bottom: 8px;
+}
+
+.goal-progress-bar::after {
+  content: "";
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  left: 78.25%;
+  width: 2px;
+  border-radius: 1px;
+  background: #253248;
 }
 
 .progress-fill {
@@ -744,6 +914,10 @@ onMounted(loadData);
   justify-content: space-between;
   font-size: 12px;
   font-weight: 700;
+  color: #536075;
+}
+
+.marker-item.active {
   color: #00B69B;
 }
 
@@ -1197,5 +1371,11 @@ onMounted(loadData);
   .bottom-cards-grid {
     grid-template-columns: 1fr;
   }
+}
+
+@media (max-width: 700px) {
+  .overview-header,.header-right { align-items: stretch; flex-direction: column; }
+  .search-combobox { min-width: 0; width: 100%; }
+  .search-box { min-width: 0; }
 }
 </style>

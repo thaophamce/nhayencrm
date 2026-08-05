@@ -11,6 +11,7 @@
       <DeliveryReports v-else-if="activeArea === 'reports'" @open-detail="openDeliveryDetail" />
       <DeliveryProductReport v-else-if="activeArea === 'products'" />
       <DeliveryBusinessReport v-else-if="activeArea === 'business'" />
+      <DeliveryActivityLog v-else-if="activeArea === 'activity'" />
       <div v-else class="po-page">
     <header class="po-head"><div><h1>Đơn hàng</h1><p>Danh sách đơn hàng đồng bộ trực tiếp từ Pancake POS</p></div><button :disabled="loading" @click="fetchOrders"><v-icon size="18">mdi-refresh</v-icon> Làm mới</button></header>
     <section class="po-filters"><div class="search"><v-icon size="19">mdi-magnify</v-icon><input v-model="search" placeholder="Tìm mã đơn, khách hàng, số điện thoại..." @keyup.enter="applySearch"></div><select v-model="status" @change="changeFilter"><option value="">Tất cả trạng thái</option><option v-for="s in statuses" :key="s.value" :value="s.value">{{ s.label }}</option></select><select v-model.number="pageSize" @change="changeFilter"><option :value="50">50 / trang</option><option :value="100">100 / trang</option><option :value="500">500 / trang</option></select></section>
@@ -41,16 +42,19 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import DeliveryOverview from '@/components/delivery/DeliveryOverview.vue';
 import DeliveryWorkspace from '@/components/delivery/DeliveryWorkspace.vue';
 import DeliveryReports from '@/components/delivery/DeliveryReports.vue';
 import DeliveryProductReport from '@/components/delivery/DeliveryProductReport.vue';
 import DeliveryBusinessReport from '@/components/delivery/DeliveryBusinessReport.vue';
+import DeliveryActivityLog from '@/components/delivery/DeliveryActivityLog.vue';
 import DeliveryOrderDialog from '@/components/delivery/DeliveryOrderDialog.vue';
 import { api } from '@/api';
 import { useToast } from '@/composables/use-toast';
+import { useAuthStore } from '@/stores/auth';
 const toast=useToast();
+const authStore=useAuthStore();
 
 const deliveryDialogOpen = ref(false);
 const selectedDeliveryOrder = ref<any>(null);
@@ -85,16 +89,27 @@ async function openDeliveryDetail(code: string) {
     }
   } catch (err) {}
 }
-type DeliveryArea = 'overview'|'delivery'|'reports'|'products'|'business'|'pancake';
-const activeArea=ref<DeliveryArea>('overview');
-const menuItems: { value: DeliveryArea; label: string; icon: string }[] = [
-  { value: 'overview', label: 'T\u1ed5ng quan', icon: 'mdi-view-dashboard-outline' },
-  { value: 'delivery', label: 'Giao v\u1eadn', icon: 'mdi-clipboard-list-outline' },
-  { value: 'reports', label: 'B\u00e1o c\u00e1o', icon: 'mdi-chart-box-outline' },
-  { value: 'products', label: '\u00c1o + \u1ea2nh', icon: 'mdi-tshirt-crew-outline' },
-  { value: 'business', label: 'Doanh thu', icon: 'mdi-finance' },
-  { value: 'pancake', label: '\u0110\u01a1n Pancake', icon: 'mdi-store-outline' },
+import { useRoute } from 'vue-router';
+
+type DeliveryArea = 'overview'|'delivery'|'reports'|'products'|'business'|'activity'|'pancake';
+const route = useRoute();
+const activeArea = ref<DeliveryArea>((route.query.tab as DeliveryArea) || 'overview');
+
+watch(() => route.query.tab, (newTab) => {
+  if (newTab && typeof newTab === 'string') {
+    activeArea.value = newTab as DeliveryArea;
+  }
+});
+const allMenuItems: { value: DeliveryArea; label: string; icon: string; resource: string; action: string }[] = [
+  { value: 'overview', label: 'T\u1ed5ng quan', icon: 'mdi-view-dashboard-outline', resource: 'delivery', action: 'access' },
+  { value: 'delivery', label: 'Giao v\u1eadn', icon: 'mdi-clipboard-list-outline', resource: 'delivery', action: 'create' },
+  { value: 'reports', label: 'B\u00e1o c\u00e1o', icon: 'mdi-chart-box-outline', resource: 'delivery', action: 'view_all' },
+  { value: 'products', label: '\u00c1o + \u1ea2nh', icon: 'mdi-tshirt-crew-outline', resource: 'delivery', action: 'edit' },
+  { value: 'business', label: 'Doanh thu', icon: 'mdi-finance', resource: 'delivery_business', action: 'access' },
+  { value: 'activity', label: 'Hoạt động gần đây', icon: 'mdi-history', resource: 'delivery', action: 'view_all' },
+  { value: 'pancake', label: '\u0110\u01a1n Pancake', icon: 'mdi-store-outline', resource: 'delivery', action: 'access' },
 ];
+const menuItems = computed(() => allMenuItems.filter((item) => authStore.canAccess(item.resource, item.action)));
 const loading=ref(false),orders=ref<any[]>([]),search=ref(''),status=ref(''),page=ref(1),pageSize=ref(100),total=ref(0),totalPages=ref(0);
 const detailOpen=ref(false),detailLoading=ref(false),detailSaving=ref(false),detail=ref<any>(null),selectedCode=ref(''),originalStatus=ref<number|null>(null);
 const showProductSearch=ref(false),productSearch=ref(''),productLoading=ref(false),productResults=ref<any[]>([]);

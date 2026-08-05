@@ -18,6 +18,7 @@ import Fastify, { type FastifyRequest } from 'fastify';
 import cors from '@fastify/cors';
 import fastifyJwt from '@fastify/jwt';
 import rateLimit from '@fastify/rate-limit';
+import fastifyCompress from '@fastify/compress';
 import fastifyStatic from '@fastify/static';
 import fastifyMultipart from '@fastify/multipart';
 import fastifyFormbody from '@fastify/formbody';
@@ -91,6 +92,7 @@ import { startContactIntelligence } from './modules/contacts/contact-intelligenc
 import { analyticsRoutes } from './modules/analytics/analytics-routes.js';
 import { savedReportRoutes } from './modules/analytics/saved-report-routes.js';
 import { integrationRoutes } from './modules/integrations/integration-routes.js';
+import { pancakeChatPreviewRoutes } from './modules/integrations/pancake-chat-preview-routes.js';
 // Automation + Marketing (engine, blocks, sequences, triggers, broadcasts,
 // care-session, lists, friend-invite) → extension bundle (src/_ee/automation).
 // Telegram bridge (Zalo↔Telegram) is core — stays outside _ee.
@@ -203,6 +205,14 @@ async function bootstrap() {
     },
   });
 
+  // Nén response text (JS/CSS/JSON/SVG) cho cả LAN và domain. Brotli được ưu tiên
+  // khi trình duyệt hỗ trợ; gzip là fallback. Không nén file nhỏ để tránh tốn CPU.
+  await app.register(fastifyCompress, {
+    global: true,
+    threshold: 1024,
+    encodings: ['br', 'gzip'],
+  });
+
   await app.register(fastifyFormbody);
 
   // STORAGE 2026-06-20 — driver 'local': serve file đã upload từ UPLOAD_DIR tại /files.
@@ -223,9 +233,20 @@ async function bootstrap() {
 
   // Serve compiled frontend assets in production
   if (config.isProduction) {
+    const staticRoot = path.join(__dirname, '../static');
     await app.register(fastifyStatic, {
-      root: path.join(__dirname, '../static'),
+      root: staticRoot,
       prefix: '/',
+      setHeaders: (res, filePath) => {
+        const relativePath = path.relative(staticRoot, filePath).replaceAll('\\', '/');
+        // Vite gắn content hash vào assets nên cache một năm là an toàn. index.html
+        // phải luôn revalidate để sau deploy trình duyệt nhận tên bundle mới.
+        if (relativePath.startsWith('assets/')) {
+          res.header('Cache-Control', 'public, max-age=31536000, immutable');
+        } else if (relativePath === 'index.html') {
+          res.header('Cache-Control', 'no-cache');
+        }
+      },
     });
   }
 
@@ -338,6 +359,7 @@ async function bootstrap() {
   await app.register(analyticsRoutes);
   await app.register(savedReportRoutes);
   await app.register(integrationRoutes);
+  await app.register(pancakeChatPreviewRoutes);
   // Automation + Marketing routes (blocks/sequences/triggers/broadcasts/care-session/
   // lists/friend-invite + bull-board/stats/manual-control) → extension bundle.
   await app.register(telegramBridgeRoutes); // Telegram bridge (Zalo↔Telegram) — core
@@ -440,6 +462,10 @@ async function bootstrap() {
     if (config.nodeEnv !== 'test') {
       const { startContactProfileSyncCron } = await import('./modules/contacts/contact-profile-sync-cron.js');
       startContactProfileSyncCron();
+      const { startDailyEmailReport } = await import('./modules/reports/daily-email-report.js');
+      startDailyEmailReport();
+      const { startMetaBillingWeekly } = await import('./modules/reports/meta-billing-weekly.js');
+      startMetaBillingWeekly();
     }
     // Phase ZaloAccounts redesign 2026-05-22 — status log: backfill open records 1
     // lần lúc startup (idempotent), rồi start checkpoint cron (*/5 min) reconcile

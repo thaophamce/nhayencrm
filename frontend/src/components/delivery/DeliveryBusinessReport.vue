@@ -368,20 +368,24 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, ref } from 'vue';
+import { computed, nextTick, ref, watch } from 'vue';
 import { Doughnut } from 'vue-chartjs';
+import { api } from '@/api';
 import {
   Chart as ChartJS,
   ArcElement,
   Tooltip,
   Legend
 } from 'chart.js';
-import { BUSINESS_REPORT_MAX_MONTH, BUSINESS_REPORT_MONTHS } from '@/data/business-report-through-june-2026';
+import { BUSINESS_REPORT_MONTHS, type BusinessMonthData } from '@/data/business-report-through-june-2026';
 
 ChartJS.register(ArcElement, Tooltip, Legend);
 
-const currentYear = ref(2026);
-const currentMonth = ref(6);
+const today = new Date();
+const currentYear = ref(today.getFullYear());
+const currentMonth = ref(today.getMonth() + 1);
+const maxMonthKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+const liveMonthData = ref<Record<string, BusinessMonthData>>({});
 type EditableSection = 'expense' | 'customerCare';
 type MonthOverrides = Record<string, { expense?: Record<string, number>; customerCare?: Record<string, number> }>;
 const STORAGE_KEY = 'delivery-business-report-manual-values-v1';
@@ -400,8 +404,9 @@ const previousMonthKey = computed(() => {
   const date = new Date(currentYear.value, currentMonth.value - 2, 1);
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
 });
+const allMonthData = computed<Record<string, BusinessMonthData>>(() => ({ ...BUSINESS_REPORT_MONTHS, ...liveMonthData.value }));
 const source = computed(() => {
-  const base = BUSINESS_REPORT_MONTHS[monthKey.value] || { revenue: 0, orderCount: 0, expenses: {}, customerCare: {} };
+  const base = allMonthData.value[monthKey.value] || { revenue: 0, orderCount: 0, expenses: {}, customerCare: {} };
   const overrides = manualOverrides.value[monthKey.value] || {};
   return {
     ...base,
@@ -410,7 +415,7 @@ const source = computed(() => {
   };
 });
 const previous = computed(() => {
-  const base = BUSINESS_REPORT_MONTHS[previousMonthKey.value];
+  const base = allMonthData.value[previousMonthKey.value];
   if (!base) return undefined;
   const overrides = manualOverrides.value[previousMonthKey.value] || {};
   return {
@@ -421,7 +426,7 @@ const previous = computed(() => {
 });
 const totalExpense = computed(() => Object.values(source.value.expenses).reduce((sum, value) => sum + value, 0));
 const grossProfit = computed(() => source.value.revenue - totalExpense.value);
-const yearlyRevenue = computed(() => Object.entries(BUSINESS_REPORT_MONTHS)
+const yearlyRevenue = computed(() => Object.entries(allMonthData.value)
   .filter(([key]) => key.startsWith(`${currentYear.value}-`) && key <= monthKey.value)
   .reduce((sum, [, value]) => sum + value.revenue, 0));
 const totalOrders = computed(() => Number(source.value.customerCare.tong_don_hang ?? source.value.orderCount));
@@ -452,13 +457,46 @@ const marginChange = computed(() => {
   return change(displayData.value.profitMargin, ((previous.value.revenue - oldExpense) / previous.value.revenue) * 100);
 });
 const orderChange = computed(() => change(totalOrders.value, Number(previous.value?.customerCare.tong_don_hang ?? previous.value?.orderCount)));
-const isAtMaxMonth = computed(() => monthKey.value >= BUSINESS_REPORT_MAX_MONTH);
+const isAtMaxMonth = computed(() => monthKey.value >= maxMonthKey);
 
 const monthlyRevenueBars = computed(() => {
-  const rows = Object.entries(BUSINESS_REPORT_MONTHS).filter(([key]) => key <= monthKey.value).slice(-6);
+  const rows = monthKeysEndingAt(currentYear.value, currentMonth.value, 6)
+    .map((key) => [key, allMonthData.value[key] || { revenue: 0 }] as const);
   const max = Math.max(1, ...rows.map(([, value]) => value.revenue));
   return rows.map(([key, value]) => ({ label: `T${Number(key.slice(5))}/${key.slice(2, 4)}`, percent: (value.revenue / max) * 100 }));
 });
+
+function monthKeysEndingAt(year: number, month: number, count: number) {
+  return Array.from({ length: count }, (_, index) => {
+    const date = new Date(year, month - count + index, 1);
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+  });
+}
+
+async function loadLiveMonths() {
+  const keys = monthKeysEndingAt(currentYear.value, currentMonth.value, 6)
+    .filter((key) => !BUSINESS_REPORT_MONTHS[key] && key <= maxMonthKey);
+  await Promise.all(keys.map(async (key) => {
+    if (liveMonthData.value[key]) return;
+    const [year, month] = key.split('-').map(Number);
+    try {
+      const { data } = await api.get('/delivery/business-analytics', { params: {
+        from: new Date(year, month - 1, 1).toISOString(),
+        to: new Date(year, month, 1).toISOString(),
+      } });
+      liveMonthData.value = { ...liveMonthData.value, [key]: {
+        revenue: Number(data?.revenue) || 0,
+        orderCount: Number(data?.totalOrders) || 0,
+        expenses: {},
+        customerCare: { tong_don_hang: Number(data?.totalOrders) || 0 },
+      } };
+    } catch {
+      liveMonthData.value = { ...liveMonthData.value, [key]: { revenue: 0, orderCount: 0, expenses: {}, customerCare: {} } };
+    }
+  }));
+}
+
+watch([currentYear, currentMonth], () => void loadLiveMonths(), { immediate: true });
 
 const costDefinitions = [
   ['hoc-mon', 'Hóc Môn'], ['da-nang', 'Đà Nẵng'], ['tan-phu', 'Tân Phú'],

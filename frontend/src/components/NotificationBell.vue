@@ -18,7 +18,7 @@
       </v-btn>
     </template>
     <v-card style="max-height: 400px; overflow-y: auto;">
-      <v-card-title class="text-body-1 font-weight-bold pa-3">Thông báo</v-card-title>
+      <v-card-title class="text-body-1 font-weight-bold pa-3">Việc cần làm</v-card-title>
       <v-divider />
       <v-list density="compact" v-if="notifications.length > 0">
         <v-list-item
@@ -39,7 +39,7 @@
           <v-list-item-subtitle class="text-caption">{{ n.detail }}</v-list-item-subtitle>
         </v-list-item>
       </v-list>
-      <div v-else class="pa-4 text-center text-caption text-grey">Không có thông báo</div>
+      <div v-else class="pa-4 text-center text-caption text-grey">Không có việc cần xử lý</div>
     </v-card>
   </v-menu>
 </template>
@@ -73,9 +73,9 @@ async function fetchNotifications() {
 
 function handleClick(n: Notification) {
   bellMenu.value = false; // đóng menu TRƯỚC khi điều hướng → tránh overlay kẹt phủ nav
-  if (n.id === 'unreplied') router.push('/chat');
+  if (n.id.startsWith('attendance-')) router.push('/salary?tab=checkin');
+  else if (n.id === 'leave-pending') router.push('/salary?tab=leaveAdmin');
   else if (n.id.startsWith('apt-')) router.push('/appointments');
-  else if (n.id.startsWith('zalo-')) router.push('/zalo-accounts');
   else if (n.id === 'tmr-apts') router.push('/appointments');
 }
 

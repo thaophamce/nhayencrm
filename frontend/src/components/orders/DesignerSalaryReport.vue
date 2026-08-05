@@ -7,18 +7,8 @@
         <p class="text-caption text-grey-darken-1 mb-0">Tính theo công thức lương thiệp cưới (20.000đ/file + 10.000đ/đơn chốt in)</p>
       </div>
 
-      <!-- Chọn tháng -->
       <div style="width: 180px;">
-        <v-text-field
-          v-model="selectedMonth"
-          type="month"
-          label="Chọn tháng báo cáo"
-          variant="outlined"
-          density="compact"
-          hide-details
-          color="#2F80ED"
-          @change="loadReport"
-        />
+        <input v-model="selectedMonth" type="month" class="month-input" />
       </div>
     </div>
 
@@ -190,7 +180,7 @@ async function loadReport() {
     });
 
     // Nếu không phải Admin/Manager, chỉ hiển thị báo cáo của chính Designer đang đăng nhập
-    const isAdminOrManager = currentUser.value?.role === 'owner' || currentUser.value?.role === 'admin' || authStore.canAccess('user');
+    const isAdminOrManager = currentUser.value?.role === 'owner' || currentUser.value?.role === 'admin' || authStore.canAccess('orders', 'view_all');
     if (!isAdminOrManager && res.data.report) {
       reportData.value = res.data.report.filter(r => r.designerId === currentUser.value?.id);
     } else {
@@ -224,6 +214,22 @@ function formatMonthLabel(monthStr: string) {
 </script>
 
 <style scoped>
+.month-input {
+  width: 100%;
+  height: 38px;
+  padding: 0 12px;
+  border: 1px solid #CBD5E1;
+  border-radius: 8px;
+  font-size: 14px;
+  color: #1E202C;
+  outline: none;
+  background: #fff;
+  cursor: pointer;
+}
+.month-input:focus {
+  border-color: #2F80ED;
+  box-shadow: 0 0 0 2px rgba(47,128,237,0.15);
+}
 .current-user-row {
   background-color: #EBF3FF !important;
 }

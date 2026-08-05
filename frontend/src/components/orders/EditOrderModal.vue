@@ -169,7 +169,7 @@ const statusOptions = ORDER_STATUS_OPTIONS;
 const orderedStatusHistory = computed(() => [...(props.order?.statusHistory || [])].sort((a, b) => new Date(b.changedAt).getTime() - new Date(a.changedAt).getTime()));
 const isAdminOrManager = computed(() => {
   const user = authStore.user;
-  return user?.role === 'owner' || user?.role === 'admin' || authStore.canAccess('user');
+  return user?.role === 'owner' || user?.role === 'admin' || authStore.canAccess('orders', 'edit');
 });
 watch(() => props.modelValue, (val) => {
   visible.value = val;

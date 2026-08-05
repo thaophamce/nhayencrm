@@ -12,16 +12,7 @@
         </div>
 
         <div class="month-selector-wrap">
-          <v-text-field
-            v-model="selectedMonth"
-            type="month"
-            label="Chọn tháng báo cáo"
-            variant="outlined"
-            density="compact"
-            hide-details
-            color="#2F80ED"
-            class="month-field"
-          />
+          <input v-model="selectedMonth" type="month" class="month-input" />
         </div>
       </div>
 
@@ -419,6 +410,23 @@ const donutOptions = {
 
 .month-selector-wrap {
   width: 190px;
+}
+
+.month-input {
+  width: 100%;
+  height: 38px;
+  padding: 0 12px;
+  border: 1px solid #CBD5E1;
+  border-radius: 8px;
+  font-size: 14px;
+  color: #1E202C;
+  outline: none;
+  background: #fff;
+  cursor: pointer;
+}
+.month-input:focus {
+  border-color: #2F80ED;
+  box-shadow: 0 0 0 2px rgba(47,128,237,0.15);
 }
 
 .overview-loading {

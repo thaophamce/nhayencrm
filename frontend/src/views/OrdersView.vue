@@ -91,6 +91,22 @@
                     color="#2F80ED"
                   />
                 </v-col>
+
+                <v-col cols="6" sm="4" md="3" class="py-1">
+                  <div class="date-filter-wrap">
+                    <span class="date-filter-label">Từ ngày</span>
+                    <input v-model="filterDateFrom" type="date" class="date-input" @change="onDateFilter" />
+                  </div>
+                </v-col>
+                <v-col cols="6" sm="4" md="3" class="py-1">
+                  <div class="date-filter-wrap">
+                    <span class="date-filter-label">Đến ngày</span>
+                    <input v-model="filterDateTo" type="date" class="date-input" @change="onDateFilter" />
+                  </div>
+                </v-col>
+                <v-col cols="auto" class="py-1" v-if="filterDateFrom || filterDateTo">
+                  <v-btn size="small" variant="text" color="error" @click="clearDateFilter">Xoá lọc ngày</v-btn>
+                </v-col>
               </v-row>
             </v-card>
 
@@ -197,7 +213,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue';
+import { ref, onMounted, computed, watch } from 'vue';
 import { api } from '@/api/index';
 import { useToast } from '@/composables/use-toast';
 import { useAuthStore } from '@/stores/auth';
@@ -227,7 +243,19 @@ const tabs = computed(() => [
   { value: 'report', label: 'Báo cáo', icon: 'mdi-chart-box-outline' },
 ]);
 
-const activeTab = ref('overview');
+import { useRoute } from 'vue-router';
+
+const route = useRoute();
+const activeTab = ref((route.query.tab as string) || 'overview');
+
+watch(
+  () => route.query.tab,
+  (newTab) => {
+    if (newTab && typeof newTab === 'string') {
+      activeTab.value = newTab;
+    }
+  },
+);
 const orders = ref<any[]>([]);
 const totalCount = ref(0);
 const loading = ref(false);
@@ -238,6 +266,8 @@ const limit = 20;
 const searchQuery = ref('');
 const filterStatus = ref<string | null>(null);
 const filterDesigner = ref<string | null>(null);
+const filterDateFrom = ref('');
+const filterDateTo = ref('');
 const designers = ref<any[]>([]);
 
 // Modals
@@ -249,7 +279,7 @@ const statusOptions = ORDER_STATUS_OPTIONS;
 
 const isAdminOrManager = computed(() => {
   const user = authStore.user;
-  return user?.role === 'owner' || user?.role === 'admin' || authStore.canAccess('user');
+  return user?.role === 'owner' || user?.role === 'admin' || authStore.canAccess('orders', 'edit');
 });
 
 const totalPages = computed(() => Math.ceil(totalCount.value / limit));
@@ -278,7 +308,9 @@ async function fetchOrders() {
       offset: (page.value - 1) * limit,
       search: searchQuery.value || undefined,
       status: filterStatus.value || undefined,
-      designerId: filterDesigner.value || undefined
+      designerId: filterDesigner.value || undefined,
+      dateFrom: filterDateFrom.value || undefined,
+      dateTo: filterDateTo.value || undefined,
     };
 
     const res = await api.get<{ orders: any[]; total: number }>('/orders', { params });
@@ -290,6 +322,17 @@ async function fetchOrders() {
   } finally {
     loading.value = false;
   }
+}
+
+function onDateFilter() {
+  page.value = 1;
+  fetchOrders();
+}
+
+function clearDateFilter() {
+  filterDateFrom.value = '';
+  filterDateTo.value = '';
+  fetchOrders();
 }
 
 async function loadDesigners() {
@@ -495,4 +538,31 @@ function formatDeadline(d: string) {
   }
 }
 .order-status-chip { font-weight: 800 !important; color: #fff !important; opacity: 1 !important; }
+.date-filter-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.date-filter-label {
+  font-size: 11px;
+  color: #64748B;
+  font-weight: 600;
+  padding-left: 2px;
+}
+.date-input {
+  width: 100%;
+  height: 40px;
+  padding: 0 10px;
+  border: 1px solid #CBD5E1;
+  border-radius: 8px;
+  font-size: 13.5px;
+  color: #1E202C;
+  outline: none;
+  background: #fff;
+  cursor: pointer;
+}
+.date-input:focus {
+  border-color: #2F80ED;
+  box-shadow: 0 0 0 2px rgba(47,128,237,0.15);
+}
 </style>

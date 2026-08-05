@@ -2,14 +2,14 @@
 // Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * Notification routes — computed on-the-fly notifications for the authenticated user.
- * Sources: unreplied conversations, today/tomorrow appointments, disconnected Zalo accounts.
+ * Chuông công việc nội bộ: chấm công, duyệt nghỉ phép và lịch hẹn.
  */
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '../../shared/database/prisma-client.js';
 import { authMiddleware } from '../auth/auth-middleware.js';
-import { zaloPool } from '../zalo/zalo-pool.js';
-import { getZaloScope } from '../zalo/zalo-scope.js';
 import { getContactScope } from '../contacts/contact-scope.js';
+import { normalizeHrConfig, SHIFT_KEYS } from '../hr/hr-config.js';
+import { userHasGrant } from '../rbac/permission-group-service.js';
 
 interface NotificationItem {
   id: string;
@@ -20,6 +20,24 @@ interface NotificationItem {
   createdAt: string;
 }
 
+const SHIFT_LABEL: Record<string, string> = { morning: 'ca sáng', afternoon: 'ca chiều', overtime: 'tăng ca' };
+
+function orgNow(offset: string): { date: string; minutes: number } {
+  const match = /^([+-])(\d{2}):(\d{2})$/.exec(offset || '+07:00');
+  const sign = match?.[1] === '-' ? -1 : 1;
+  const offsetMinutes = match ? sign * (Number(match[2]) * 60 + Number(match[3])) : 420;
+  const shifted = new Date(Date.now() + offsetMinutes * 60_000);
+  return {
+    date: shifted.toISOString().slice(0, 10),
+    minutes: shifted.getUTCHours() * 60 + shifted.getUTCMinutes(),
+  };
+}
+
+function hhmm(value: string): number {
+  const [hours, minutes] = value.split(':').map(Number);
+  return hours * 60 + minutes;
+}
+
 export async function notificationRoutes(app: FastifyInstance) {
   app.addHook('preHandler', authMiddleware);
 
@@ -27,35 +45,49 @@ export async function notificationRoutes(app: FastifyInstance) {
     const user = request.user!;
     const notifications: NotificationItem[] = [];
 
-    // Phase Marketing+Analytics Scope 2026-05-27: scope notification theo viewer
-    const [zScope, cScope] = await Promise.all([
-      getZaloScope(user.id, user.orgId, user.role),
-      getContactScope(user.id, user.orgId, user.role),
-    ]);
-    const convScope: any = zScope.isOrgAdmin ? {} : { zaloAccountId: { in: zScope.accessibleIds } };
+    const cScope = await getContactScope(user.id, user.orgId, user.role);
     const apptScope: any =
       !cScope.isOrgAdmin && cScope.accessibleContactIds !== null
         ? { contactId: { in: cScope.accessibleContactIds } }
         : {};
-    const accountScope: any = zScope.isOrgAdmin ? {} : { id: { in: zScope.accessibleIds } };
 
-    // 1. Unreplied conversations > 30 min
-    const thirtyMinAgo = new Date(Date.now() - 30 * 60000);
-    const unreplied = await prisma.conversation.count({
-      where: { orgId: user.orgId, ...convScope, deletedAt: null, isReplied: false, lastMessageAt: { lt: thirtyMinAgo } },
+    // 1. Ca hiện tại đã mở nhưng nhân viên chưa chấm công.
+    const org = await prisma.organization.findUnique({ where: { id: user.orgId }, select: { timezone: true, hrConfig: true } });
+    const local = orgNow(org?.timezone || '+07:00');
+    const config = normalizeHrConfig(org?.hrConfig);
+    const checked = await prisma.attendanceRecord.findMany({
+      where: { orgId: user.orgId, userId: user.id, date: local.date },
+      select: { shift: true },
     });
-    if (unreplied > 0) {
-      notifications.push({
-        id: 'unreplied',
+    const checkedShifts = new Set(checked.map((item) => item.shift));
+    for (const shift of SHIFT_KEYS) {
+      const time = config.shifts[shift];
+      if (local.minutes >= hhmm(time.start) && local.minutes <= hhmm(time.end) && !checkedShifts.has(shift)) {
+        notifications.push({
+          id: `attendance-${shift}`,
+          type: 'warning',
+          priority: 'high',
+          title: `Chưa chấm công ${SHIFT_LABEL[shift]}`,
+          detail: `Khung giờ ${time.start} – ${time.end}. Chấm công ngay trong khung giờ này.`,
+          createdAt: new Date().toISOString(),
+        });
+      }
+    }
+
+    // 2. Người có quyền duyệt thấy số đơn nghỉ đang chờ xử lý.
+    if (await userHasGrant(user.id, 'leave', 'edit')) {
+      const pendingLeaves = await prisma.leaveRequest.count({ where: { orgId: user.orgId, status: 'pending' } });
+      if (pendingLeaves > 0) notifications.push({
+        id: 'leave-pending',
         type: 'warning',
         priority: 'high',
-        title: `${unreplied} cuộc trò chuyện chưa trả lời`,
-        detail: 'Có tin nhắn chưa phản hồi quá 30 phút',
+        title: `${pendingLeaves} đơn nghỉ phép chờ duyệt`,
+        detail: 'Mở danh sách để duyệt hoặc từ chối đơn.',
         createdAt: new Date().toISOString(),
       });
     }
 
-    // 2. Today's appointments
+    // 3. Lịch hẹn hôm nay
     const now = new Date();
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const todayEnd = new Date(todayStart);
@@ -82,7 +114,7 @@ export async function notificationRoutes(app: FastifyInstance) {
       });
     }
 
-    // 3. Tomorrow's appointments
+    // 4. Lịch hẹn ngày mai
     const tomorrowStart = new Date(todayEnd);
     const tomorrowEnd = new Date(tomorrowStart);
     tomorrowEnd.setDate(tomorrowEnd.getDate() + 1);
@@ -104,25 +136,6 @@ export async function notificationRoutes(app: FastifyInstance) {
         detail: 'Chuẩn bị cho ngày mai',
         createdAt: new Date().toISOString(),
       });
-    }
-
-    // 4. Disconnected Zalo accounts (2026-06-10: ẩn nick đã xóa mềm).
-    const accounts = await prisma.zaloAccount.findMany({
-      where: { orgId: user.orgId, archivedAt: null, ...accountScope },
-      select: { id: true, displayName: true },
-    });
-    for (const acc of accounts) {
-      const status = zaloPool.getStatus(acc.id);
-      if (status !== 'connected') {
-        notifications.push({
-          id: `zalo-${acc.id}`,
-          type: 'error',
-          priority: 'high',
-          title: `Zalo "${acc.displayName}" mất kết nối`,
-          detail: `Trạng thái: ${status}`,
-          createdAt: new Date().toISOString(),
-        });
-      }
     }
 
     return { notifications };

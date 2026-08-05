@@ -118,10 +118,26 @@
         </div>
       </div>
 
-      <!-- B?o gi? lu?n m?; thay Tin nh?n nhanh cho c? c? nh?n v? nh?m. -->
+      <!-- Báo giá thiệp cưới (2 Tab: Tiêu chuẩn vs Cao cấp VIP) -->
       <section class="profile-quote-block">
-        <div class="profile-quote-title">BÁO GIÁ THIỆP CƯỚI</div>
-        <QuotePanel :key="props.conversationId || 'no-conversation'" compact />
+        <div class="profile-quote-tabs">
+          <button
+            class="quote-tab-btn"
+            :class="{ active: quoteSubTab === 'standard' }"
+            @click="quoteSubTab = 'standard'"
+          >
+            Thiệp cưới tiêu chuẩn
+          </button>
+          <button
+            class="quote-tab-btn"
+            :class="{ active: quoteSubTab === 'vip' }"
+            @click="quoteSubTab = 'vip'"
+          >
+            Thiệp cao cấp
+          </button>
+        </div>
+        <QuotePanel v-if="quoteSubTab === 'standard'" :key="props.conversationId || 'no-conversation'" compact />
+        <QuoteVipPanel v-else :key="'vip-' + (props.conversationId || 'no-conversation')" compact />
       </section>
 
     </div>
@@ -584,6 +600,9 @@ import AiSummaryCard from '@/components/ai/ai-summary-card.vue';
 import AiSentimentBadge from '@/components/ai/ai-sentiment-badge.vue';
 import AddFlowModal from './AddFlowModal.vue';
 import QuotePanel from './QuotePanel.vue';
+import QuoteVipPanel from './QuoteVipPanel.vue';
+
+const quoteSubTab = ref<'standard' | 'vip'>('standard');
 import AiAssistantPanel from './AiAssistantPanel.vue';
 import OrderTabPanel from './OrderTabPanel.vue';
 import DesignOrderTabPanel from './DesignOrderTabPanel.vue';
@@ -3179,6 +3198,45 @@ console.log({
   border-color: #a9d3f6;
   background: #eaf4ff;
   color: #0866c6;
+}
+
+.profile-quote-block {
+  margin-top: 10px !important;
+  border-top: 1px solid #eaedf2 !important;
+  background: #f8fafc !important;
+}
+.profile-quote-tabs {
+  display: flex !important;
+  background: #e2e8f0 !important;
+  padding: 3px !important;
+  border-radius: 9px !important;
+  margin: 10px 12px 6px !important;
+  gap: 3px !important;
+  border-bottom: none !important;
+}
+.quote-tab-btn {
+  flex: 1 !important;
+  padding: 7px 10px !important;
+  border: none !important;
+  background: transparent !important;
+  font-size: 11.5px !important;
+  font-weight: 600 !important;
+  color: #64748b !important;
+  cursor: pointer !important;
+  border-radius: 7px !important;
+  transition: all 0.2s ease !important;
+  white-space: nowrap !important;
+  text-align: center !important;
+}
+.quote-tab-btn.active {
+  background: #ffffff !important;
+  color: #2f80ed !important;
+  font-weight: 700 !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1) !important;
+  border-bottom: none !important;
+}
+.quote-tab-btn:hover:not(.active) {
+  color: #1e293b !important;
 }
 
 </style>

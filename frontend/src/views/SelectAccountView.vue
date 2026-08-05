@@ -29,7 +29,7 @@
     <!-- Active Filter Info (Mobile Friendly) -->
     <div class="filter-info-bar">
       <span>Đang hiển thị tài khoản Zalo đã từng hoặc đang kết nối</span>
-      <span class="count-badge">{{ filteredAccounts.length }}</span>
+      <span class="count-badge">{{ visibleAccountCount }}</span>
     </div>
 
     <!-- Accounts Grid & List -->
@@ -85,6 +85,33 @@
           <span>{{ acc.status === 'connected' ? 'Đang kết nối' : 'Mất kết nối' }}</span>
         </div>
       </div>
+
+      <!-- Local Pancake Chat adapter: xuất hiện như một nick Zalo để thử trong ChatView thật. -->
+      <button
+        v-if="showPancakeCard"
+        type="button"
+        class="account-card pancake-card"
+        :class="{ 'pancake-connected': pancakeConnected }"
+        @click="openPancakeAccount"
+      >
+        <div class="card-avatar pancake-avatar">
+          <v-icon size="24">mdi-message-text-outline</v-icon>
+        </div>
+
+        <div class="card-info">
+          <div class="card-name">{{ pancakeAccountName }}</div>
+          <div class="card-sub">
+            <v-icon size="14" color="#0068FF" class="mr-1">mdi-api</v-icon>
+            <span class="platform-name">Zalo qua Pancake API</span>
+            <span class="phone-sub"> · Local</span>
+          </div>
+        </div>
+
+        <div class="status-indicator" :class="pancakeConnected ? 'connected' : 'pancake-pending'">
+          <v-icon size="10" class="mr-1">{{ pancakeConnected ? 'mdi-circle' : 'mdi-link-variant-plus' }}</v-icon>
+          <span>{{ pancakeConnected ? 'Đang kết nối' : 'Nhập token' }}</span>
+        </div>
+      </button>
     </div>
   </div>
 </template>
@@ -94,12 +121,27 @@ import { ref, computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { useZaloAccounts } from '@/composables/use-zalo-accounts';
 import { useWorkScope } from '@/composables/use-work-scope';
+import { usePancakeChatSession } from '@/composables/use-pancake-chat-session';
 
 const router = useRouter();
 const workScope = useWorkScope();
 const { accounts: zaloAccounts, fetchAccounts: fetchZaloAccounts, loading } = useZaloAccounts();
+const pancakeSession = usePancakeChatSession();
 
 const searchQuery = ref('');
+const pancakeConnected = computed(() =>
+  import.meta.env.DEV && Boolean(pancakeSession.preview.value?.connection.id),
+);
+const pancakeAccountName = computed(() =>
+  pancakeSession.preview.value?.connection.displayName || 'Pancake Zalo',
+);
+const showPancakeCard = computed(() => {
+  if (!import.meta.env.DEV) return false;
+  const query = searchQuery.value.trim().toLocaleLowerCase('vi');
+  if (!query) return true;
+  return `${pancakeAccountName.value} zalo pancake api local`.toLocaleLowerCase('vi').includes(query);
+});
+const visibleAccountCount = computed(() => filteredAccounts.value.length + (showPancakeCard.value ? 1 : 0));
 
 async function refreshData() {
   await fetchZaloAccounts();
@@ -111,15 +153,18 @@ onMounted(async () => {
 
 // Filter Zalo accounts that are connected or disconnected
 const filteredAccounts = computed(() => {
-  let list = (zaloAccounts.value || []).map(acc => ({
-    id: acc.id,
-    displayName: acc.displayName || acc.phone || 'Zalo Account',
-    avatarUrl: acc.avatarUrl || '',
-    phone: acc.phone || '',
-    platform: 'zalo',
-    status: acc.status,
-    pinned: acc.status === 'connected',
-  }));
+  let list = (zaloAccounts.value || []).map(acc => {
+    const status = acc.liveStatus || acc.status;
+    return {
+      id: acc.id,
+      displayName: acc.displayName || acc.phone || 'Zalo Account',
+      avatarUrl: acc.avatarUrl || '',
+      phone: acc.phone || '',
+      platform: 'zalo',
+      status,
+      pinned: status === 'connected',
+    };
+  });
 
   // Chỉ hiển thị zalo nào đã từng kết nối (disconnected) hoặc đang kết nối (connected)
   list = list.filter(acc => acc.status === 'connected' || acc.status === 'disconnected');
@@ -153,6 +198,14 @@ function selectAccount(acc: any) {
     workScope.lockToNick(acc.id);
     router.push('/chat');
   }
+}
+
+function openPancakeAccount() {
+  if (pancakeConnected.value) {
+    router.push({ path: '/chat', query: { source: 'pancake' } });
+    return;
+  }
+  router.push('/dev/pancake-chat');
 }
 
 function goToIntegrations() {
@@ -298,6 +351,12 @@ function goToIntegrations() {
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
 }
 
+button.account-card {
+  width: 100%;
+  font: inherit;
+  text-align: left;
+}
+
 .account-card:active {
   transform: scale(0.98);
   background-color: #F7F8FC;
@@ -403,6 +462,29 @@ function goToIntegrations() {
 
 .disconnected-card {
   border-color: #FEECEB;
+}
+
+.pancake-card {
+  border-style: dashed;
+  border-color: #9fc5f8;
+}
+
+.pancake-card.pancake-connected {
+  border-style: solid;
+  border-left: 4px solid #2EC4B6;
+}
+
+.pancake-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #EBF3FF;
+  color: #0068FF;
+}
+
+.status-indicator.pancake-pending {
+  background: #FFF6E5;
+  color: #B76E00;
 }
 
 .spin {

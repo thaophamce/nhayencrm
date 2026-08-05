@@ -250,7 +250,7 @@ const statusOptions = ORDER_STATUS_OPTIONS;
 
 const isAdminOrManager = computed(() => {
   const user = authStore.user;
-  return user?.role === 'owner' || user?.role === 'admin' || authStore.canAccess('user');
+  return user?.role === 'owner' || user?.role === 'admin' || authStore.canAccess('orders', 'create');
 });
 
 watch(() => props.modelValue, (val) => {

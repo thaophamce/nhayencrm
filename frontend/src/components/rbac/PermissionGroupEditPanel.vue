@@ -243,7 +243,15 @@ async function toggleNode(node: MenuNode, value: boolean) {
   const action = nodeAction(node);
   if (!localGrants.value[node.key]) localGrants.value[node.key] = {};
   localGrants.value[node.key][action] = value;
-  // Tắt site cha → tắt luôn các tab con (đồng bộ với UI: con bị disable khi cha off).
+
+  const parentSite = menuTree.value.find((parent) => parent.children?.some((child) => child === node));
+
+  if (value && parentSite && isTickable(parentSite) && parentSite.key) {
+    const parentAction = nodeAction(parentSite);
+    if (!localGrants.value[parentSite.key]) localGrants.value[parentSite.key] = {};
+    localGrants.value[parentSite.key][parentAction] = true;
+  }
+
   if (!value) {
     const site = menuTree.value.find((n) => n === node);
     if (site?.children?.length) {

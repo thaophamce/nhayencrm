@@ -64,6 +64,8 @@
         :messages="allMessages"
         :loading="loadingMsgs"
         :sending="sendingMsg"
+        :rate-limit-seconds="rateLimitSeconds"
+        :rate-limit-total-seconds="rateLimitTotalSeconds"
         :show-contact-panel="false"
         :all-conversations="conversations"
         :ai-suggestion="(null as any)"
@@ -139,7 +141,7 @@ function onProfileSheetKeydown(event: KeyboardEvent) {
 
 const {
   conversations, selectedConvId, selectedConv, messages,
-  loadingConvs, loadingMsgs, sendingMsg, searchQuery, accountFilter, extraFilters,
+  loadingConvs, loadingMsgs, sendingMsg, rateLimitSeconds, rateLimitTotalSeconds, searchQuery, accountFilter, extraFilters,
   fetchConversations, fetchMessages, selectConversation, sendMessage, sendMessageTo,
   initSocket, destroySocket,
 } = useChat();

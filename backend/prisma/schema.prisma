@@ -4178,13 +4178,35 @@ model Order {
   createdAt      DateTime  @default(now()) @map("created_at")
   updatedAt      DateTime  @updatedAt @map("updated_at")
 
+  // --- Design order salary fields (migrated from TRACKER Firebase) ---
+  timestamps          Json?     @map("timestamps")           // {demo?,designing?,approved?,cancelled?} ISO strings
+  fileCountHistory    Json?     @map("file_count_history")   // [{count,changedAt}]
+  designFeeTickedAt   DateTime? @map("design_fee_ticked_at")
+  outsourceKpiTickedAt   DateTime? @map("outsource_kpi_ticked_at")
+  outsourceKpiFileCount  Int?      @map("outsource_kpi_file_count")
+  outsourceApprovedAt    DateTime? @map("outsource_approved_at")
+  outsourceApprovedBy    String?   @map("outsource_approved_by")
+  outsourceApprovedBonus Int?      @map("outsource_approved_bonus")
+  approvedDesignerId     String?   @map("approved_designer_id") // audit-only, NOT used in salary formula
+
+  // --- Migration provenance ---
+  sourceSystem     String?   @map("source_system")      // 'donnhayen_firebase'
+  sourceExternalId String?   @map("source_external_id") // Firebase push key e.g. -OD123abc
+  rawSnapshot      Json?     @map("raw_snapshot")
+  checksumSha256   String?   @map("checksum_sha256")
+  importedAt       DateTime? @map("imported_at")
+  importRunId      String?   @map("import_run_id")
+
   designer      User?                @relation("DesignerOrders", fields: [designerId], references: [id], onDelete: SetNull)
   statusHistory OrderStatusHistory[]
   conversation  Conversation?        @relation(fields: [conversationId], references: [id], onDelete: SetNull)
 
   @@index([designerId])
   @@index([orgId])
+  @@index([sourceSystem])
+  @@index([importRunId])
   @@unique([orgId, orderCode])
+  @@unique([orgId, sourceSystem, sourceExternalId])
   @@map("orders")
 }
 

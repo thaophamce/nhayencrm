@@ -50,10 +50,34 @@ export async function list(user: User, q: Record<string, unknown>) {
 }
 export async function get(user: User, id: string) { const row=await prisma.deliveryOrder.findFirst({where:{id,orgId:user.orgId,deletedAt:null},include:{createdBy:{select:{id:true,fullName:true}},events:{orderBy:{createdAt:'desc'}}}}); return row?serialize(row):null; }
 export async function create(user: User, input: Input) { const d=data(input); validate(d); const row=await prisma.$transaction(async tx=>{const created=await tx.deliveryOrder.create({data:{...d,orgId:user.orgId,createdById:user.id} as any});await tx.deliveryStatusEvent.create({data:{deliveryOrderId:created.id,status:String(d.deliveryStatus||'pending'),statusText:'Tạo đơn giao vận',createdById:user.id}});return created});await audit(user,'delivery.create',row.id,{orderCode:row.orderCode});return serialize(row); }
-export async function update(user: User, id: string, input: Input) { const existing=await prisma.deliveryOrder.findFirst({where:{id,orgId:user.orgId,deletedAt:null}});if(!existing)return null;const d=data(input,true);validate(d);const row=await prisma.$transaction(async tx=>{const updated=await tx.deliveryOrder.update({where:{id},data:d});if(d.deliveryStatus&&d.deliveryStatus!==existing.deliveryStatus)await tx.deliveryStatusEvent.create({data:{deliveryOrderId:id,status:String(d.deliveryStatus),statusText:cleanText(input.statusNote,500),source:'manual',createdById:user.id}});return updated});await audit(user,'delivery.update',id,{fields:Object.keys(d)});return serialize(row); }
+export async function update(user: User, id: string, input: Input) { const existing=await prisma.deliveryOrder.findFirst({where:{id,orgId:user.orgId,deletedAt:null}});if(!existing)return null;const d=data(input,true);validate(d);const row=await prisma.$transaction(async tx=>{const updated=await tx.deliveryOrder.update({where:{id},data:d});if(d.deliveryStatus&&d.deliveryStatus!==existing.deliveryStatus)await tx.deliveryStatusEvent.create({data:{deliveryOrderId:id,status:String(d.deliveryStatus),statusText:cleanText(input.statusNote,500),source:'manual',createdById:user.id}});return updated});await audit(user,'delivery.update',id,{orderCode:existing.orderCode,fields:Object.keys(d)});return serialize(row); }
 export async function remove(user: User,id:string){const existing=await prisma.deliveryOrder.findFirst({where:{id,orgId:user.orgId,deletedAt:null}});if(!existing)return false;await prisma.deliveryOrder.update({where:{id},data:{deletedAt:new Date()}});await audit(user,'delivery.delete',id,{orderCode:existing.orderCode});return true;}
-export async function bulkCreate(user:User, input:Input){const codes=Array.isArray(input.orderCodes)?input.orderCodes.map(x=>cleanText(x,100)).filter(Boolean):[];if(!codes.length)throw new Error('Danh sách mã đơn trống');const unique=[...new Set(codes)] as string[];if(unique.length>500)throw new Error('Mỗi lần chỉ được nhập tối đa 500 mã đơn');const existing=await prisma.deliveryOrder.findMany({where:{orgId:user.orgId,orderCode:{in:unique}},select:{orderCode:true}});const dup=new Set(existing.map(x=>x.orderCode));const valid=unique.filter(x=>!dup.has(x));const created=await prisma.$transaction(valid.map(orderCode=>prisma.deliveryOrder.create({data:{orgId:user.orgId,orderCode,createdById:user.id,deliveryMethod:isAllowed(input.deliveryMethod,DELIVERY_METHODS)?input.deliveryMethod:'viettelpost'}})));return {created:created.map(serialize),duplicates:[...dup]};}
-export async function stats(user:User){const where={orgId:user.orgId,deletedAt:null};const [rows,overdue]=await Promise.all([prisma.deliveryOrder.findMany({where,select:{totalAmount:true,deposit:true,paymentStatus:true,deliveryStatus:true}}),prisma.deliveryOrder.count({where:{...where,paymentStatus:{not:'paid'},createdDate:{lt:new Date(Date.now()-4*86400000)}}})]);return rows.reduce((a:any,r:any)=>{a.totalOrders++;a.revenue+=Number(r.totalAmount);a.deposit+=Number(r.deposit);a.outstanding+=r.paymentStatus==='paid'?0:Math.max(0,Number(r.totalAmount)-Number(r.deposit));a.byDeliveryStatus[r.deliveryStatus]=(a.byDeliveryStatus[r.deliveryStatus]||0)+1;return a},{totalOrders:0,revenue:0,deposit:0,outstanding:0,overdue,byDeliveryStatus:{}});}
+export async function bulkCreate(user:User, input:Input){const codes=Array.isArray(input.orderCodes)?input.orderCodes.map(x=>cleanText(x,100)).filter(Boolean):[];if(!codes.length)throw new Error('Danh sách mã đơn trống');const unique=[...new Set(codes)] as string[];if(unique.length>500)throw new Error('Mỗi lần chỉ được nhập tối đa 500 mã đơn');const existing=await prisma.deliveryOrder.findMany({where:{orgId:user.orgId,orderCode:{in:unique}},select:{orderCode:true}});const dup=new Set(existing.map(x=>x.orderCode));const valid=unique.filter(x=>!dup.has(x));const created=await prisma.$transaction(valid.map(orderCode=>prisma.deliveryOrder.create({data:{orgId:user.orgId,orderCode,createdById:user.id,deliveryMethod:isAllowed(input.deliveryMethod,DELIVERY_METHODS)?input.deliveryMethod:'viettelpost'}})));await Promise.all(created.map(row=>audit(user,'delivery.create',row.id,{orderCode:row.orderCode,source:'bulk'})));return {created:created.map(serialize),duplicates:[...dup]};}
+
+export async function activity(user: User, q: Record<string, unknown>) {
+  const page = Math.max(1, Number(q.page) || 1);
+  const limit = Math.min(100, Math.max(1, Number(q.limit) || 30));
+  const where: any = { orgId: user.orgId, entityType: 'delivery_order', action: { startsWith: 'delivery.' } };
+  if (q.action && ['delivery.create', 'delivery.update', 'delivery.delete', 'delivery.tracking_sync'].includes(String(q.action))) where.action = String(q.action);
+  if (q.userId) where.userId = String(q.userId);
+  if (q.search) where.OR = [
+    { details: { path: ['orderCode'], string_contains: String(q.search) } },
+    { user: { fullName: { contains: String(q.search), mode: 'insensitive' } } },
+  ];
+  const [rows, total, users] = await Promise.all([
+    prisma.activityLog.findMany({ where, include: { user: { select: { id: true, fullName: true, email: true } } }, orderBy: { createdAt: 'desc' }, skip: (page - 1) * limit, take: limit }),
+    prisma.activityLog.count({ where }),
+    prisma.user.findMany({ where: { orgId: user.orgId, activityLogs: { some: { entityType: 'delivery_order' } } }, select: { id: true, fullName: true, email: true }, orderBy: { fullName: 'asc' } }),
+  ]);
+  return { activities: rows, users, total, page, limit, totalPages: Math.ceil(total / limit) };
+}
+// Dữ liệu cũ từ site giao vận có thể dùng "thiep"/"thiệp" thay cho mã FE mới
+// "invitation". Áo và ảnh luôn được tách khỏi doanh thu thiệp.
+export function isInvitationProduct(value: unknown): boolean {
+  const key = String(value ?? '').trim().toLocaleLowerCase('vi-VN');
+  return key === 'invitation' || key === 'thiep' || key === 'thiệp' || key.includes('thiệp');
+}
+export async function stats(user:User){const where={orgId:user.orgId,deletedAt:null};const [rows,overdue]=await Promise.all([prisma.deliveryOrder.findMany({where,select:{totalAmount:true,deposit:true,paymentStatus:true,deliveryStatus:true,productType:true}}),prisma.deliveryOrder.count({where:{...where,paymentStatus:{not:'paid'},createdDate:{lt:new Date(Date.now()-4*86400000)}}})]);return rows.reduce((a:any,r:any)=>{a.totalOrders++;if(isInvitationProduct(r.productType)){a.revenue+=Number(r.totalAmount);a.deposit+=Number(r.deposit);a.outstanding+=r.paymentStatus==='paid'?0:Math.max(0,Number(r.totalAmount)-Number(r.deposit));}a.byDeliveryStatus[r.deliveryStatus]=(a.byDeliveryStatus[r.deliveryStatus]||0)+1;return a},{totalOrders:0,revenue:0,deposit:0,outstanding:0,overdue,byDeliveryStatus:{}});}
 
 export async function analytics(user: User, q: Record<string, unknown>) {
   const now = new Date();
@@ -90,10 +114,14 @@ export async function analytics(user: User, q: Record<string, unknown>) {
   for (const row of orders) {
     const total = Number(row.totalAmount), deposit = Number(row.deposit), remaining = row.paymentStatus === 'paid' ? 0 : Math.max(0, total - deposit);
     const day = row.createdDate.toISOString().slice(0, 10);
-    base.totalOrders++; base.revenue += total; base.deposit += deposit; base.outstanding += remaining;
-    base.paidRevenue += row.paymentStatus === 'paid' ? total : Math.min(deposit, total);
-    const add = (bucket: any, key: string) => { bucket[key] ||= { count: 0, revenue: 0, outstanding: 0, quantity: 0 }; bucket[key].count++; bucket[key].revenue += total; bucket[key].outstanding += remaining; bucket[key].quantity += row.quantity; };
-    add(base.byDay, day); add(base.byMethod, row.deliveryMethod); add(base.byProduct, row.productType); add(base.byStatus, row.deliveryStatus); if (row.warehouseName) add(base.byWarehouse, row.warehouseName);
+    const isInvitation = isInvitationProduct(row.productType);
+    base.totalOrders++;
+    if (isInvitation) {
+      base.revenue += total; base.deposit += deposit; base.outstanding += remaining;
+      base.paidRevenue += row.paymentStatus === 'paid' ? total : Math.min(deposit, total);
+    }
+    const add = (bucket: any, key: string, includeFinancials = true) => { bucket[key] ||= { count: 0, revenue: 0, outstanding: 0, quantity: 0 }; bucket[key].count++; if(includeFinancials){bucket[key].revenue += total; bucket[key].outstanding += remaining;} bucket[key].quantity += row.quantity; };
+    add(base.byDay, day, isInvitation); add(base.byMethod, row.deliveryMethod, isInvitation); add(base.byProduct, row.productType); add(base.byStatus, row.deliveryStatus, isInvitation); if (row.warehouseName) add(base.byWarehouse, row.warehouseName, isInvitation);
   }
   base.recent = orders.slice(0, 8).map(serialize);
   base.byDay = Object.entries(base.byDay).map(([date, value]) => ({ date, ...(value as object) }));

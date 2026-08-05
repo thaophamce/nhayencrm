@@ -21,8 +21,12 @@ vi.mock('../src/shared/database/prisma-client.js', () => ({ prisma: prismaMock }
 vi.mock('../src/modules/auth/auth-middleware.js', () => ({
   authMiddleware: async (req: any) => { req.user = mockUser(); },
 }));
+vi.mock('../src/modules/rbac/rbac-middleware.js', () => ({
+  requireGrant: () => async () => {},
+}));
 vi.mock('../src/modules/zalo/zalo-access-middleware.js', () => ({
   requireZaloAccess: () => async () => {},
+  checkZaloAccess: vi.fn().mockResolvedValue('ok'),
 }));
 vi.mock('../src/modules/zalo/zalo-pool.js', () => ({ zaloPool: zaloPoolMock }));
 vi.mock('../src/modules/zalo/zalo-rate-limiter.js', () => ({ zaloRateLimiter: zaloRateLimiterMock }));
@@ -58,7 +62,9 @@ beforeEach(() => {
   });
   prismaMock.message.create.mockResolvedValue({ id: 'msg-2', content: 'thanks' });
   prismaMock.conversation.update.mockResolvedValue({});
+  prismaMock.user.findUnique.mockResolvedValue({ fullName: 'Test User' });
   zaloPoolMock.getInstance.mockReturnValue({
+    status: 'connected',
     api: {
       sendMessage: sendMessageMock,
     },
@@ -92,6 +98,75 @@ describe('POST /api/v1/conversations/:id/messages', () => {
     );
     expect(prismaMock.message.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ quote: expect.objectContaining({ msgId: 'zalo-reply-1' }) }),
+    }));
+  });
+
+  it('returns success when selfListen wins the zaloMsgId insert race', async () => {
+    sendMessageMock.mockResolvedValueOnce({ message: { msgId: 'zalo-race-1' } });
+    prismaMock.message.create.mockRejectedValueOnce({ code: 'P2002' });
+    prismaMock.message.findUnique.mockResolvedValueOnce(null);
+    prismaMock.message.findFirst.mockResolvedValueOnce({
+      id: 'self-listen-winner',
+      conversationId: 'conv-1',
+      zaloMsgId: 'zalo-race-1',
+      zaloMsgIdNum: BigInt('8096862293226'),
+      clientEchoId: null,
+      content: 'race text',
+      contentType: 'text',
+      sentAt: new Date(),
+      metadata: { sender: { kind: 'user_native', name: 'Thiệp Cưới' } },
+    });
+    prismaMock.message.update.mockResolvedValueOnce({
+      id: 'self-listen-winner',
+      conversationId: 'conv-1',
+      zaloMsgId: 'zalo-race-1',
+      zaloMsgIdNum: BigInt('8096862293226'),
+      clientEchoId: 'echo-race-1',
+      content: 'race text',
+      contentType: 'text',
+      sentAt: new Date(),
+      metadata: { sender: { kind: 'user_crm', name: 'Test User' } },
+      repliedBy: { id: 'user-1', fullName: 'Test User', email: 'test@example.com' },
+    });
+
+    const app = buildApp();
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/conversations/conv-1/messages',
+      payload: { content: 'race text', echoId: 'echo-race-1' },
+    });
+
+    expect(res.statusCode, res.body).toBe(200);
+    expect(prismaMock.message.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'self-listen-winner' },
+      data: expect.objectContaining({
+        clientEchoId: 'echo-race-1',
+        sentVia: 'user',
+      }),
+    }));
+    expect(prismaMock.conversation.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ isReplied: true, unreadCount: 0 }),
+    }));
+  });
+});
+
+describe('GET /api/v1/conversations/picker', () => {
+  it('tìm nhóm vừa tạo bằng mã đơn Pancake dù groupName chưa kịp đồng bộ', async () => {
+    (prismaMock as any).friend = { findMany: vi.fn().mockResolvedValue([]) };
+    prismaMock.conversation.findMany.mockResolvedValue([]);
+    const app = buildApp();
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/v1/conversations/picker?accountId=za-1&search=D300703',
+    });
+
+    expect(res.statusCode, res.body).toBe(200);
+    expect(prismaMock.conversation.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        OR: expect.arrayContaining([
+          { pancakeOrderLink: { is: { orderCode: { contains: 'D300703', mode: 'insensitive' } } } },
+        ]),
+      }),
     }));
   });
 });

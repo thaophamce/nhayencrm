@@ -321,6 +321,7 @@ function normalizePancakeOrder(order: Record<string, any>) {
     freeShipping: Boolean(order.is_free_shipping),
     cash: Math.max(0, numberValue(order.cash)),
     transferMoney: Math.max(0, numberValue(order.transfer_money)),
+    qrPay: Math.max(0, numberValue(order.charged_by_qrpay)),
     note: valueString(order.note) || '',
     printNote: valueString(order.note_print) || '',
     createdAt: valueString(order.inserted_at),
@@ -481,7 +482,7 @@ export async function updatePancakeOrder(user: AuthUser, orderCode: string, inpu
   for (const [key, max] of [['bill_full_name', 300], ['bill_phone_number', 50], ['bill_email', 320], ['note', 3000], ['note_print', 3000], ['warehouse_id', 100]] as const) {
     if (input[key] !== undefined) payload[key] = boundedString(input[key], max);
   }
-  for (const key of ['shipping_fee', 'total_discount', 'cash', 'transfer_money', 'surcharge'] as const) {
+  for (const key of ['shipping_fee', 'total_discount', 'cash', 'transfer_money', 'charged_by_qrpay', 'surcharge'] as const) {
     if (input[key] !== undefined) payload[key] = nonNegativeInteger(input[key], key);
   }
   if (input.is_free_shipping !== undefined) payload.is_free_shipping = Boolean(input.is_free_shipping);

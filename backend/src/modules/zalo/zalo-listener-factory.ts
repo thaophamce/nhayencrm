@@ -16,6 +16,7 @@ import { refreshGroupInfoNow } from './group-info-refresh.js';
 import { consumeIfExpected as consumeReactionEcho } from '../chat/reaction-echo-cache.js';
 import { emitChatMessage } from '../../shared/realtime/emit-chat.js';
 import { notifyNewInboundMessage } from '../push/push-service.js';
+import { isNormalListenerClosure } from './zalo-status.js';
 
 // Map Zalo Reactions enum code → display emoji (cùng map với chat-operations-routes)
 const ZALO_REACTION_DISPLAY: Record<string, string> = {
@@ -366,7 +367,7 @@ export interface ListenerContext {
   api: any;
   io: Server | null;
   userInfoCache: Map<string, UserInfoCacheEntry>;
-  onDisconnected: (accountId: string) => void;
+  onDisconnected: (accountId: string, code?: number, reason?: string) => boolean | void;
 }
 
 /**
@@ -597,7 +598,11 @@ export function attachZaloListener(ctx: ListenerContext): void {
   // Nếu cần buffer outgoing messages giữa disconnected → reconnected, mở rộng ở đây.
   listener.on('disconnected', (code: number, reason: string) => {
     logger.warn(`[zalo:${accountId}] Listener disconnected (early): ${code} ${reason}`);
-    void emitOrg('zalo:disconnected', { accountId, code, reason, phase: 'early' });
+    // SDK phát `disconnected` trước `closed` cho cùng một NORMAL_CLOSURE.
+    // Không được báo offline ở nhánh sớm này; pool sẽ reconnect nhanh khi nhận `closed`.
+    if (!isNormalListenerClosure(code, reason)) {
+      void emitOrg('zalo:disconnected', { accountId, code, reason, phase: 'early' });
+    }
   });
 
   listener.on('message', async (message: any) => {
@@ -972,13 +977,17 @@ export function attachZaloListener(ctx: ListenerContext): void {
 
   listener.on('closed', (code: number, reason: string) => {
     logger.warn(`[zalo:${accountId}] Listener closed: ${code} ${reason}`);
-    onDisconnected(accountId);
-    void emitOrg('zalo:disconnected', { accountId, code, reason });
+    const shouldEmitDisconnected = onDisconnected(accountId, code, reason);
+    if (shouldEmitDisconnected !== false) {
+      void emitOrg('zalo:disconnected', { accountId, code, reason });
+    }
   });
 
   listener.on('error', (err: any) => {
     logger.error(`[zalo:${accountId}] Listener error:`, err);
   });
 
-  listener.start({ retryOnClose: true });
+  // Pool sở hữu duy nhất vòng đời reconnect. Không bật retry nội bộ của SDK vì
+  // hai cơ chế chạy song song sẽ tạo listener trùng và vòng lặp NORMAL_CLOSURE.
+  listener.start({ retryOnClose: false });
 }

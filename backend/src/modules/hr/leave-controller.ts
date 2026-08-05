@@ -11,6 +11,7 @@ import { prisma } from '../../shared/database/prisma-client.js';
 import { logger } from '../../shared/utils/logger.js';
 import { userHasGrant } from '../rbac/permission-group-service.js';
 import { sendSystemNotificationToUser } from '../system-notifications/system-notify-service.js';
+import { sendNewLeaveEmail, sendReviewedLeaveEmail } from './leave-email-service.js';
 
 const LEAVE_TYPES = ['normal', 'multi_day', 'emergency'];
 const LEAVE_SESSIONS = ['morning', 'afternoon', 'full', 'multi'];
@@ -157,6 +158,15 @@ export async function createLeave(request: FastifyRequest, reply: FastifyReply):
       endDate: record.endDate,
       reason: record.reason,
     });
+    void sendNewLeaveEmail({
+      staffName: record.user?.fullName || record.user?.email || 'Nhân viên',
+      employeeEmail: record.user?.email,
+      type: record.type,
+      session: record.session,
+      startDate: record.startDate,
+      endDate: record.endDate,
+      reason: record.reason,
+    });
     return record;
   } catch (err) {
     logger.error('[leave] createLeave error:', err);
@@ -261,6 +271,17 @@ export async function reviewLeave(request: FastifyRequest, reply: FastifyReply):
       type: record.type,
       startDate: record.startDate,
       endDate: record.endDate,
+      status: record.status,
+      reviewNote: record.reviewNote,
+    });
+    void sendReviewedLeaveEmail({
+      staffName: record.user?.fullName || record.user?.email || 'Nhân viên',
+      employeeEmail: record.user?.email,
+      type: record.type,
+      session: record.session,
+      startDate: record.startDate,
+      endDate: record.endDate,
+      reason: record.reason,
       status: record.status,
       reviewNote: record.reviewNote,
     });

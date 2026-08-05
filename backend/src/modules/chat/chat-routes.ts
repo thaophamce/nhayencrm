@@ -470,6 +470,9 @@ export async function chatRoutes(app: FastifyInstance) {
       const friendUids = matchingFriends.map((friend) => friend.zaloUidInNick);
       where.OR = [
         { groupName: { contains: query, mode: 'insensitive' } },
+        // Nhóm vừa tạo từ đơn Pancake có thể đang chờ Zalo xác nhận rename.
+        // Cho phép tìm ngay bằng mã đơn, không phụ thuộc groupName đã đồng bộ hay chưa.
+        { pancakeOrderLink: { is: { orderCode: { contains: query, mode: 'insensitive' } } } },
         { contact: { OR: [
           { fullName: { contains: query, mode: 'insensitive' } },
           { crmName: { contains: query, mode: 'insensitive' } },
@@ -615,6 +618,16 @@ export async function chatRoutes(app: FastifyInstance) {
         { fullName: { contains: search, mode: 'insensitive' } },
         { crmName: { contains: search, mode: 'insensitive' } },
         { phone: { contains: search } },
+        {
+          friends: {
+            some: {
+              OR: [
+                { aliasInNick: { contains: search, mode: 'insensitive' } },
+                { zaloDisplayName: { contains: search, mode: 'insensitive' } },
+              ],
+            },
+          },
+        },
       ];
     }
     if (statusId) contactWhere.statusId = statusId;
@@ -973,8 +986,8 @@ export async function chatRoutes(app: FastifyInstance) {
           },
         },
         orderBy: orderByClause,
-        skip: (parseInt(page) - 1) * Math.min(parseInt(limit), 200),
-        take: Math.min(parseInt(limit), 200),
+        skip: (parseInt(page) - 1) * Math.min(parseInt(limit), 300),
+        take: Math.min(parseInt(limit), 300),
       }),
       prisma.conversation.count({ where }),
     ]);
@@ -1102,7 +1115,7 @@ export async function chatRoutes(app: FastifyInstance) {
       }),
       total,
       page: parseInt(page),
-      limit: Math.min(parseInt(limit), 200),
+      limit: Math.min(parseInt(limit), 300),
     };
   });
 
@@ -1878,23 +1891,41 @@ export async function chatRoutes(app: FastifyInstance) {
           include: { repliedBy: { select: { id: true, fullName: true, email: true } } },
         });
       } catch (createErr) {
-        // 2026-06-15 IDEMPOTENCY RACE: 2 request cùng echoId chạy ~đồng thời → create
-        // thứ 2 ném P2002 (unique violation conversationId_clientEchoId). Đã gửi Zalo
-        // rồi nhưng tin đã được request kia lưu → query lại tin đó & trả về, KHÔNG 500.
-        if (echoId && (createErr as { code?: string })?.code === 'P2002') {
-          const winner = await prisma.message.findUnique({
-            where: { conversationId_clientEchoId: { conversationId: id, clientEchoId: echoId } },
-            include: { repliedBy: { select: { id: true, fullName: true, email: true } } },
-          });
+        // A competing HTTP retry or the Zalo self-listener may persist this
+        // successfully-sent message first. Reuse that row instead of reporting
+        // a false 500 after Zalo has already accepted the text.
+        if ((createErr as { code?: string })?.code === 'P2002') {
+          let winner = echoId
+            ? await prisma.message.findUnique({
+                where: { conversationId_clientEchoId: { conversationId: id, clientEchoId: echoId } },
+                include: { repliedBy: { select: { id: true, fullName: true, email: true } } },
+              })
+            : null;
+          if (!winner && zaloMsgId) {
+            winner = await prisma.message.findFirst({
+              where: { conversationId: id, zaloMsgId },
+              include: { repliedBy: { select: { id: true, fullName: true, email: true } } },
+            });
+          }
           if (winner) {
-            return {
-              ...winner,
-              zaloMsgIdNum: winner.zaloMsgIdNum?.toString() ?? null,
-              echoId,
-            };
+            message = await prisma.message.update({
+              where: { id: winner.id },
+              data: {
+                repliedByUserId: user.id,
+                sentVia: 'user',
+                ...(echoId && !winner.clientEchoId ? { clientEchoId: echoId } : {}),
+                metadata: {
+                  sender: { kind: 'user_crm', name: userFullName },
+                  ...(sendFail
+                    ? { sendStatus: 'failed', failReason: sendFail.reason, failCode: sendFail.code, failedAt: new Date().toISOString() }
+                    : {}),
+                },
+              },
+              include: { repliedBy: { select: { id: true, fullName: true, email: true } } },
+            });
           }
         }
-        throw createErr;
+        if (!message) throw createErr;
       }
 
       await prisma.conversation.update({

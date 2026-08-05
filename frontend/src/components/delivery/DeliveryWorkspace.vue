@@ -7,6 +7,7 @@
       </div>
       <div class="actions">
         <v-btn variant="outlined" prepend-icon="mdi-refresh" :loading="loading" @click="refresh">Làm mới</v-btn>
+        <v-btn v-if="canCreate" variant="outlined" color="#1A6FD4" prepend-icon="mdi-layers-triple" @click="bulkDialog = true">Tạo hàng loạt</v-btn>
         <v-btn v-if="canCreate" color="#1A6FD4" prepend-icon="mdi-plus" @click="edit()">Tạo đơn</v-btn>
       </div>
     </header>
@@ -50,6 +51,7 @@
 
     <footer><span>{{ total.toLocaleString('vi-VN') }} đơn</span><v-pagination v-model="page" :length="totalPages" density="compact" @update:model-value="load" /></footer>
     <DeliveryOrderDialog v-model="dialog" :model="selected" @saved="refresh" />
+    <BulkCreateDialog v-model="bulkDialog" @saved="refresh" />
   </section>
 </template>
 
@@ -60,6 +62,7 @@ import { useAuthStore } from '@/stores/auth';
 import { useToast } from '@/composables/use-toast';
 import { useDeliveryOrders } from '@/composables/use-delivery-orders';
 import DeliveryOrderDialog from '@/components/delivery/DeliveryOrderDialog.vue';
+import BulkCreateDialog from '@/components/delivery/BulkCreateDialog.vue';
 import { paymentStatuses, deliveryMethods, deliveryStatuses, label } from '@/constants/delivery';
 
 const auth = useAuthStore();
@@ -67,6 +70,7 @@ const toast = useToast();
 const { orders, loading, total, page, filters, totalPages, load } = useDeliveryOrders();
 const stats = ref<any>({});
 const dialog = ref(false);
+const bulkDialog = ref(false);
 const selected = ref<any>();
 const canCreate = computed(() => auth.canAccess('delivery', 'create'));
 const canDelete = computed(() => auth.canAccess('delivery', 'delete'));

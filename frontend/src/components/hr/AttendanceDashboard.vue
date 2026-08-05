@@ -66,7 +66,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { api } from '@/api';
 import { useToast } from '@/composables/use-toast';
 import { useAuthStore } from '@/stores/auth';
@@ -89,9 +89,11 @@ const period=ref(currentPeriod()); const records=ref<any[]>([]); const config=re
 const loading=ref(true); const leavesLoading=ref(false); const loadError=ref(''); const submitting=ref<ShiftKey|null>(null); const ipError=ref('');
 const networkState=ref<'open'|'unknown'|'valid'|'invalid'>('unknown'); const networkDetail=ref('');
 const selectedShift=ref<ShiftKey>('morning'); const leaveDialog=ref(false); const historyDialog=ref(false); const lateDialog=ref(false); const pendingShift=ref<ShiftKey|null>(null); const lateReason=ref(''); const lateReasonError=ref('');
-const todayKey=computed(()=>orgDayKey(new Date()));
+const now=ref(new Date());
+let clockTimer: ReturnType<typeof setInterval> | undefined;
+const todayKey=computed(()=>orgDayKey(now.value));
 const workingDays=computed(()=>config.value?.workingDaysPerMonth||26);
-const todayParts=computed(()=>getOrgParts(new Date()));
+const todayParts=computed(()=>getOrgParts(now.value));
 const todayLongLabel=computed(()=>new Intl.DateTimeFormat('vi-VN',{weekday:'long',day:'2-digit',month:'2-digit',year:'numeric',timeZone:'UTC'}).format(new Date(Date.UTC(todayParts.value?.year||0,(todayParts.value?.month||1)-1,todayParts.value?.day||1))));
 function hhmm(value:string){const [h,m]=String(value||'').split(':').map(Number);return (h||0)*60+(m||0)}
 const stats=computed(()=>{const dates=new Set<string>();let lateCount=0;for(const r of records.value){if(r.shift==='morning'||r.shift==='afternoon')dates.add(r.date);if(r.status==='late')lateCount++}return{workDays:dates.size,lateCount,shiftCount:records.value.length}});
@@ -102,8 +104,8 @@ function formatCheckin(iso:string){const p=getOrgParts(iso);return p?`${String(p
 function shiftView(key:ShiftKey):ShiftView{const meta=SHIFTS.find(s=>s.key===key)!;const rec=todayRecords.value.find(r=>r.shift===key);const time=config.value?.shifts?.[key];const minutes=(todayParts.value?.hour||0)*60+(todayParts.value?.minute||0);const start=hhmm(time?.start);const end=hhmm(time?.end);let state:ShiftView['state']='upcoming';let stateLabel='Chưa đến giờ';if(rec){state=rec.status==='late'?'late':'done';stateLabel=rec.status==='late'?'Đi trễ':'Đã chấm'}else if(time&&minutes>end){state='ended';stateLabel='Đã kết thúc'}else if(time&&minutes>=start){state='active';stateLabel='Đang trong giờ'}return{key,label:meta.label,icon:meta.icon,time:time?`${time.start} – ${time.end}`:'Chưa cấu hình',state,stateLabel,checkinLabel:rec?`Đã chấm lúc ${formatCheckin(rec.checkinTime)}`:undefined}}
 const shiftViews=computed(()=>SHIFTS.map(s=>shiftView(s.key)));
 const selectedView=computed(()=>shiftViews.value.find(s=>s.key===selectedShift.value));
-const primaryDisabled=computed(()=>!selectedView.value||['done','late'].includes(selectedView.value.state));
-const primaryLabel=computed(()=>primaryDisabled.value?'Ca đã chấm công':`Chấm công ${selectedView.value?.label.toLowerCase()||''}`);
+const primaryDisabled=computed(()=>selectedView.value?.state!=='active');
+const primaryLabel=computed(()=>{const view=selectedView.value;if(!view)return'Chưa có ca phù hợp';if(['done','late'].includes(view.state))return'Ca đã chấm công';if(view.state==='upcoming')return`Mở lúc ${config.value?.shifts?.[view.key]?.start||''}`;if(view.state==='ended')return'Ca đã kết thúc';return`Chấm công ${view.label.toLowerCase()}`});
 const weekDays=computed<WeekDayView[]>(()=>{const p=todayParts.value;if(!p)return[];const base=Date.UTC(p.year,p.month-1,p.day);const dow=new Date(base).getUTCDay();const monday=dow===0?-6:1-dow;return Array.from({length:7},(_,i)=>{const dt=new Date(base+(monday+i)*86400000);const date=`${dt.getUTCFullYear()}-${String(dt.getUTCMonth()+1).padStart(2,'0')}-${String(dt.getUTCDate()).padStart(2,'0')}`;const dayRecords=records.value.filter(r=>r.date===date);const leave=leaves.value.find(l=>l.status==='approved'&&l.startDate<=date&&l.endDate>=date);const entries=dayRecords.map(r=>({shift:SHIFT_LABEL[r.shift]||r.shift,time:formatCheckin(r.checkinTime),status:r.status as 'on_time'|'late'}));let summary='Chưa làm';if(leave&&!entries.length)summary='Nghỉ phép';else if(entries.length>=2)summary='Đã đủ ca';else if(entries.length)summary='Đã chấm 1 ca';return{date,dayLabel:['Chủ nhật','Thứ 2','Thứ 3','Thứ 4','Thứ 5','Thứ 6','Thứ 7'][dt.getUTCDay()],dateLabel:`${String(dt.getUTCDate()).padStart(2,'0')}/${String(dt.getUTCMonth()+1).padStart(2,'0')}`,isToday:date===todayKey.value,entries,leaveLabel:leave?'Nghỉ phép':undefined,summary}})});
 const recentLeaves=computed(()=>leaves.value.slice(0,3).map(l=>({id:l.id,title:`${l.startDate===l.endDate?'Nghỉ ngày':'Nghỉ từ'} ${formatDate(l.startDate)}${l.startDate!==l.endDate?` – ${formatDate(l.endDate)}`:''}`,date:l.reason,status:l.status,statusLabel:LEAVE_STATUS[l.status]?.label||l.status})));
 function formatDate(v:string){const [y,m,d]=v.split('-');return `${d}/${m}/${y}`}
@@ -111,10 +113,11 @@ function chooseSuggestedShift(){const available=shiftViews.value.find(s=>s.state
 async function load(){loading.value=true;loadError.value='';try{const [rec,cfg]=await Promise.all([api.get('/attendance/me',{params:{month:period.value}}),api.get('/attendance/config')]);records.value=rec.data.records??[];config.value=cfg.data??null;networkState.value=(config.value?.allowedIps?.length??0)===0?'open':'unknown';networkDetail.value=networkState.value==='open'?'Đơn vị chưa cấu hình giới hạn IP':'IP sẽ được server xác minh khi gửi chấm công';chooseSuggestedShift()}catch(err:any){records.value=[];loadError.value=err?.response?.data?.hint||err?.response?.data?.error||'Vui lòng kiểm tra kết nối và thử lại.'}finally{loading.value=false}}
 async function loadLeaves(){if(!canLeave)return;leavesLoading.value=true;try{const res=await api.get('/leave/me');leaves.value=res.data.records??res.data.leaves??[]}catch{leaves.value=[]}finally{leavesLoading.value=false}}
 function changePeriod(value:string){if(!value)return;period.value=value;void load()}
-async function attemptCheckin(shift:ShiftKey,reason?:string){submitting.value=shift;ipError.value='';try{await api.post('/attendance/checkin',{shift,lateReason:reason});toast.success('Chấm công thành công');networkState.value='valid';networkDetail.value='Server đã xác minh IP thành công';lateDialog.value=false;lateReason.value='';pendingShift.value=null;await load()}catch(err:any){const data=err?.response?.data;if(data?.error==='late_reason_required'){pendingShift.value=shift;lateDialog.value=true}else if(data?.error==='ip_not_allowed'){networkState.value='invalid';networkDetail.value=data.hint||'IP không được phép';ipError.value=`${data.hint||'IP không được phép chấm công'} (IP của bạn: ${data.clientIp||'?'})`}else if(data?.error==='already_checked_in'){toast.warning('Bạn đã chấm công ca này rồi');await load()}else toast.error(data?.hint||data?.error||'Chấm công thất bại')}finally{submitting.value=null}}
+async function attemptCheckin(shift:ShiftKey,reason?:string){const view=shiftViews.value.find(item=>item.key===shift);if(view?.state!=='active'){toast.warning(view?.state==='upcoming'?`Ca này mở lúc ${config.value?.shifts?.[shift]?.start}`:'Ca này hiện không thể chấm công');return}submitting.value=shift;ipError.value='';try{await api.post('/attendance/checkin',{shift,lateReason:reason});toast.success('Chấm công thành công');networkState.value='valid';networkDetail.value='Server đã xác minh IP thành công';lateDialog.value=false;lateReason.value='';pendingShift.value=null;await load()}catch(err:any){const data=err?.response?.data;if(data?.error==='late_reason_required'){pendingShift.value=shift;lateDialog.value=true}else if(data?.error==='shift_not_started'||data?.error==='shift_ended'){toast.warning(data.hint||'Ngoài khung giờ chấm công');now.value=new Date()}else if(data?.error==='ip_not_allowed'){networkState.value='invalid';networkDetail.value=data.hint||'IP không được phép';ipError.value=`${data.hint||'IP không được phép chấm công'} (IP của bạn: ${data.clientIp||'?'})`}else if(data?.error==='already_checked_in'){toast.warning('Bạn đã chấm công ca này rồi');await load()}else toast.error(data?.hint||data?.error||'Chấm công thất bại')}finally{submitting.value=null}}
 function confirmLate(){if(!lateReason.value.trim()){lateReasonError.value='Nhập lý do đi trễ';return}lateReasonError.value='';if(pendingShift.value)void attemptCheckin(pendingShift.value,lateReason.value.trim())}
 function cancelLate(){lateDialog.value=false;lateReason.value='';lateReasonError.value='';pendingShift.value=null}
-onMounted(()=>{void Promise.all([load(),loadLeaves()])});
+onMounted(()=>{clockTimer=setInterval(()=>{now.value=new Date();chooseSuggestedShift()},60_000);void Promise.all([load(),loadLeaves()])});
+onBeforeUnmount(()=>{if(clockTimer)clearInterval(clockTimer)});
 </script>
 
 <style scoped>

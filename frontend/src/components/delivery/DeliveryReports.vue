@@ -36,7 +36,7 @@
           <!-- CARD 2: DOANH THU -->
           <div class="kpi-card card-green">
             <span class="kpi-label">Doanh thu</span>
-            <div class="kpi-value">{{ formatMoney(displayData.revenue || 970884000) }}</div>
+            <div class="kpi-value">{{ formatMoney(displayData.revenue ?? 0) }}</div>
           </div>
 
           <!-- CARD 3: CHƯA THU -->

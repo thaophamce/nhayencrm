@@ -24,6 +24,7 @@ import { logger } from '../../shared/utils/logger.js';
 import { writeTransition, type ZaloStatus } from './status-log-service.js';
 import { zaloPool } from './zalo-pool.js';
 import { withTenant, runSystemQuery } from '../../shared/tenant/tenant-context.js';
+import { resolveZaloStatus } from './zalo-status.js';
 
 // 5 phút — đủ tight để uptime drift trong window 5p, đủ rộng để không spam DB.
 const CRON_SCHEDULE = '*/5 * * * *';
@@ -88,11 +89,29 @@ export async function runCheckpoint(): Promise<{
   for (const acct of dbAccounts) {
     scanned++;
     // Live status: pool > DB column (pool là truth realtime)
-    const liveStatusRaw = poolStatuses[acct.id] ?? acct.status;
+    const liveStatusRaw = resolveZaloStatus(acct.status, poolStatuses[acct.id]);
     const liveStatus = mapToLogStatus(liveStatusRaw);
     if (!liveStatus) continue; // 'connecting' hoặc unknown → skip
 
     const outcome = await withTenant(acct.orgId, async () => {
+      let columnRepaired = false;
+      if (acct.status !== liveStatus) {
+        await prisma.zaloAccount.update({
+          where: { id: acct.id },
+          data: {
+            status: liveStatus,
+            ...(liveStatus === 'connected'
+              ? {
+                  lastConnectedAt: new Date(),
+                  disconnectReason: null,
+                  disconnectedAt: null,
+                }
+              : {}),
+          },
+        });
+        columnRepaired = true;
+      }
+
       const open = await prisma.zaloAccountStatusLog.findFirst({
         where: { accountId: acct.id, endedAt: null },
         select: { status: true },
@@ -120,7 +139,7 @@ export async function runCheckpoint(): Promise<{
         return 'reconciled' as const;
       }
       // else: open.status === liveStatus → no-op (đồng bộ)
-      return 'noop' as const;
+      return columnRepaired ? 'reconciled' as const : 'noop' as const;
     });
 
     if (outcome === 'created') created++;

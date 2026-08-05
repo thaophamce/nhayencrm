@@ -99,7 +99,7 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
       { id: 'zalo-labels', label: 'Tag Zalo native', icon: 'mdi-label-outline', route: '/settings/crm/zalo-labels', permission: 'admin', resource: 'settings', aliases: ['zalo label', 'nhãn zalo'] },
       // Ẩn 2026-07-20 (anh chốt): "Lead scoring" (scoring) — route /settings/crm/scoring vẫn giữ.
       { id: 'appointments', label: 'Lịch hẹn & Nhắc hẹn', icon: 'mdi-calendar-clock-outline', route: '/settings/crm/appointments', permission: 'admin', resource: 'settings', aliases: ['lịch hẹn', 'appointment', 'nhắc hẹn', 'reminder', 'zalo reminder', 'nhắc lịch'] },
-      { id: 'quick-replies', label: 'Hỗ trợ trả lời', icon: 'mdi-message-flash-outline', route: '/settings/crm/quick-replies', permission: 'admin', resource: 'settings', aliases: ['tin nhắn nhanh', 'mẫu trả lời', 'quick reply', 'template'] },
+      { id: 'quick-replies', label: 'Hỗ trợ trả lời', icon: 'mdi-message-flash-outline', route: '/settings/crm/quick-replies', permission: 'admin', resource: 'quick_reply', aliases: ['tin nhắn nhanh', 'mẫu trả lời', 'quick reply', 'template'] },
       // Lead Pool — gộp Nhận Lead + Queue chia Lead thành 1 mục 2 tab (2026-06-10).
       // Lead Pool nav item → extension bundle (eeSettingsItems.customer).
     ],

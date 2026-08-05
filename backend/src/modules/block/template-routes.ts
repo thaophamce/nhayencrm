@@ -14,7 +14,7 @@ export async function templateRoutes(app: FastifyInstance): Promise<void> {
   app.addHook('preHandler', authMiddleware);
 
   // List templates
-  app.get(BASE, async (request: FastifyRequest) => {
+  app.get(BASE, { preHandler: requireGrant('quick_reply', 'access') }, async (request: FastifyRequest) => {
     const user = request.user!;
     const q = request.query as Record<string, string | undefined>;
 
@@ -37,7 +37,7 @@ export async function templateRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // Create template
-  app.post(BASE, async (request: FastifyRequest, reply: FastifyReply) => {
+  app.post(BASE, { preHandler: requireGrant('quick_reply', 'create') }, async (request: FastifyRequest, reply: FastifyReply) => {
     const user = request.user!;
     const body = request.body as any;
 
@@ -68,7 +68,7 @@ export async function templateRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // Update template
-  app.put(`${BASE}/:id`, async (request: FastifyRequest, reply: FastifyReply) => {
+  app.put(`${BASE}/:id`, { preHandler: requireGrant('quick_reply', 'edit') }, async (request: FastifyRequest, reply: FastifyReply) => {
     const user = request.user!;
     const { id } = request.params as { id: string };
     const body = request.body as any;
@@ -98,7 +98,7 @@ export async function templateRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // Delete template
-  app.delete(`${BASE}/:id`, async (request: FastifyRequest, reply: FastifyReply) => {
+  app.delete(`${BASE}/:id`, { preHandler: requireGrant('quick_reply', 'delete') }, async (request: FastifyRequest, reply: FastifyReply) => {
     const user = request.user!;
     const { id } = request.params as { id: string };
 
@@ -116,7 +116,7 @@ export async function templateRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // Dummy folders endpoints for frontend compatibility
-  app.get('/api/v1/automation/template-folders', async () => {
+  app.get('/api/v1/automation/template-folders', { preHandler: requireGrant('quick_reply', 'access') }, async () => {
     return { folders: [] };
   });
 }

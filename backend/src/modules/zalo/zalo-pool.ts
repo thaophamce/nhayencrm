@@ -22,6 +22,7 @@ import { readFile } from 'fs/promises';
 import { imageSize } from 'image-size';
 import { withProxy } from './proxy-util.js';
 import { writeTransition, type ZaloStatus, type StatusReason } from './status-log-service.js';
+import { applyListenerClosureStatus } from './zalo-status.js';
 
 // zca-js has no reliable ESM type exports — load via CJS interop
 const require = createRequire(import.meta.url);
@@ -484,17 +485,27 @@ class ZaloAccountPool {
       api,
       io: this.io,
       userInfoCache: this.userInfoCache,
-      onDisconnected: (id) => {
+      onDisconnected: (id, code, reason) => {
         // Fix flap 2026-06-06: nếu instance hiện tại có epoch khác → listener này đã bị
         // thay thế bởi 1 reconnect mới hơn. Bỏ qua 'closed' của nó để không set
         // disconnected oan + không dồn circuit breaker bằng disconnect ma.
         const cur = this.instances.get(id);
         if (cur && cur.epoch !== myEpoch) {
           logger.info(`[zalo:${id}] Ignoring stale 'closed' from superseded listener (epoch ${myEpoch} != current ${cur.epoch})`);
-          return;
+          return false;
         }
-        const inst = cur;
-        if (inst) inst.status = 'disconnected';
+        // zca-js có thể chủ động xoay listener bằng code 1000. Đây không phải
+        // mất session: không ghi offline, không bắn cảnh báo, không cộng circuit
+        // breaker. Giữ API ở trạng thái usable trong lúc listener được nối lại;
+        // nếu hạ status trước nhánh này thì các thao tác ngay sau createGroup
+        // (đặc biệt renameGroup theo mã đơn Pancake) sẽ bị từ chối oan.
+        if (!applyListenerClosureStatus(cur, code, reason)) {
+          logger.info(`[zalo:${id}] Listener normal closure — reconnect nhanh, không đánh dấu offline`);
+          stopMessageSync(id);
+          setTimeout(() => this.autoReconnect(id, myEpoch), 1_000);
+          return false;
+        }
+
         this.updateAccountDB(id, 'disconnected', null, 'disconnect');
         // MẤT KẾT NỐI THỤ ĐỘNG (2026-06-16): nick rớt do Zalo/mạng (KHÔNG phải sale bấm Ngắt).
         // Ghi reason='passive' + mốc rớt để FE đếm "đã mất kết nối X phút Y giây" tăng dần.
@@ -538,6 +549,7 @@ class ZaloAccountPool {
         // quét QR lại (loginQR bump epoch + tạo instance mới), timer này sẽ tự bỏ qua (xem
         // guard epoch trong autoReconnect) thay vì ghi đè instance QR mới.
         setTimeout(() => this.autoReconnect(id, myEpoch), 30_000);
+        return true;
       },
     });
 

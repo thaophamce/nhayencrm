@@ -26,11 +26,13 @@ export const RESOURCES = [
   'orders',             // Đơn hàng (site)     → /orders
   'orders_salary',      // Tab Lương thiết kế  → /orders (tab, nhạy cảm)
   'delivery',           // Delivery operations -> /pancake-orders
+  'delivery_business',  // Báo cáo doanh thu Giao vận -> /pancake-orders?tab=business
   // ── Hệ thống & tổ chức (menu Cài đặt / Phân quyền) ──
   'department',         // Quản lý phòng ban   → /settings/rbac/departments
   'user',               // Quản lý người dùng  → /settings/rbac/users
   'permission_group',   // Quản lý quyền       → /settings/rbac/permission-groups
   'settings',           // Cài đặt chung       → /settings/* (org, crm, channels...)
+  'quick_reply',        // Mẫu trả lời nhanh   → /settings/crm/quick-replies
   'audit_log',          // Nhật ký hành động   → /settings/org/audit
   // ── Khách hàng & hội thoại (menu chính) ──
   'contact',            // Khách hàng          → /contacts
@@ -50,10 +52,11 @@ export const RESOURCES = [
   'webhook',            // Webhook / API key   → /settings/dev/api
   // ── Báo cáo ──
   'engagement_score',   // Engagement + Score  → /reports
-  // ── Nhân sự (Phase HR 2026-07-17) ──
+  // ── Nhân sự & Tài chính (Phase HR 2026-07-17) ──
   'attendance',         // Chấm công           → /timekeeping
   'leave',              // Nghỉ phép           → /timekeeping (tab)
   'payroll',            // Lương               → /salary
+  'finance',            // Tài chính           → /finance
 ] as const;
 export type Resource = (typeof RESOURCES)[number];
 
@@ -62,9 +65,10 @@ export type Resource = (typeof RESOURCES)[number];
 export const RESOURCE_ACTIONS: Record<Resource, readonly Action[]> = {
   // Site access-only (bật/tắt hiển thị, không có thao tác CRUD riêng):
   dashboard: ['access'],
-  orders: ['access'],
+  orders: ['access', 'create', 'edit', 'delete', 'view_all'],
   orders_salary: ['access'],
   delivery: ['access', 'create', 'edit', 'delete', 'view_all'],
+  delivery_business: ['access'],
   department: ['access', 'create', 'edit', 'delete'],
   user: ['access', 'create', 'edit', 'delete'],
   permission_group: ['access', 'create', 'edit', 'delete'],
@@ -89,11 +93,11 @@ export const RESOURCE_ACTIONS: Record<Resource, readonly Action[]> = {
   leave: ['access', 'edit', 'view_all'],
   payroll: ['access', 'edit', 'view_all'],
   settings: ['access', 'create', 'edit'],
+  quick_reply: ['access', 'create', 'edit', 'delete'],
   // Phiên chăm sóc — access=xem phiên mình, view_all=xem cả org (scope theo dept tree).
   care_session: ['access', 'view_all'],
-  // Kho phương tiện — access=xem/dùng kho, create=tải lên/lưu, edit=sửa quyền/tag/watermark,
-  // delete=archive, view_all=xem cả org bỏ qua scope owner (admin/marketing).
   media: ['access', 'create', 'edit', 'delete', 'view_all'],
+  finance: ['access', 'create', 'edit', 'delete', 'view_all'],
 };
 
 // JSON shape lưu trong permission_groups.grants:
@@ -158,57 +162,72 @@ export interface MenuNode {
 export const MENU_TREE: MenuNode[] = [
   { key: 'dashboard', label: 'Dashboard' },
   { key: 'conversation', label: 'Tin nhắn' },
-  { key: 'delivery', label: 'Giao vận' },
+  {
+    key: 'delivery',
+    label: 'Giao vận',
+    children: [
+      { key: 'delivery', action: 'access', label: 'Tổng quan' },
+      { key: 'delivery', action: 'create', label: 'Giao vận' },
+      { key: 'delivery', action: 'view_all', label: 'Báo cáo' },
+      { key: 'delivery', action: 'edit', label: 'Áo + Ảnh' },
+      { key: 'delivery_business', action: 'access', label: 'Doanh thu' },
+      { key: 'delivery', action: 'view_all', label: 'Hoạt động gần đây' },
+      { key: 'delivery', action: 'access', label: 'Đơn Pancake' },
+    ],
+  },
   {
     key: 'orders',
-    label: 'Đơn hàng',
+    label: 'Đơn thiết kế',
     children: [
-      { key: 'orders', label: 'Tổng quan' },
-      { key: 'orders', label: 'Đơn hàng (danh sách)' },
-      { key: 'orders_salary', label: 'Lương thiết kế', sensitive: true },
-      { key: 'orders', label: 'Báo cáo' },
+      { key: 'orders', action: 'access', label: 'Tổng quan' },
+      { key: 'orders', action: 'create', label: 'Đơn hàng' },
+      { key: 'orders_salary', action: 'access', label: 'Lương thiết kế' },
+      { key: 'orders', action: 'view_all', label: 'Báo cáo' },
     ],
   },
   {
     key: 'attendance',
-    label: 'Chấm công',
+    label: 'Nhân sự',
     children: [
-      { key: 'attendance', label: 'Tự chấm công + Lịch sử của tôi' },
-      { key: 'attendance', action: 'view_all', label: 'Toàn công ty', sensitive: true },
-      { key: 'leave', action: 'edit', label: 'Duyệt nghỉ phép', sensitive: true },
-      { key: 'attendance', action: 'view_all', label: 'Cấu hình (IP / ca / bảo hiểm)', sensitive: true },
+      { key: 'attendance', action: 'access', label: 'Chấm công' },
+      { key: 'leave', action: 'edit', label: 'Duyệt nghỉ phép' },
+      { key: 'attendance', action: 'view_all', label: 'Cấu hình chấm công' },
+      { key: 'payroll', action: 'view_all', label: 'Bảng lương' },
+      { key: 'payroll', action: 'access', label: 'Phiếu lương của tôi' },
     ],
   },
   {
-    key: 'payroll',
-    label: 'Lương',
+    key: 'finance',
+    label: 'Tài chính',
     children: [
-      { key: 'payroll', label: 'Phiếu lương của tôi' },
-      { key: 'payroll', action: 'view_all', label: 'Bảng lương toàn công ty', sensitive: true },
+      { key: 'finance', action: 'access', label: 'Tổng quan' },
+      { key: 'finance', action: 'create', label: 'Quỹ dự phòng' },
+      { key: 'finance', action: 'edit', label: 'Quỹ lợi nhuận' },
+      { key: 'finance', action: 'delete', label: 'Công nợ' },
+      { key: 'finance', action: 'view_all', label: 'Dòng tiền' },
     ],
   },
   {
     key: 'trigger',
     label: 'Marketing',
     children: [
-      { key: 'trigger', label: 'Kịch bản (trigger)' },
-      { key: 'care_session', label: 'Chăm sóc (care session)' },
-      { key: 'sequence', label: 'Chuỗi tin (sequence)' },
-      { key: 'block', label: 'Chặn (block)' },
-      { key: 'broadcast', label: 'Gửi hàng loạt (broadcast)' },
-      { key: 'customer_list', label: 'Danh sách KH' },
+      { key: 'friend_blast', action: 'access', label: 'Gửi tin nhắn bạn bè' },
+      { key: 'broadcast', action: 'access', label: 'Gửi tin nhắn nhóm' },
+      { key: 'friend_blast', action: 'edit', label: 'Huỷ kết bạn hàng loạt' },
+      { key: 'broadcast', action: 'edit', label: 'Rời nhóm hàng loạt' },
     ],
   },
-  { key: 'engagement_score', label: 'Báo cáo' },
+  { key: 'engagement_score', label: 'Báo cáo chung' },
   {
     key: 'settings',
     label: 'Cài đặt',
     children: [
       { key: null, label: 'Cá nhân (luôn mở)' },
-      { key: 'user', label: 'Nhân viên', sensitive: true },
-      { key: 'permission_group', label: 'Phân quyền', sensitive: true },
-      { key: 'zalo_account', label: 'Tài khoản Zalo' },
-      { key: 'settings', label: 'Cấu hình hệ thống', sensitive: true },
+      { key: 'user', action: 'access', label: 'Nhân viên & Tài khoản' },
+      { key: 'permission_group', action: 'access', label: 'Phân quyền hệ thống' },
+      { key: 'zalo_account', action: 'access', label: 'Quản lý Tài khoản Zalo' },
+      { key: 'quick_reply', action: 'access', label: 'Mẫu hỗ trợ trả lời nhanh' },
+      { key: 'settings', action: 'edit', label: 'Cấu hình hệ thống chung' },
     ],
   },
 ];
@@ -245,7 +264,8 @@ export const DEFAULT_PERMISSION_GROUPS = [
       // Sale CR KH của mình, không Xóa Conversation
       dashboard: { access: true },
       orders: { access: true },
-      delivery: { access: true, create: true, edit: true },
+      delivery: { access: true, create: true, edit: true, delete: true },
+      delivery_business: { access: true },
       conversation: { access: true, edit: true },
       contact: { access: true, create: true, edit: true },
       friend: { access: true, create: true, edit: true },
@@ -261,6 +281,7 @@ export const DEFAULT_PERMISSION_GROUPS = [
       zalo_account: { access: true, delete: true },
       engagement_score: { access: true },
       media: { access: true, create: true, edit: true }, // kho của mình (scope owner) — sale dùng nhiều nhất
+      quick_reply: { access: true, create: true, edit: true, delete: true },
       attendance: { access: true },
       leave: { access: true },
       payroll: { access: true },

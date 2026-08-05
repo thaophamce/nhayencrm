@@ -187,6 +187,7 @@ function buildText(): string | null {
     const up = getP('gap3in1', q);
     if (!up) return null;
     return [
+      'CÔNG TY TNHH IN ẤN NHÀ YẾN',
       'BÁO GIÁ THIỆP CƯỚI GẬP 3IN1 NHÀ YẾN',
       'Số lượng: ' + q + ' thiệp',
       '(Quy cách: thiệp 1 tờ gập 3 có ngăn đựng tiền)',
@@ -228,6 +229,7 @@ function buildText(): string | null {
   }
 
   const lines: string[] = [
+    'CÔNG TY TNHH IN ẤN NHÀ YẾN',
     'BÁO GIÁ THIỆP CƯỚI NHÀ YẾN',
     'Số lượng: ' + q + ' thiệp',
     '(Quy cách: Bao thư in 1 mặt, ruột 2 tờ rời in 1 mặt)',

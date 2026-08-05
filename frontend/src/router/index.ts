@@ -109,6 +109,13 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/hr/SalaryView.vue'),
     meta: { requiresAuth: true, anyResource: ['attendance', 'payroll'] },
   },
+  {
+    path: '/finance',
+    name: 'Finance',
+    component: () => import('@/views/finance/FinanceView.vue'),
+    // Dữ liệu số dư, công nợ và dòng tiền chỉ dành cho admin/owner.
+    meta: { requiresAuth: true, resource: 'settings' },
+  },
   // ════════ Module Báo cáo — shell + 7 màn (2026-06-17) ════════
   {
     path: '/reports',
@@ -177,7 +184,7 @@ const routes: RouteRecordRaw[] = [
       { path: 'crm/scoring',     name: 'Settings.Scoring',     component: () => import('@/views/ScoringSettingsView.vue'), meta: { resource: 'settings' } },
       // Lịch hẹn → nhắc hẹn Zalo (2026-06-16) — bật/tắt + delay phút gửi link đánh dấu.
       { path: 'crm/appointments', name: 'Settings.Appointments', component: () => import('@/views/settings/AppointmentSettingsPage.vue'), meta: { resource: 'settings' } },
-      { path: 'crm/quick-replies', name: 'Settings.QuickReplies', component: () => import('@/views/settings/QuickReplySettingsPage.vue'), meta: { resource: 'settings' } },
+      { path: 'crm/quick-replies', name: 'Settings.QuickReplies', component: () => import('@/views/settings/QuickReplySettingsPage.vue'), meta: { resource: 'quick_reply' } },
       { path: 'crm/stuck',       name: 'Settings.Stuck',       component: () => import('@/views/settings/SettingsComingSoon.vue'), props: { feature: 'stuck' }, meta: { resource: 'settings' } },
       { path: 'crm/folders',     name: 'Settings.Folders',     component: () => import('@/views/settings/SettingsComingSoon.vue'), props: { feature: 'folders' }, meta: { resource: 'settings' } },
       { path: 'crm/templates',   name: 'Settings.Templates',   component: () => import('@/views/settings/SettingsComingSoon.vue'), props: { feature: 'templates' }, meta: { resource: 'settings' } },
@@ -280,6 +287,15 @@ const routes: RouteRecordRaw[] = [
   },
 ];
 
+if (import.meta.env.DEV) {
+  routes.splice(routes.length - 1, 0, {
+    path: '/dev/pancake-chat',
+    name: 'PancakeChatPreview',
+    component: () => import('@/views/dev/PancakeChatPreviewView.vue'),
+    meta: { layout: 'default' },
+  });
+}
+
 export const router = createRouter({
   history: createWebHistory(),
   routes,
@@ -351,6 +367,22 @@ router.beforeEach(async (to, _from, next) => {
       next('/'); return;
     }
     const required = to.meta.resource as string | undefined;
+    // Các tab trong trang Giao vận dùng chung một route nên phải kiểm tra
+    // quyền theo query tab, không chỉ kiểm tra quyền access của cả site.
+    if (required === 'delivery' && to.path === '/pancake-orders') {
+      const tab = typeof to.query.tab === 'string' ? to.query.tab : 'overview';
+      const tabActions: Record<string, string> = {
+        overview: 'access', delivery: 'create', reports: 'view_all', products: 'edit',
+        business: 'delivery_business.access', activity: 'view_all', pancake: 'access',
+      };
+      const tabAction = tabActions[tab] || 'access';
+      const [tabResource, tabGrantAction] = tabAction.includes('.') ? tabAction.split('.') : ['delivery', tabAction];
+      if (!authStore.canAccess(tabResource, tabGrantAction)) {
+        try { useToast().error('Bạn không có quyền truy cập mục này'); } catch { /* toast chưa sẵn sàng */ }
+        if (_from?.name) { next(false); return; }
+        next('/pancake-orders?tab=overview'); return;
+      }
+    }
     // Redesign Đợt 1: route có meta.managerOr=true → cho trưởng phòng (leader/deputy) vào dù
     // không có grant `resource` (vd Lead Pool: leader xem tab Báo cáo đội/Nhật ký). Tab tự ẩn theo quyền.
     const managerBypass = to.meta.managerOr === true && authStore.isManager;

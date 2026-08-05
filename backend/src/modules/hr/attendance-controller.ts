@@ -53,6 +53,16 @@ export function computeAttendanceStatus(
   return { status: 'late', lateMinutes: checkinMinutes - shiftStartMinutes };
 }
 
+export function attendanceWindowState(
+  checkinMinutes: number,
+  shiftStartMinutes: number,
+  shiftEndMinutes: number,
+): 'before' | 'open' | 'ended' {
+  if (checkinMinutes < shiftStartMinutes) return 'before';
+  if (checkinMinutes > shiftEndMinutes) return 'ended';
+  return 'open';
+}
+
 async function loadHrConfig(orgId: string): Promise<HrConfig> {
   const org = await prisma.organization.findUnique({ where: { id: orgId }, select: { hrConfig: true } });
   return normalizeHrConfig(org?.hrConfig ?? null);
@@ -94,6 +104,22 @@ export async function checkin(request: FastifyRequest, reply: FastifyReply): Pro
 
     const { date, minutes } = nowInVN(new Date());
     const shiftStart = hhmmToMinutes(config.shifts[shift].start);
+    const shiftEnd = hhmmToMinutes(config.shifts[shift].end);
+    const windowState = attendanceWindowState(minutes, shiftStart, shiftEnd);
+    if (windowState === 'before') {
+      return reply.status(403).send({
+        error: 'shift_not_started',
+        hint: `Ca này chỉ được chấm từ ${config.shifts[shift].start}`,
+        opensAt: config.shifts[shift].start,
+      });
+    }
+    if (windowState === 'ended') {
+      return reply.status(403).send({
+        error: 'shift_ended',
+        hint: `Ca này đã kết thúc lúc ${config.shifts[shift].end}`,
+        endedAt: config.shifts[shift].end,
+      });
+    }
     const { status, lateMinutes } = computeAttendanceStatus(minutes, shiftStart, config.graceMinutes);
 
     // Trễ → bắt buộc lý do.

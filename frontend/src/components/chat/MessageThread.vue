@@ -70,10 +70,20 @@
                 <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
               </button>
             </template>
+            <button
+              v-if="isGroupConversation"
+              type="button"
+              class="group-members-trigger"
+              :aria-label="`Xem danh sách ${groupMembersLabel}`"
+              @click.stop="openGroupMembers"
+            >
+              <UsersIcon :size="13" :stroke-width="2" />
+              {{ groupMembersLabel }}
+            </button>
           </div>
 
           <!-- Row 2: chip meta gom 1 dòng (cùng-chăm + tag Zalo + nick + số tin + online) -->
-          <div class="ch-row-chips">
+          <div v-if="!isGroupConversation" class="ch-row-chips">
             <span
               v-if="cungChamCount >= 2"
               class="ch-cung-cham-chip"
@@ -337,6 +347,56 @@
           </v-menu>
         </div>
       </header>
+
+      <v-dialog v-model="groupMembersDialogOpen" max-width="520" scrollable>
+        <v-card class="group-members-dialog">
+          <v-card-title class="group-members-dialog-title">
+            <div class="group-members-heading min-width-0">
+              <div class="group-members-heading-icon"><v-icon icon="mdi-account-group-outline" size="19" /></div>
+              <div class="min-width-0">
+                <div class="group-members-heading-title">Thành viên nhóm</div>
+                <div class="group-members-heading-subtitle text-truncate">{{ headerName }} · {{ groupMembersLabel }}</div>
+              </div>
+            </div>
+            <v-btn icon="mdi-close" variant="text" size="small" aria-label="Đóng" @click="groupMembersDialogOpen = false" />
+          </v-card-title>
+          <v-divider />
+          <v-card-text class="group-members-dialog-body">
+            <div v-if="!groupMembersLoading && !groupMembersError && groupMembers.length" class="group-members-hint">
+              <v-icon icon="mdi-cursor-pointer" size="15" />
+              <span>Chọn một thành viên để mở hội thoại cá nhân</span>
+            </div>
+            <div v-if="groupMembersLoading" class="group-members-state" role="status">
+              <v-progress-circular indeterminate color="primary" size="26" />
+              <span>Đang tải danh sách thành viên...</span>
+            </div>
+            <div v-else-if="groupMembersError" class="group-members-state group-members-error" role="alert">
+              <span>{{ groupMembersError }}</span>
+              <v-btn size="small" variant="outlined" color="primary" @click="loadGroupMembers">Thử lại</v-btn>
+            </div>
+            <div v-else-if="groupMembers.length === 0" class="group-members-state" role="status">
+              Chưa lấy được thông tin thành viên.
+            </div>
+            <v-list v-else lines="one" class="group-members-list pa-0">
+              <v-list-item
+                v-for="member in groupMembers"
+                :key="member.uid"
+                class="group-member-item"
+                :disabled="openChatFromCardBusy"
+                rounded="lg"
+                @click="openGroupMemberChat(member)"
+              >
+                <template #prepend>
+                  <Avatar :src="member.avatar" :name="member.displayName" :size="38" :gradient-seed="member.uid" />
+                </template>
+                <v-list-item-title class="group-member-name">{{ member.displayName }}</v-list-item-title>
+                <v-list-item-subtitle>Nhấn để trò chuyện riêng</v-list-item-subtitle>
+                <template #append><v-icon icon="mdi-chevron-right" size="19" class="group-member-arrow" /></template>
+              </v-list-item>
+            </v-list>
+          </v-card-text>
+        </v-card>
+      </v-dialog>
 
       <!-- M53 2026-05-30: Banner cam cho virtual conv — sticky top dưới header -->
       <div v-if="isVirtualConv" class="virtual-banner">
@@ -637,6 +697,11 @@
           :default-name="headerName"
         />
 
+        <div v-if="!isVirtualConv" class="zalo-send-safety-note">
+          <v-icon size="14">mdi-shield-clock-outline</v-icon>
+          Giới hạn bảo vệ được áp dụng riêng theo từng nick · gửi quá nhanh sẽ tự động đếm ngược
+        </div>
+
         <ReplyPreviewBar
           :message="(replyingTo || editingMessage) ?? null"
           :mode="editingMessage ? 'edit' : 'reply'"
@@ -727,7 +792,7 @@
             </div>
           </v-menu>
 
-          <div ref="editorWrapRef" class="editor-wrap" :class="{ 'editor-locked': !privacyVisibility.canSendInConv(conversation) || isArchivedNick || isNickOffline }">
+          <div ref="editorWrapRef" class="editor-wrap" :class="{ 'editor-locked': !privacyVisibility.canSendInConv(conversation) || isArchivedNick || isNickOffline || rateLimitSeconds > 0 }">
             <QuickTemplatePopup
               ref="templatePopupRef"
               :visible="showTemplatePopup"
@@ -780,6 +845,9 @@
             >
               <span class="editor-lock-pill">📡 Nick mất kết nối — không gửi được. Kết nối lại để tiếp tục.</span>
             </div>
+            <div v-else-if="rateLimitSeconds > 0" class="editor-lock-overlay" @click.stop>
+              <span class="editor-lock-pill">Đang chờ giới hạn gửi — còn {{ rateLimitSeconds }} giây</span>
+            </div>
           </div>
 
           <!-- Nút mở kho ảnh cạnh ô nhập -->
@@ -802,7 +870,7 @@
           <button
             class="send-btn"
             :class="{ 'send-btn-virtual': isVirtualConv }"
-            :disabled="(!inputText.trim() && pendingMediaAssets.length === 0) || sending || isArchivedNick || isNickOffline"
+            :disabled="(!inputText.trim() && pendingMediaAssets.length === 0) || sending || isArchivedNick || isNickOffline || rateLimitSeconds > 0"
             @click="handleSend"
             :title="isArchivedNick ? 'Nick đã xóa — không gửi được.' : isNickOffline ? 'Nick mất kết nối — không gửi được.' : isVirtualConv ? 'Lưu nội bộ (Enter) — KHÔNG gửi đi Zalo' : 'Gửi (Enter)'"
           >
@@ -813,6 +881,16 @@
             </template>
             <v-icon v-else size="20">mdi-send</v-icon>
           </button>
+        </div>
+
+        <div v-if="rateLimitSeconds > 0" class="rate-limit-popup" role="alert" aria-live="assertive">
+          <div class="rate-limit-card">
+            <div class="rate-limit-ring" :style="{ '--cooldown-progress': `${cooldownProgress * 360}deg` }">
+              <div><strong>{{ rateLimitSeconds }}</strong><small>giây</small></div>
+            </div>
+            <b>Đang bảo vệ nick Zalo</b>
+            <span>Đã đạt tốc độ gửi tối đa. Vui lòng chờ hết thời gian để gửi tin tiếp theo.</span>
+          </div>
         </div>
 
         <!-- 2026-06-04 — Khối Phase 1 MVP picker với Preview + Send direct -->
@@ -1181,6 +1259,8 @@ const props = defineProps<{
   messages: Message[];
   loading: boolean;
   sending: boolean;
+  rateLimitSeconds: number;
+  rateLimitTotalSeconds: number;
   showContactPanel?: boolean;
   aiSuggestion: string;
   aiSuggestionLoading: boolean;
@@ -1225,6 +1305,60 @@ const emit = defineEmits<{
 }>();
 
 const toast = useToast();
+type HeaderGroupMember = { uid: string; displayName: string; avatar: string | null };
+const groupMembersDialogOpen = ref(false);
+const groupMembersLoading = ref(false);
+const groupMembersError = ref('');
+const groupMembers = ref<HeaderGroupMember[]>([]);
+const isGroupConversation = computed(() => props.conversation?.threadType === 'group');
+const groupMembersLabel = computed(() => {
+  const count = (props.conversation as { groupMembersCount?: number | null } | null)?.groupMembersCount
+    ?? groupMembers.value.length;
+  return count > 0 ? `${count} thành viên` : 'Thành viên';
+});
+
+async function loadGroupMembers() {
+  const accountId = props.conversation?.zaloAccount?.id;
+  const groupId = props.conversation?.externalThreadId;
+  if (!accountId || !groupId) {
+    groupMembersError.value = 'Không xác định được nhóm Zalo.';
+    return;
+  }
+  groupMembersLoading.value = true;
+  groupMembersError.value = '';
+  try {
+    const { data } = await api.get(`/zalo-accounts/${accountId}/groups/${encodeURIComponent(groupId)}/members`);
+    const rows = Array.isArray(data?.members) ? data.members : [];
+    groupMembers.value = rows.map((member: any) => ({
+      uid: String(member.uid ?? member.id ?? ''),
+      displayName: member.displayName || member.name || member.uid || 'Thành viên',
+      avatar: member.avatar ?? null,
+    })).filter((member: HeaderGroupMember) => member.uid);
+  } catch (err: any) {
+    groupMembersError.value = err?.response?.data?.error || 'Không tải được danh sách thành viên.';
+  } finally {
+    groupMembersLoading.value = false;
+  }
+}
+
+function openGroupMembers() {
+  groupMembersDialogOpen.value = true;
+  if (!groupMembers.value.length && !groupMembersLoading.value) void loadGroupMembers();
+}
+
+async function openGroupMemberChat(member: HeaderGroupMember) {
+  if (!member.uid || openChatFromCardBusy.value) return;
+  groupMembersDialogOpen.value = false;
+  await onOpenChatWithUidFromCard({ uid: member.uid, name: member.displayName, avatarUrl: member.avatar || undefined });
+}
+
+watch(() => props.conversation?.id, () => {
+  groupMembersDialogOpen.value = false;
+  groupMembers.value = [];
+  groupMembersError.value = '';
+});
+
+const cooldownProgress = computed(() => Math.max(0, Math.min(1, Number(props.rateLimitSeconds || 0) / Math.max(1, Number(props.rateLimitTotalSeconds || 1)))));
 type CommonGroup = { id: string; name: string; totalMember: number };
 const commonGroups = ref<CommonGroup[]>([]);
 let commonGroupsRequestId = 0;
@@ -3311,6 +3445,7 @@ async function dispatchBlockComponents(blockId: string) {
 
 // ── Send ────────────────────────────────────────────────────────────────────
 async function handleSend() {
+  if (Number(props.rateLimitSeconds || 0) > 0) return;
   if (showTemplatePopup.value) { showTemplatePopup.value = false; return; }
   if (isArchivedNick.value) return;
   const hasText = !!inputText.value.trim();
@@ -3740,6 +3875,73 @@ watch(() => props.editingMessage?.id, async (id) => {
 .ch-avatar-wrap.clickable:hover { transform: scale(1.05); box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.18); }
 .ch-name.clickable { cursor: pointer; transition: color 0.12s ease; }
 .ch-name.clickable:hover { color: var(--smax-primary, #1786be); }
+.group-members-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  padding: 2px 5px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--smax-grey-500, #6b7280);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.group-members-trigger:hover,
+.group-members-trigger:focus-visible {
+  background: var(--smax-primary-soft, #ebf3ff);
+  color: var(--smax-primary, #2f80ed);
+  outline: none;
+}
+.group-members-dialog-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 18px 14px;
+  background: linear-gradient(135deg, #1769d5 0%, #2f80ed 100%);
+}
+.group-members-dialog-title .min-width-0 { min-width: 0; }
+.group-members-heading { display: flex; align-items: center; gap: 11px; }
+.group-members-heading-icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 36px; height: 36px; border-radius: 11px;
+  color: #fff; background: rgba(255, 255, 255, .17);
+}
+.group-members-heading-title { color: #fff; font-size: 17px; font-weight: 700; line-height: 1.2; }
+.group-members-heading-subtitle { margin-top: 3px; color: rgba(255, 255, 255, .78); font-size: 12px; }
+.group-members-dialog-title :deep(.v-btn) { color: #fff; }
+.group-members-dialog-title :deep(.v-btn:hover) { background: rgba(255, 255, 255, .15); }
+.group-members-dialog-body { min-height: 180px; max-height: 60vh; padding: 10px 14px 14px; }
+.group-members-hint {
+  display: flex; align-items: center; gap: 6px; margin: 0 2px 7px;
+  color: var(--smax-grey-500, #6b7280); font-size: 12px;
+}
+.group-members-list { display: flex; flex-direction: column; gap: 3px; }
+.group-members-state {
+  min-height: 160px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: var(--smax-grey-500, #6b7280);
+  text-align: center;
+}
+.group-members-error { color: var(--smax-danger, #dc2626); }
+.group-member-item {
+  min-height: 60px; border: 1px solid transparent; border-radius: 10px !important;
+  transition: background .15s ease, border-color .15s ease, transform .15s ease;
+}
+.group-member-item:hover { background: #f5f9ff; border-color: #d8e8ff; transform: translateX(2px); }
+.group-member-item:focus-visible { border-color: var(--smax-primary, #2f80ed); outline: 2px solid rgba(47, 128, 237, .2); outline-offset: 1px; }
+.group-member-name { color: var(--smax-text, #1f2937); font-size: 14px; font-weight: 600; }
+.group-member-item :deep(.v-list-item__subtitle) { margin-top: 2px; font-size: 11px; color: var(--smax-grey-500, #6b7280); }
+.group-member-arrow { color: #9aa8bb; transition: color .15s ease, transform .15s ease; }
+.group-member-item:hover .group-member-arrow { color: var(--smax-primary, #2f80ed); transform: translateX(2px); }
 
 /* Inline edit tên hội thoại */
 .ch-name-edit-btn {
@@ -4598,6 +4800,18 @@ watch(() => props.editingMessage?.id, async (id) => {
   flex: 1 1 auto;
   min-height: 0;
 }
+.zalo-send-safety-note {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 8px;
+  border-bottom: 1px solid #f1e5bd;
+  background: #fff9e8;
+  color: #8a6508;
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.35;
+}
 .input-toolbar-top {
   display: flex;
   align-items: center;
@@ -4925,4 +5139,10 @@ watch(() => props.editingMessage?.id, async (id) => {
   transform: translateY(0);
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
 }
+.rate-limit-popup{position:fixed;inset:0;z-index:2400;display:grid;place-items:center;background:rgba(15,23,42,.3);backdrop-filter:blur(2px)}
+.rate-limit-card{width:min(310px,calc(100vw - 32px));padding:24px 22px;border-radius:16px;background:#fff;box-shadow:0 20px 55px rgba(15,23,42,.25);display:flex;flex-direction:column;align-items:center;text-align:center;gap:9px;color:#172033}
+.rate-limit-card>b{font-size:16px}.rate-limit-card>span{font-size:13px;line-height:1.45;color:#667085}
+.rate-limit-ring{--cooldown-progress:360deg;width:112px;height:112px;border-radius:50%;display:grid;place-items:center;background:conic-gradient(#3478d4 var(--cooldown-progress),#e5eaf2 0);position:relative;margin-bottom:3px;transition:background .25s linear}
+.rate-limit-ring::before{content:"";position:absolute;inset:9px;border-radius:50%;background:#fff}
+.rate-limit-ring>div{position:relative;z-index:1;display:flex;flex-direction:column;line-height:1}.rate-limit-ring strong{font-size:36px;color:#2468bd;font-variant-numeric:tabular-nums}.rate-limit-ring small{margin-top:5px;font-size:12px;color:#7a8598}
 </style>

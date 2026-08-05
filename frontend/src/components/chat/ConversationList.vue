@@ -1624,6 +1624,11 @@ function parseSentiment(conv: Conversation): AiSentiment | null {
   /* Cố định chiều cao mỗi item — name + preview + tag row reserved */
   min-height: 78px;
   box-sizing: border-box;
+  /* Danh sách có thể tới 300 hội thoại: trì hoãn layout/paint các dòng ngoài
+     viewport, nhưng vẫn giữ nguyên toàn bộ dữ liệu và khả năng tìm/cuộn. */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 78px;
+  contain: layout paint style;
 }
 /* Avatar dịch xuống nhẹ để canh giữa với name + preview (bỏ qua tag row) */
 .conv-item :deep(.smax-av) { margin-top: 2px; flex-shrink: 0; }
