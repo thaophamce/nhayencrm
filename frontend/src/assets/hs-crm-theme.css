@@ -1,6 +1,6 @@
 /* ════════════════════════════════════════════════════════════════════════
    HS HOLDING CRM — THEME / DESIGN SYSTEM  (export 2026-06-04)
-   Bộ token + component dùng để code lại TOÀN BỘ giao diện HS Holding CRM.
+   Bộ token + component dùng để code lại TOÀN BỘ giao diện Nhà Yến CRM.
    ────────────────────────────────────────────────────────────────────────
    CÁCH DÙNG (Vue 3 + Vuetify, nhánh private-hs):
    1. Import font brand ở index.html / main.ts:
@@ -19,78 +19,78 @@
 
 /* ╔══ PART 1–4 · TOKENS + RESET + TYPOGRAPHY + CORE COMPONENTS ══╗ */
 /* ════════════════════════════════════════════════════════════
-   ZaloCRM — Unified Design System
+   Nhà Yến CRM — Unified Design System
    One token set + component library applied across every screen.
    ════════════════════════════════════════════════════════════ */
 
 /* ---------- 1. Tokens ---------- */
 :root {
-  /* Brand — HS Holding (metallic sky-blue on teal-navy) */
-  --brand:        #1786be;   /* primary action */
-  --brand-600:    #0f6fa0;   /* hover */
-  --brand-700:    #0b5880;   /* active / deep */
-  --brand-soft:   #e4f1f8;
-  --brand-softer: #f2f8fc;
-  --brand-bright: #5bb8e5;   /* highlight from monogram */
+  /* Brand — Thiệp Cưới Nhà Yến (Xanh #2F80ED) */
+  --brand:        #1A6FD4;   /* primary action */
+  --brand-600:    #1a6fd4;   /* hover */
+  --brand-700:    #1565c0;   /* active / deep */
+  --brand-soft:   #EBF3FF;
+  --brand-softer: #F0F7FF;
+  --brand-bright: #b3d4fa;   /* highlight */
 
   /* Cool neutrals */
-  --ink:          #141a24;   /* primary text */
-  --ink-2:        #475066;   /* secondary text */
-  --ink-3:        #6b7488;   /* tertiary / captions */
-  --ink-4:        #97a0b3;   /* placeholder / disabled */
-  --line:         #e7eaf0;   /* hairline border */
-  --line-2:       #eef1f6;   /* faint divider */
+  --ink:          #1E202C;   /* primary text */
+  --ink-2:        #5F6173;   /* secondary text */
+  --ink-3:        #8E90A6;   /* tertiary / captions */
+  --ink-4:        #C5C7D6;   /* placeholder / disabled */
+  --line:         #EAECEF;   /* hairline border */
+  --line-2:       #F1F3F9;   /* faint divider */
   --surface:      #ffffff;
-  --surface-2:    #f7f9fc;   /* page background */
-  --surface-3:    #f1f4f9;   /* inset / hover */
+  --surface-2:    #F7F8FC;   /* page background */
+  --surface-3:    #F1F3F9;   /* inset / hover */
 
   /* Brand teal-navy shell (HS signature background) */
-  --shell:        #0c3b4f;
-  --shell-2:      #114a61;
+  --shell:        #1E202C;
+  --shell-2:      #2b2e3f;
   --shell-line:   rgba(255,255,255,.10);
-  --shell-ink:    #cfe2ec;
-  --shell-ink-2:  #7fa6b8;
+  --shell-ink:    #EBF3FF;
+  --shell-ink-2:  #8E75F5;
 
   /* Semantic */
-  --success:      #12b76a;   --success-soft: #e7f7ef;
-  --warning:      #f5a524;   --warning-soft: #fdf3e2;
-  --error:        #f04438;   --error-soft:   #fdeceb;
-  --info:         #1786be;   --info-soft:    #e4f1f8;
-  --female:       #ec4899;
-  --male:         #2e88e5;
+  --success:      #2EC4B6;   --success-soft: #eaf9f7;
+  --warning:      #FF9F1C;   --warning-soft: #fff5e8;
+  --error:        #FF5A5F;   --error-soft:   #ffebee;
+  --info:         #4DA3FF;   --info-soft:    #eef7ff;
+  --female:       #FF5A5F;
+  --male:         #4DA3FF;
 
   /* Lead score ramp (0 → 100) */
   --score-0:      #94a3b8;
-  --score-low:    #f5a524;
-  --score-mid:    #2e90fa;
-  --score-high:   #12b76a;
+  --score-low:    #FF9F1C;
+  --score-mid:    #4DA3FF;
+  --score-high:   #2EC4B6;
 
   /* Chip palette (CRM labels) */
-  --chip-red:    #ef4444;  --chip-red-bg:    #fdecec;
-  --chip-orange: #f97316;  --chip-orange-bg: #fdf0e6;
-  --chip-amber:  #f5a524;  --chip-amber-bg:  #fdf4e3;
-  --chip-green:  #16a34a;  --chip-green-bg:  #e8f6ed;
-  --chip-blue:   #2e88e5;  --chip-blue-bg:   #e9f2fd;
-  --chip-purple: #8b5cf6;  --chip-purple-bg: #f1ecfe;
+  --chip-red:    #FF5A5F;  --chip-red-bg:    #ffebee;
+  --chip-orange: #FFB84D;  --chip-orange-bg: #fff7eb;
+  --chip-amber:  #FFB84D;  --chip-amber-bg:  #fff7eb;
+  --chip-green:  #2EC4B6;  --chip-green-bg:  #eaf9f7;
+  --chip-blue:   #4DA3FF;  --chip-blue-bg:   #eef7ff;
+  --chip-purple: #2F80ED;  --chip-purple-bg: #EBF3FF;
 
   /* Radii */
-  --r-xs: 6px;  --r-sm: 8px;  --r-md: 10px;  --r-lg: 14px;  --r-xl: 18px;  --r-pill: 999px;
+  --r-xs: 10px;  --r-sm: 18px;  --r-md: 18px;  --r-lg: 28px;  --r-xl: 28px;  --r-pill: 999px;
 
   /* Shadow */
   --sh-xs: 0 1px 2px rgba(20,26,36,.05);
   --sh-sm: 0 1px 3px rgba(20,26,36,.06), 0 1px 2px rgba(20,26,36,.04);
-  --sh-md: 0 4px 12px rgba(20,26,36,.07), 0 2px 4px rgba(20,26,36,.04);
-  --sh-lg: 0 12px 32px rgba(20,26,36,.10), 0 4px 8px rgba(20,26,36,.05);
-  --sh-pop: 0 16px 48px rgba(20,26,36,.16);
+  --sh-md: 0 4px 12px rgba(108, 76, 241, 0.03), 0 2px 4px rgba(108, 76, 241, 0.02);
+  --sh-lg: 0 12px 32px rgba(108, 76, 241, 0.05), 0 4px 8px rgba(108, 76, 241, 0.03);
+  --sh-pop: 0 16px 48px rgba(108, 76, 241, 0.1);
 
-  /* Type — brand font (matches private-hs main.css import) */
-  --font: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  /* Type — brand font */
+  --font: "Quicksand", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --mono: "Roboto Mono", ui-monospace, "SF Mono", Menlo, monospace;
 
-  /* HS Holding teal-navy nav gradient */
-  --nav-grad-a: #0e445a;
-  --nav-grad-b: #06222f;
-  --nav-accent: #5bb8e5;
+  /* Nhà Yến nav gradient */
+  --nav-grad-a: #1A6FD4;
+  --nav-grad-b: #1A6FD4;
+  --nav-accent: #FFB84D;
 
   /* Layout */
   --nav-h: 48px;
@@ -108,7 +108,18 @@ body {
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
-button { font-family: inherit; cursor: pointer; }
+button,
+input[type="button"],
+input[type="submit"],
+input[type="reset"],
+[role="button"],
+.btn,
+.v-btn,
+.v-btn .v-btn__content {
+  font-family: inherit;
+  font-weight: 700 !important;
+}
+button { cursor: pointer; }
 input, select, textarea { font-family: inherit; }
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-thumb { background: #d4d9e3; border-radius: 999px; border: 3px solid transparent; background-clip: padding-box; }
@@ -275,7 +286,7 @@ input, select, textarea { font-family: inherit; }
 /* ╔══ PART 5–15 · APP CHROME + TẤT CẢ MÀN ══╗ */
 /* ===== App shell ===== */
   html, body { height: 100%; }
-  #app { display: flex; flex-direction: column; height: 100vh; }
+  #app { display: flex; flex-direction: column; min-height: 100vh; }
   /* min-width:1100 chỉ cho desktop/tablet (≥768px). Dưới 768px (điện thoại) BỎ ép
      1100px — nếu không, trang /login (AuthLayout) + bản mobile bị căng theo 1100px
      rồi card căn-giữa văng sang phải, mất hút ngoài màn hình thật (F12 không lộ).
@@ -285,7 +296,7 @@ input, select, textarea { font-family: inherit; }
   /* Top nav */
   .nav {
     height: var(--nav-h); flex: none;
-    background: linear-gradient(180deg, var(--nav-grad-a), var(--nav-grad-b));
+    background: #1A6FD4;
     color: var(--shell-ink);
     display: flex; align-items: center; gap: 3px;
     padding: 0 14px; border-bottom: 1px solid rgba(255,255,255,.07);
@@ -397,7 +408,7 @@ input, select, textarea { font-family: inherit; }
   .ccol-body { flex: 1; overflow: auto; }
 
   /* col 1 — filters */
-  .c-filters { width: 238px; background: var(--surface); border-right: 1px solid var(--line); }
+  .c-filters { background: var(--surface); border-right: 1px solid var(--line); }
   .fgroup { padding: 14px 16px; border-bottom: 1px solid var(--line-2); }
   .fgroup .ft { font-size: 10.5px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--ink-4); margin-bottom: 11px; }
   .frow { display: flex; align-items: center; gap: 9px; padding: 6px 0; font-size: 13px; color: var(--ink-2); cursor: pointer; }
@@ -409,7 +420,7 @@ input, select, textarea { font-family: inherit; }
   .gom .lucide { width:15px; height:15px; }
 
   /* col 2 — conversation list */
-  .c-list { width: 326px; background: var(--surface); border-right: 1px solid var(--line); }
+  .c-list { background: var(--surface); border-right: 1px solid var(--line); }
   .tabs { display: flex; gap: 2px; padding: 4px 12px 0; border-bottom: 1px solid var(--line); background: var(--surface); }
   .tab { padding: 9px 13px; font-size: 13px; font-weight: 600; color: var(--ink-3); border-bottom: 2px solid transparent; display: flex; align-items: center; gap: 6px; }
   .tab .ct { font-family: var(--mono); font-size: 11px; background: var(--surface-3); padding: 1px 6px; border-radius: var(--r-pill); color: var(--ink-3); }
@@ -436,11 +447,11 @@ input, select, textarea { font-family: inherit; }
   .chead .csub { font-size: 12px; color: var(--ink-3); margin-top: 1px; display: flex; align-items: center; gap: 8px; }
   .thread { flex: 1; overflow: auto; padding: 20px 24px; display: flex; flex-direction: column; gap: 14px; }
   .daysep { text-align: center; font-size: 11px; color: var(--ink-4); font-weight: 600; margin: 4px 0; }
-  .msg { display: flex; gap: 9px; max-width: 72%; }
+  .msg { display: flex; gap: 9px; max-width: 85%; }
   .msg.out { align-self: flex-end; flex-direction: row-reverse; }
   .bubble { padding: 9px 13px; border-radius: 14px; font-size: 13.5px; line-height: 1.5; color: var(--ink); background: var(--surface); border: 1px solid var(--line); box-shadow: var(--sh-xs); }
-  .msg.out .bubble { background: var(--brand); color: #fff; border-color: transparent; border-bottom-right-radius: 5px; }
-  .msg.in .bubble { border-bottom-left-radius: 5px; }
+  .msg.out .bubble { background: #EBF3FF; color: #1e202c; border-color: #cbe0ff; border-bottom-right-radius: 5px; }
+  .msg.in .bubble { border-bottom-left-radius: 5px; background: #ffffff; color: #1e202c; border-color: #ebedf0; }
   .bsender { font-size: 11.5px; font-weight: 700; color: var(--brand-700); margin-bottom: 3px; }
   .btime { font-size: 10px; color: var(--ink-4); margin-top: 5px; font-family: var(--mono); }
   .msg.out .btime { color: rgba(255,255,255,.7); text-align: right; }
@@ -460,7 +471,7 @@ input, select, textarea { font-family: inherit; }
   .cinput .send { width: 36px; height: 36px; border-radius: 50%; background: var(--brand); color: #fff; border: 0; display: flex; align-items: center; justify-content: center; flex: none; }
 
   /* col 4 — profile */
-  .c-profile { width: 312px; background: var(--surface); border-left: 1px solid var(--line); display: flex; flex-direction: column; }
+  .c-profile { background: var(--surface); border-left: 1px solid var(--line); display: flex; flex-direction: column; }
   .prof-top { padding: 22px 18px 16px; display: flex; flex-direction: column; align-items: center; text-align: center; border-bottom: 1px solid var(--line-2); }
   .prof-top .pn { font-size: 16px; font-weight: 700; color: var(--ink); margin-top: 11px; }
   .prof-top .puid { font-size: 11px; color: var(--ink-4); font-family: var(--mono); margin-top: 3px; }
@@ -749,15 +760,15 @@ input, select, textarea { font-family: inherit; }
   /* ===== Đăng nhập ===== */
   #s-login { padding: 0; }
   .login-wrap { display: grid; grid-template-columns: 1.1fr 1fr; height: 100%; }
-  .login-brand { background: linear-gradient(150deg, #0e445a, #06222f 70%); position: relative; overflow: hidden; display: flex; flex-direction: column; justify-content: space-between; padding: 56px 56px 44px; }
-  .login-brand::before { content:""; position:absolute; width:520px; height:520px; border-radius:50%; background: radial-gradient(circle, rgba(91,184,229,.22), transparent 65%); top:-120px; right:-120px; }
-  .login-brand::after { content:""; position:absolute; width:380px; height:380px; border-radius:50%; background: radial-gradient(circle, rgba(91,184,229,.12), transparent 60%); bottom:-100px; left:-60px; }
+  .login-brand { background: linear-gradient(150deg, #2F80ED, #1565c0 70%); position: relative; overflow: hidden; display: flex; flex-direction: column; justify-content: space-between; padding: 56px 56px 44px; }
+  .login-brand::before { content:""; position:absolute; width:520px; height:520px; border-radius:50%; background: radial-gradient(circle, rgba(255,184,77,.22), transparent 65%); top:-120px; right:-120px; }
+  .login-brand::after { content:""; position:absolute; width:380px; height:380px; border-radius:50%; background: radial-gradient(circle, rgba(255,184,77,.12), transparent 60%); bottom:-100px; left:-60px; }
   .lb-logo { display: flex; align-items: center; gap: 16px; position: relative; z-index: 1; }
-  .lb-logo .ll-box { width: 70px; height: 70px; border-radius: 16px; background: linear-gradient(150deg,#0e455c,#082b3a); border: 1px solid rgba(91,184,229,.4); display: flex; align-items: center; justify-content: center; box-shadow: inset 0 1px 0 rgba(255,255,255,.1), 0 8px 24px rgba(0,0,0,.3); }
+  .lb-logo .ll-box { width: 70px; height: 70px; border-radius: 16px; background: linear-gradient(150deg,#2F80ED,#1a6fd4); border: 1px solid rgba(255,184,77,.4); display: flex; align-items: center; justify-content: center; box-shadow: inset 0 1px 0 rgba(255,255,255,.1), 0 8px 24px rgba(0,0,0,.3); }
   .lb-logo .ll-box img { width: 46px; }
   .lb-logo .ll-wm .l1 { font-size: 26px; font-weight: 800; color: #fff; letter-spacing: .01em; } .lb-logo .ll-wm .l2 { font-size: 12px; font-weight: 700; letter-spacing: .34em; color: var(--nav-accent); text-transform: uppercase; margin-top: 2px; }
-  .lb-tag { position: relative; z-index: 1; } .lb-tag .lt-big { font-size: 34px; font-weight: 800; color: #fff; line-height: 1.18; letter-spacing: -.01em; } .lb-tag .lt-sub { font-size: 15px; color: #9fc4d6; margin-top: 14px; line-height: 1.6; max-width: 420px; }
-  .lb-motto { position: relative; z-index: 1; display: inline-flex; align-items: center; gap: 10px; font-size: 13px; color: #7fa6b8; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; }
+  .lb-tag { position: relative; z-index: 1; } .lb-tag .lt-big { font-size: 34px; font-weight: 800; color: #fff; line-height: 1.18; letter-spacing: -.01em; } .lb-tag .lt-sub { font-size: 15px; color: #EBF3FF; margin-top: 14px; line-height: 1.6; max-width: 420px; }
+  .lb-motto { position: relative; z-index: 1; display: inline-flex; align-items: center; gap: 10px; font-size: 13px; color: #EBF3FF; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; }
   .lb-motto .mline { width: 36px; height: 1.5px; background: var(--nav-accent); }
   .login-form-side { display: flex; align-items: center; justify-content: center; padding: 40px; background: var(--surface); }
   .login-card { width: 100%; max-width: 384px; }

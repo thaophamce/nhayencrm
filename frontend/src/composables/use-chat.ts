@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Nguyễn Tiến Lộc
-import { ref, computed } from 'vue';
+import { ref, computed, nextTick } from 'vue';
 import { api } from '@/api/index';
 import { Socket } from 'socket.io-client';
 import { createAppSocket } from '@/api/socket';
+import { createClientId } from '@/utils/client-id';
 import type { Contact } from '@/composables/use-contacts';
 import { useAuthStore } from '@/stores/auth';
 import { applyPendingTags, registerPendingTags } from '@/composables/use-pending-mutations';
@@ -11,6 +12,12 @@ import { usePrivacyStore } from '@/stores/privacy';
 import { useWorkScope } from '@/composables/use-work-scope';
 import { classifyIncoming } from '@/composables/work-scope-logic';
 import { useToast } from '@/composables/use-toast';
+import { reconcileOptimisticMessage } from '@/composables/optimistic-message-reconcile';
+import { markAiFollowUpStale } from '@/composables/use-ai-follow-up';
+import {
+  usePancakeChatSession,
+  type PancakeConversation,
+} from '@/composables/use-pancake-chat-session';
 
 interface ZaloAccount {
   id: string;
@@ -23,6 +30,9 @@ interface ZaloAccount {
   /** T11 2026-06-20: thời điểm nick bị XÓA (ẩn-mềm). !=null → badge "Đã xóa" + khóa ô soạn tin.
    *  KHÔNG suy ra từ status='disconnected' (nick sống cũng disconnected tạm). */
   archivedAt?: string | null;
+  /** Chế độ an toàn (2026-07-23): trạng thái kết nối Zalo của nick — 'connected'|'disconnected'|'qr_pending'.
+   *  Dùng cho banner "mất kết nối" + khóa ô soạn tin trong MessageThread. */
+  status?: string;
 }
 
 export interface AiSentiment {
@@ -121,6 +131,8 @@ export interface Conversation {
   /** Friend record per-pair (chỉ user thread) — backend join từ Friend table */
   friendship?: FriendshipInfo | null;
   lastMessageAt: string | null;
+  /** MVP phân loại hội thoại (2026-07-19) — nhãn ngày im: hot/warm/cool/cold, null=chưa xếp (<4 ngày). */
+  silenceLabel?: 'hot' | 'warm' | 'cool' | 'cold' | null;
   unreadCount: number;
   isReplied: boolean;
   isPinned?: boolean;
@@ -179,6 +191,9 @@ export interface Message {
   repliedBy?: { id: string; fullName: string | null; email: string | null } | null;
   /** M55 — virtual chat indicators */
   isLocal?: boolean;
+  /** Optimistic send 2026-07-22 — UUID client sinh, khớp echo HTTP + socket để
+   *  thay bong bóng "đang gửi" tại chỗ (chống trùng). Backend trả lại field này. */
+  echoId?: string;
   /** Anh chốt 2026-06-03 — Persist Zalo SDK TGroupMessage.mentions để FE
    *  render mention theo pos+len thay vì đoán regex. Chỉ group có. */
   mentions?: Array<{ uid: string; pos: number; len: number; type: 0 | 1 }> | null;
@@ -224,15 +239,80 @@ function compareMessages(a: Message, b: Message): number {
   return new Date(a.sentAt).getTime() - new Date(b.sentAt).getTime();
 }
 
-// In-memory cache per-conv messages — quay lại conv cũ render ngay, fetch fresh background.
-const messagesCache = new Map<string, Message[]>();
+// sessionStorage-backed cache per-conv messages — quay lại conv cũ HOẶC F5 reload trang render ngay lập tức
+const MSG_CACHE_PREFIX = 'crm_msg_cache_v2_';
+const inMemoryMsgCache = new Map<string, Message[]>();
+const messagesCache = {
+  get(key: string) {
+    if (inMemoryMsgCache.has(key)) return inMemoryMsgCache.get(key);
+    try {
+      const raw = sessionStorage.getItem(MSG_CACHE_PREFIX + key);
+      if (raw) {
+        const val = JSON.parse(raw);
+        inMemoryMsgCache.set(key, val);
+        return val;
+      }
+    } catch {}
+    return null;
+  },
+  set(key: string, value: Message[]) {
+    const capped = value.slice(-100); // Giới hạn 100 tin gần nhất để tối ưu dung lượng sessionStorage
+    inMemoryMsgCache.set(key, capped);
+    try {
+      sessionStorage.setItem(MSG_CACHE_PREFIX + key, JSON.stringify(capped));
+    } catch {}
+  },
+  delete(key: string) {
+    inMemoryMsgCache.delete(key);
+    try {
+      sessionStorage.removeItem(MSG_CACHE_PREFIX + key);
+    } catch {}
+  },
+  get size() { return inMemoryMsgCache.size; },
+  entries() { return inMemoryMsgCache.entries(); }
+};
 
-// M-tier tab-switch fix (2026-05-21) — per-filter-key conversation list cache.
-// Stale-while-revalidate: chuyển tab → paint từ cache NGAY (0ms lag), bg fetch update.
-// Trước fix: mỗi lần chuyển tab user chờ 1-3s HTTP+DB roundtrip → loading spinner.
-// Cache key encode toàn bộ filter params (tab, threadType, accountIds, search, ...).
-const conversationsCache = new Map<string, { data: Conversation[]; fetchedAt: number }>();
-const CONV_CACHE_MAX_ENTRIES = 16;  // ~4 tabs × ~4 filter variants
+// sessionStorage-backed conversations cache — F5 reload trang paint list hội thoại ngay lập tức
+const CONV_CACHE_MAX_ENTRIES = 16;
+const CONV_CACHE_PREFIX = 'crm_conv_cache_v2_';
+const inMemoryConvCache = new Map<string, { data: Conversation[]; fetchedAt: number }>();
+const conversationsCache = {
+  get(key: string) {
+    if (inMemoryConvCache.has(key)) return inMemoryConvCache.get(key);
+    try {
+      const raw = sessionStorage.getItem(CONV_CACHE_PREFIX + key);
+      if (raw) {
+        const val = JSON.parse(raw);
+        inMemoryConvCache.set(key, val);
+        return val;
+      }
+    } catch {}
+    return null;
+  },
+  set(key: string, value: { data: Conversation[]; fetchedAt: number }) {
+    inMemoryConvCache.set(key, value);
+    // TrÃ¬ hoÃ£n stringify + sessionStorage cá»§a tá»›i 300 há»™i thoáº¡i Ä‘á»ƒ
+    // response má»›i Ä‘Æ°á»£c paint trÆ°á»›c, khÃ´ng khá»±ng ngay khi Ä‘á»•i tab.
+    const persist = () => {
+      try {
+        sessionStorage.setItem(CONV_CACHE_PREFIX + key, JSON.stringify(value));
+      } catch {}
+    };
+    const requestIdle = (window as unknown as {
+      requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
+    }).requestIdleCallback;
+    if (requestIdle) requestIdle(persist, { timeout: 1500 });
+    else window.setTimeout(persist, 0);
+  },
+  delete(key: string) {
+    inMemoryConvCache.delete(key);
+    try {
+      sessionStorage.removeItem(CONV_CACHE_PREFIX + key);
+    } catch {}
+  },
+  get size() { return inMemoryConvCache.size; },
+  entries() { return inMemoryConvCache.entries(); }
+};
 
 // Debug hook (DEV only) — expose cache state via window.__zaloCRMConvCache để
 // diagnose cache miss khi tab switch vẫn cảm giác lag. Inspect:
@@ -315,6 +395,66 @@ export function useChat() {
   const loadingConvs = ref(false);
   const loadingMsgs = ref(false);
   const sendingMsg = ref(false);
+  const rateLimitSeconds = ref(0);
+  const rateLimitTotalSeconds = ref(0);
+  let rateLimitTimer: ReturnType<typeof setInterval> | null = null;
+  function startRateLimitCountdown(seconds: number) {
+    const value = Math.max(1, Math.ceil(seconds));
+    rateLimitSeconds.value = value;
+    rateLimitTotalSeconds.value = value;
+    if (rateLimitTimer) clearInterval(rateLimitTimer);
+    rateLimitTimer = setInterval(() => {
+      rateLimitSeconds.value = Math.max(0, rateLimitSeconds.value - 1);
+      if (rateLimitSeconds.value === 0 && rateLimitTimer) {
+        clearInterval(rateLimitTimer);
+        rateLimitTimer = null;
+      }
+    }, 1000);
+  }
+  const pancakeSession = usePancakeChatSession();
+  const isPancakeMode = () => import.meta.env.DEV
+    && new URLSearchParams(window.location.search).get('source') === 'pancake'
+    && Boolean(pancakeSession.preview.value?.connection.id);
+
+  function pancakeConversationToConversation(item: PancakeConversation): Conversation {
+    const account = pancakeSession.preview.value!.connection;
+    return {
+      id: item.id,
+      threadType: item.isGroup ? 'group' : 'user',
+      contact: item.isGroup ? null : ({
+        id: `pancake:${item.id}`,
+        fullName: item.name,
+        avatarUrl: item.avatarUrl,
+      } as Contact),
+      zaloAccount: {
+        id: account.id,
+        displayName: account.displayName,
+        avatarUrl: null,
+        status: 'connected',
+      },
+      groupName: item.isGroup ? item.name : null,
+      groupAvatarUrl: item.isGroup ? item.avatarUrl : null,
+      externalThreadId: item.id,
+      friendship: item.isGroup ? null : {
+        relationshipKind: 'chatting_stranger',
+        friendshipStatus: 'none',
+        becameFriendAt: null,
+        firstMessageAt: null,
+        zaloDisplayName: item.name,
+        zaloAvatarUrl: item.avatarUrl,
+      },
+      lastMessageAt: item.updatedAt,
+      unreadCount: 0,
+      isReplied: false,
+      messages: item.snippet ? [{
+        content: item.snippet,
+        contentType: 'text',
+        senderType: 'other',
+        sentAt: item.updatedAt || new Date(0).toISOString(),
+        isDeleted: false,
+      }] : [],
+    };
+  }
   // Wave 1 (2026-05-21) — KH đang gõ realtime. Key = conversationId (FE map từ
   // threadId qua selectedConv). Value = timestamp ms cuối cùng nhận typing event.
   // Auto-clear sau 5s không có event mới (timer per conv).
@@ -341,6 +481,10 @@ export function useChat() {
   const aiUsage = ref({ usedToday: 0, maxDaily: 500, remaining: 500, enabled: true });
   const aiConfig = ref<AiConfig>({ provider: 'anthropic', model: 'claude-sonnet-4-6', maxDaily: 500, enabled: true });
   let socket: Socket | null = null;
+  let pancakeConversationTimer: ReturnType<typeof setInterval> | null = null;
+  let pancakeMessageTimer: ReturnType<typeof setInterval> | null = null;
+  let pancakeConversationSyncing = false;
+  let pancakeMessageSyncing = false;
   let convSyncTimer: ReturnType<typeof setTimeout> | null = null;
   // work-scope 2026-06-15 — badge "N tin nick khác": đếm tin OUT-OF-SCOPE per nick.
   // CHỈ đếm nick CÓ QUYỀN (server đã lọc nên accountId tới đây luôn trong quyền). Reset
@@ -386,10 +530,33 @@ export function useChat() {
   }
 
   const extraFilters = ref<Record<string, string>>({});
+  let conversationFetchController: AbortController | null = null;
+  let conversationFetchSequence = 0;
 
   async function fetchConversations(opts?: { bypassCache?: boolean }) {
+    if (isPancakeMode()) {
+      const connectionId = pancakeSession.preview.value!.connection.id;
+      loadingConvs.value = conversations.value.length === 0;
+      try {
+        const { data } = await api.get(
+          `/dev/pancake-chat/connections/${encodeURIComponent(connectionId)}/conversations`,
+        );
+        pancakeSession.connect(data);
+        const query = searchQuery.value.trim().toLocaleLowerCase('vi');
+        conversations.value = (data.conversations as PancakeConversation[])
+          .filter((item) => !query
+            || item.name.toLocaleLowerCase('vi').includes(query)
+            || (item.snippet ?? '').toLocaleLowerCase('vi').includes(query))
+          .map(pancakeConversationToConversation);
+      } catch (err) {
+        console.error('Failed to fetch Pancake conversations:', err);
+      } finally {
+        loadingConvs.value = false;
+      }
+      return;
+    }
     const params = {
-      limit: 100,
+      limit: 300,
       search: searchQuery.value,
       accountId: accountFilter.value || undefined,
       ...extraFilters.value,
@@ -425,8 +592,16 @@ export function useChat() {
       if (conversations.value.length === 0) loadingConvs.value = true;
     }
 
+    // Chuyá»ƒn tab/filter nhanh cÃ³ thá»ƒ phÃ¡t nhiá»u request liÃªn tiáº¿p. Há»§y
+    // request cÅ© vÃ  chá»‰ cho response má»›i nháº¥t render danh sÃ¡ch 300 dÃ²ng.
+    conversationFetchController?.abort();
+    const controller = new AbortController();
+    conversationFetchController = controller;
+    const requestSequence = ++conversationFetchSequence;
+
     try {
-      const res = await api.get('/conversations', { params });
+      const res = await api.get('/conversations', { params, signal: controller.signal });
+      if (requestSequence !== conversationFetchSequence) return;
       // Apply pending optimistic mutations (tag assigns chưa được BE confirm) trước khi
       // replace state — tránh fetchConversations chạy giữa lúc BE đang sync wipe UI optimistic.
       const fresh = applyPendingTags(res.data.conversations as Conversation[]);
@@ -436,10 +611,14 @@ export function useChat() {
       // Merge để giữ detail fields (Contact full ~50 field từ /conversations/:id)
       // không bị wipe bởi narrow list response (14 field).
       conversations.value = mergeConvListPreserveDetail(conversations.value, fresh, preserveIds);
-    } catch (err) {
+    } catch (err: any) {
+      if (err?.code === 'ERR_CANCELED' || err?.name === 'CanceledError' || controller.signal.aborted) return;
       console.error('Failed to fetch conversations:', err);
     } finally {
-      loadingConvs.value = false;
+      if (requestSequence === conversationFetchSequence) {
+        loadingConvs.value = false;
+        if (conversationFetchController === controller) conversationFetchController = null;
+      }
     }
   }
 
@@ -515,6 +694,52 @@ export function useChat() {
   }
 
   async function fetchMessages(convId: string) {
+    if (isPancakeMode()) {
+      const connectionId = pancakeSession.preview.value!.connection.id;
+      if (messagesConvId.value !== convId) messages.value = [];
+      messagesConvId.value = convId;
+      loadingMsgs.value = messages.value.length === 0;
+      try {
+        const { data } = await api.get(
+          `/dev/pancake-chat/connections/${encodeURIComponent(connectionId)}`
+          + `/conversations/${encodeURIComponent(convId)}/messages`,
+          { params: { currentCount: 0 } },
+        );
+        messages.value = (data.messages as Array<{
+          id: string; content: string; sentAt: string | null; senderName: string;
+          isSelf: boolean; isRemoved: boolean;
+          attachments: Array<{ type: string; url: string; title: string; mimeType: string }>;
+        }>).map((item) => {
+          const image = item.attachments.find((attachment) =>
+            attachment.mimeType.startsWith('image/')
+            || attachment.type.toLowerCase().includes('image')
+            || /\.(png|jpe?g|gif|webp)(?:$|\?)/i.test(attachment.url));
+          const file = item.attachments[0];
+          return {
+            id: item.id,
+            content: image?.url || item.content || file?.url || '',
+            contentType: image ? 'image' : 'text',
+            senderType: item.isSelf ? 'self' : 'other',
+            senderName: item.senderName || null,
+            sentAt: item.sentAt || new Date(0).toISOString(),
+            isDeleted: item.isRemoved,
+            zaloMsgId: item.id,
+            zaloMsgIdNum: null,
+            albumKey: null,
+            albumIndex: null,
+            albumTotal: null,
+            reply: null,
+            reactions: [],
+            isLocal: false,
+          } satisfies Message;
+        }).sort(compareMessages);
+      } catch (err) {
+        console.error('Failed to fetch Pancake messages:', err);
+      } finally {
+        loadingMsgs.value = false;
+      }
+      return;
+    }
     // Switch conv → wholesale reset messages.value để không mix tin từ conv cũ.
     // Nếu cùng conv (refresh) → giữ messages hiện tại cho merge logic phía dưới.
     if (messagesConvId.value !== convId) {
@@ -666,6 +891,7 @@ export function useChat() {
     // nối tiếp. fetchMessages gate việc paint thread; detail + mark-read KHÔNG cần cho
     // bong bóng tin nên không nên xếp hàng sau nhau. Tiết kiệm ~1 round-trip mỗi lần mở conv.
     await fetchMessages(convId);
+    if (isPancakeMode()) return;
     const detailTask = (async () => {
       try {
         const convDetail = await api.get(`/conversations/${convId}`);
@@ -728,7 +954,7 @@ export function useChat() {
     const arr = messages.value;
     // Fast path: append-to-end (msg mới nhất, thường case)
     if (arr.length === 0 || compareMessages(arr[arr.length - 1], msg) <= 0) {
-      arr.push(msg);
+      messages.value = [...arr, msg];
       return;
     }
     // Binary search vị trí đầu tiên có order > msg
@@ -738,34 +964,95 @@ export function useChat() {
       if (compareMessages(arr[mid], msg) <= 0) lo = mid + 1;
       else hi = mid;
     }
-    arr.splice(lo, 0, msg);
+    messages.value = [...arr.slice(0, lo), msg, ...arr.slice(lo)];
   }
 
   async function sendMessageTo(conversationId: string, content: string, replyMessageId?: string | null, styles?: Array<{ st: string; start: number; len: number }>, mentions?: Array<{ uid: string; pos: number; len: number }>) {
     if (!content.trim()) return;
+    if (isPancakeMode()) {
+      const connectionId = pancakeSession.preview.value!.connection.id;
+      sendingMsg.value = true;
+      try {
+        await api.post(
+          `/dev/pancake-chat/connections/${encodeURIComponent(connectionId)}`
+          + `/conversations/${encodeURIComponent(conversationId)}/messages`,
+          { message: content.trim() },
+        );
+        await fetchMessages(conversationId);
+      } finally {
+        sendingMsg.value = false;
+      }
+      return;
+    }
     sendingMsg.value = true;
+    // Optimistic UI 2026-07-22 (anh duyệt): hiện bong bóng NGAY khi bấm, trạng thái
+    // "đang gửi", KHÔNG chờ round-trip Zalo (sendMessage của zca-js là gọi mạng đồng bộ,
+    // ~0.3–5s). echoId khớp cả echo HTTP (res.data.echoId) lẫn socket (data.echoId) để
+    // thay placeholder tại chỗ — tránh trùng bong bóng khi socket echo về trước/sau.
+    const echoId = createClientId();
+    const placeholderId = `local-${echoId}`;
+    const nowIso = new Date().toISOString();
+    const isCurrentConv = conversationId === selectedConvId.value;
+    if (isCurrentConv) {
+      const placeholder: Message = {
+        id: placeholderId,
+        content,
+        contentType: 'text',
+        senderType: 'self',
+        senderName: null,
+        sentAt: nowIso,
+        isDeleted: false,
+        zaloMsgId: null,
+        zaloMsgIdNum: null,
+        albumKey: null,
+        albumIndex: null,
+        albumTotal: null,
+        isLocal: true,
+        echoId,
+        reply: null,
+      };
+      insertMessageSorted(placeholder);
+      await nextTick();
+    }
     try {
       // 2026-05-21 RTF: gắn styles vào payload nếu user format bold/italic/underline/strike.
-      const payload: Record<string, unknown> = { content };
+      const payload: Record<string, unknown> = { content, echoId };
       if (replyMessageId) payload.replyMessageId = replyMessageId;
       if (styles && styles.length > 0) payload.styles = styles;
       // 2026-06-24: @mention thành viên nhóm — server đẩy thẳng sang zca-js.
       if (mentions && mentions.length > 0) payload.mentions = mentions;
       const res = await api.post(`/conversations/${conversationId}/messages`, payload);
       if (conversationId === selectedConvId.value) {
-        if (!messages.value.find(m => m.id === res.data.id)) {
-          insertMessageSorted(res.data);
+        const real = res.data as Message;
+        const reconciled = reconcileOptimisticMessage(messages.value, echoId, real);
+        if (reconciled !== messages.value) {
+          reconciled.sort(compareMessages);
+          messages.value = reconciled;
         }
       }
     } catch (err) {
       console.error('Failed to send message:', err);
-      // 2026-06-24 (anh báo bug): gửi fail mà UI im lặng — sale không biết vì sao.
+      // 2026-07-22: chỉ tới đây khi LỖI HỆ THỐNG THẬT (mạng rớt không response, hoặc 5xx) —
+      // Zalo từ chối nghiệp vụ đã được BE nuốt thành 200 + badge từ 2026-06-24. Đánh dấu
+      // placeholder "gửi thất bại" tại chỗ thay vì để nó treo "đang gửi" mãi.
+      if (isCurrentConv) {
+        const ph = messages.value.find(m => m.echoId === echoId || m.id === placeholderId);
+        if (ph) {
+          ph.metadata = { ...(ph.metadata ?? {}), sendStatus: 'failed', failReason: 'Lỗi kết nối, tin chưa gửi được' };
+          ph.isLocal = true;
+        }
+      }
       // Backend trả 422 + message tiếng Việt thật khi Zalo TỪ CHỐI nghiệp vụ
       // (vd "Khách chặn nhận tin từ người lạ", 119, 127...). Interceptor toàn cục
       // chỉ toast 403 + 5xx → ở đây bù phần còn lại (422 + lỗi mạng không response)
       // để sale thấy lý do thay vì gửi vào hư không.
       const e = err as { response?: { status?: number; data?: { error?: string } } };
       const status = e?.response?.status;
+      if (status === 429) {
+        const reason = e?.response?.data?.error || '';
+        const wait = Number(reason.match(/(?:đợi|wait)\s+(\d+)\s*(?:giây|seconds?)/i)?.[1] || 60);
+        startRateLimitCountdown(wait);
+      }
       if (status !== 403 && !(status && status >= 500)) {
         useToast().error(e?.response?.data?.error || 'Không gửi được tin nhắn, vui lòng thử lại.');
       }
@@ -793,6 +1080,31 @@ export function useChat() {
   }
 
   function initSocket() {
+    if (isPancakeMode()) {
+      realtimeOffline.value = false;
+      const syncConversations = async () => {
+        if (pancakeConversationSyncing || document.hidden) return;
+        pancakeConversationSyncing = true;
+        try {
+          await fetchConversations({ bypassCache: true });
+        } finally {
+          pancakeConversationSyncing = false;
+        }
+      };
+      const syncSelectedMessages = async () => {
+        const convId = selectedConvId.value;
+        if (!convId || pancakeMessageSyncing || document.hidden) return;
+        pancakeMessageSyncing = true;
+        try {
+          await fetchMessages(convId);
+        } finally {
+          pancakeMessageSyncing = false;
+        }
+      };
+      pancakeConversationTimer = setInterval(() => void syncConversations(), 12_000);
+      pancakeMessageTimer = setInterval(() => void syncSelectedMessages(), 4_000);
+      return;
+    }
     window.addEventListener('friend-crm-tags-changed', onFriendCrmTagsChanged);
     socket = createAppSocket({
       // Badge "mất kết nối realtime" — cập nhật cờ cho header chat đọc.
@@ -816,7 +1128,11 @@ export function useChat() {
     document.addEventListener('visibilitychange', onVisible);
     window.addEventListener('online', onOnline);
 
-    socket.on('chat:message', (data: { message: Message; conversationId: string; accountId?: string; _privacyMeta?: { privacyMode?: string; ownerUserId?: string | null } }) => {
+    socket.on('chat:message', (data: { message: Message; conversationId: string; accountId?: string; echoId?: string; _privacyMeta?: { privacyMode?: string; ownerUserId?: string | null } }) => {
+      if (data.message.senderType !== 'self') {
+        markAiFollowUpStale(data.conversationId, data.message.sentAt);
+      }
+
       // PRIVACY 2026-06-11 — Server GIỜ redact server-side trước khi emit (emit-chat.ts):
       // non-owner nhận bản đã blur, chính chủ đã unlock nhận bản thật ở room riêng.
       // Đoạn dưới chỉ còn là LỚP 2 (safety belt) đánh dấu redacted để UI blur — KHÔNG
@@ -849,6 +1165,20 @@ export function useChat() {
       // (a) THREAD ĐANG MỞ: LUÔN nhận tin (kể cả nick ngoài scope — vd vừa nav sang chưa
       // reload). KHÔNG bị guard chặn → không mất tin (fix bug v1.2).
       if (cls.insertThread) {
+        // Optimistic reconcile 2026-07-22: echo của CHÍNH tin mình vừa gửi có thể về qua
+        // socket. echoId nằm ở CẤP NGOÀI payload (emit-chat.ts basePayload spread extra).
+        // Nếu placeholder "đang gửi" còn đó → thay tại chỗ theo echoId (chống trùng bong
+        // bóng, vì placeholder id 'local-...' ≠ id thật nên dedup-by-id không bắt được).
+        const echoId = data.echoId;
+        if (echoId) {
+          const real = normalizeMessage(data.message as RawMessage);
+          const reconciled = reconcileOptimisticMessage(messages.value, echoId, real);
+          if (reconciled !== messages.value) {
+            reconciled.sort(compareMessages);
+            messages.value = reconciled;
+            return;
+          }
+        }
         if (!messages.value.find(m => m.id === data.message.id)) {
           // INSERT theo sortedBy sentAt thay vì push cuối array. Lý do: socket có
           // thể giao messages KHÔNG theo chronological order (vd old_messages backfill
@@ -1114,7 +1444,7 @@ export function useChat() {
       const cached = messagesCache.get(data.conversationId);
       if (cached) {
         const msg = cached.find(
-          m => m.id === data.messageId || (data.zaloMsgId && m.zaloMsgId === data.zaloMsgId),
+          (m: Message) => m.id === data.messageId || (data.zaloMsgId && m.zaloMsgId === data.zaloMsgId),
         );
         if (msg) {
           msg.deliveredAt = data.deliveredAt ?? msg.deliveredAt;
@@ -1165,7 +1495,35 @@ export function useChat() {
     }
   }
 
+  // Chế độ an toàn (2026-07-23): patch trạng thái kết nối nick tại chỗ khi socket báo
+  // zalo:connected/disconnected/reconnect-failed — banner "mất kết nối" trong MessageThread
+  // cập nhật NGAY, không cần F5. Tạo object zaloAccount MỚI (giống patchContactProfile) để
+  // ép reactivity, vì Vue không track việc gán field lên object đã có nếu key đã tồn tại
+  // nhưng component dùng computed đọc props sâu — an toàn hơn là mutate in-place.
+  function patchZaloAccountStatus(accountId: string, status: string) {
+    if (!accountId) return;
+    for (const conv of conversations.value) {
+      if (conv.zaloAccount?.id === accountId) {
+        conv.zaloAccount = { ...conv.zaloAccount, status };
+      }
+    }
+    if (selectedConvDetail.value?.zaloAccount?.id === accountId) {
+      selectedConvDetail.value = {
+        ...selectedConvDetail.value,
+        zaloAccount: { ...selectedConvDetail.value.zaloAccount, status },
+      };
+    }
+  }
+
   function destroySocket() {
+    if (pancakeConversationTimer) {
+      clearInterval(pancakeConversationTimer);
+      pancakeConversationTimer = null;
+    }
+    if (pancakeMessageTimer) {
+      clearInterval(pancakeMessageTimer);
+      pancakeMessageTimer = null;
+    }
     window.removeEventListener('friend-crm-tags-changed', onFriendCrmTagsChanged);
     document.removeEventListener('visibilitychange', onVisible);
     window.removeEventListener('online', onOnline);
@@ -1173,14 +1531,24 @@ export function useChat() {
     socket = null;
   }
 
+  function markUnreadLocal(conversationId: string) {
+    const conv = conversations.value.find(c => c.id === conversationId);
+    if (conv) {
+      conv.unreadCount = 1;
+    }
+  }
+
   return {
     conversations,
+    markUnreadLocal,
     selectedConvId,
     selectedConv,
     messages,
     loadingConvs,
     loadingMsgs,
     sendingMsg,
+    rateLimitSeconds,
+    rateLimitTotalSeconds,
     searchQuery,
     accountFilter,
     extraFilters,
@@ -1200,6 +1568,7 @@ export function useChat() {
     fetchMessages,
     selectConversation,
     patchContactProfile,
+    patchZaloAccountStatus,
     sendMessage,
     sendMessageTo,
     generateAiSuggestion,

@@ -91,7 +91,7 @@ const filteredAccounts = computed(() => {
 });
 
 function isOnline(acc: ZaloAccount): boolean {
-  return acc.liveStatus === 'online' || acc.status === 'connected';
+  return (acc.liveStatus || acc.status) === 'connected';
 }
 
 const onlineCount = computed(() => props.accounts.filter(isOnline).length);

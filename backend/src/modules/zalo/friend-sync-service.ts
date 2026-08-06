@@ -482,12 +482,8 @@ async function syncAccountFullyImpl(
   // để tránh double getAliasList pagination + DB diff cùng account mỗi cycle.
   // Result: 2 nhánh parallel thay vì 3 (friends + labels). aliasesUpdated lấy từ
   // labelsRes.aliasesUpdated do syncLabelsForAccount propagate qua.
-  const [friendsRes, labelsRes] = await Promise.allSettled([
+  const [friendsRes] = await Promise.allSettled([
     syncFriendsForAccount(accountId, orgId, opts),
-    (async () => {
-      const { syncLabelsIfStale } = await import('./zalo-labels-routes.js');
-      return syncLabelsIfStale(accountId, orgId);
-    })(),
   ]);
 
   if (friendsRes.status === 'fulfilled') {
@@ -495,6 +491,12 @@ async function syncAccountFullyImpl(
   } else {
     result.errors.push(`friends: ${friendsRes.reason instanceof Error ? friendsRes.reason.message : String(friendsRes.reason)}`);
   }
+  const [labelsRes] = await Promise.allSettled([
+    (async () => {
+      const { syncLabelsIfStale } = await import('./zalo-labels-routes.js');
+      return syncLabelsIfStale(accountId, orgId);
+    })(),
+  ]);
   if (labelsRes.status === 'fulfilled') {
     // syncLabelsIfStale có thể trả null (cooldown / grace) → coi như 0
     result.labelsUpdated = labelsRes.value?.friendsUpdated ?? 0;

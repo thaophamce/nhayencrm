@@ -10,8 +10,19 @@ const typingUsers = ref<Map<string, { userId: string; userName: string }[]>>(new
 const replyingTo = ref<Message | null>(null);
 const editingMessage = ref<Message | null>(null);
 
+// Tin đã ghim theo conversationId — Ghim tin nhắn (CRM-only, 2026-07-14).
+const pinnedMessages = ref<Map<string, PinnedMessageEntry[]>>(new Map());
+
 // Debounce typing — tránh spam server
 const typingTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+export interface PinnedMessageEntry {
+  id: string;
+  messageId: string;
+  pinnedAt: string;
+  message: { id: string; content: string | null; contentType: string; senderName: string | null; senderType: string; sentAt: string; isDeleted: boolean };
+  pinnedBy: { id: string; fullName: string };
+}
 
 export function useChatOperations() {
   async function addReaction(convId: string, msgId: string, reaction: string): Promise<void> {
@@ -88,6 +99,38 @@ export function useChatOperations() {
     }
   }
 
+  async function pinMessage(convId: string, msgId: string): Promise<void> {
+    try {
+      await api.post(`/conversations/${convId}/messages/${msgId}/pin`);
+      await fetchPinnedMessages(convId);
+    } catch (err) {
+      console.error('Failed to pin message:', err);
+      throw err;
+    }
+  }
+
+  async function unpinMessage(convId: string, msgId: string): Promise<void> {
+    try {
+      await api.delete(`/conversations/${convId}/messages/${msgId}/pin`);
+      await fetchPinnedMessages(convId);
+    } catch (err) {
+      console.error('Failed to unpin message:', err);
+      throw err;
+    }
+  }
+
+  async function fetchPinnedMessages(convId: string): Promise<PinnedMessageEntry[]> {
+    try {
+      const res = await api.get<{ pins: PinnedMessageEntry[] }>(`/conversations/${convId}/pinned-messages`);
+      pinnedMessages.value.set(convId, res.data.pins);
+      pinnedMessages.value = new Map(pinnedMessages.value);
+      return res.data.pins;
+    } catch (err) {
+      console.error('Failed to fetch pinned messages:', err);
+      return [];
+    }
+  }
+
   // Reply/edit helpers
   function setReplyTo(msg: Message) { replyingTo.value = msg; editingMessage.value = null; }
   function clearReplyTo() { replyingTo.value = null; }
@@ -116,12 +159,27 @@ export function useChatOperations() {
         // Caller handles update via fetchMessages or direct mutation
       },
     );
+
+    socket.on(
+      'chat:message-pinned',
+      (data: { conversationId: string; messageId: string; pinnedAt: string }) => {
+        void fetchPinnedMessages(data.conversationId);
+      },
+    );
+
+    socket.on(
+      'chat:message-unpinned',
+      (data: { conversationId: string; messageId: string }) => {
+        void fetchPinnedMessages(data.conversationId);
+      },
+    );
   }
 
   return {
     typingUsers,
     replyingTo,
     editingMessage,
+    pinnedMessages,
     addReaction,
     removeReaction,
     sendTypingEvent,
@@ -129,6 +187,9 @@ export function useChatOperations() {
     undoMessage,
     editMessage,
     forwardMessage,
+    pinMessage,
+    unpinMessage,
+    fetchPinnedMessages,
     setReplyTo,
     clearReplyTo,
     setEditing,

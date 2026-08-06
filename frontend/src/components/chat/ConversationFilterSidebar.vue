@@ -721,27 +721,6 @@
           </div>
         </section>
 
-        <!-- TIER 2: TƯƠNG TÁC (Phase 8 — Engagement pattern filter) -->
-        <section class="section" :class="{ collapsed: !sectionsOpen.engagement }">
-          <header class="section-header" :title="TIPS.engagement" tabindex="0" role="button" :aria-expanded="sectionsOpen.engagement" @click="toggleEngagementSection" @keydown.enter.prevent="toggleEngagementSection" @keydown.space.prevent="toggleEngagementSection">
-            <div class="left"><span class="emoji"><MessageCircleIcon :size="14" :stroke-width="2" /></span>Tương tác</div>
-            <div class="right">
-              <span v-if="engagementActiveCount > 0" class="count-badge">{{ engagementActiveCount }}</span>
-              <span v-else class="count-badge zero">0</span>
-              <span class="chevron"><ChevronDownIcon :size="14" :stroke-width="2" /></span>
-            </div>
-          </header>
-          <div class="section-body">
-            <div class="subsection-label">Kiểu tương tác</div>
-            <div class="event-row" v-for="p in ENGAGEMENT_PATTERNS" :key="p.key" :class="{ checked: filters.state.engagementPatterns.includes(p.key) }" :title="p.tip" @click="toggleEngagementPattern(p.key)">
-              <div class="left">
-                <span class="icon">{{ p.icon }}</span>
-                <span class="lbl">{{ p.label }}</span>
-              </div>
-            </div>
-          </div>
-        </section>
-
         <!-- TIER 2: HỒ SƠ KH -->
         <section class="section collapsed">
           <header class="section-header" title="Lọc theo thông tin hồ sơ KH (sắp ra mắt)" tabindex="0" role="button" aria-expanded="false">
@@ -814,7 +793,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, reactive, watch } from 'vue';
-import type { AccountFolder, AutoTagKey, ScoreTier, StuckDuration, LastMessageWithin, EngagementPatternKey, MessageReplyState } from '@/composables/use-inbox-filters';
+import type { AccountFolder, AutoTagKey, ScoreTier, StuckDuration, LastMessageWithin, MessageReplyState } from '@/composables/use-inbox-filters';
 import { cleanTagName } from '@/composables/use-crm-tag-defs';
 import PrivacyLockBadge from '@/components/privacy/PrivacyLockBadge.vue';
 // Open-core: Lead Pool floating button → extension bundle (no-op stub in Community).
@@ -835,7 +814,6 @@ import {
   // 2026-06-08 (anh chốt): nhãn section panel + strip — bỏ emoji nhãn, đồng bộ Lucide.
   Star as StarIcon,
   FolderTree as FolderTreeIcon,
-  MessageCircle as MessageCircleIcon,
   UserCircle as UserCircleIcon,
   Megaphone as MegaphoneIcon,
   Briefcase as BriefcaseIcon,
@@ -980,11 +958,11 @@ async function onCreatePresetFromPopover() {
 }
 
 // ─── Section expand state (persist) ──────────────────────
-type SectionKey = 'tag' | 'message' | 'score' | 'time' | 'event' | 'sale' | 'engagement';
-const SECTION_KEYS: SectionKey[] = ['tag', 'message', 'score', 'time', 'event', 'sale', 'engagement'];
+type SectionKey = 'tag' | 'message' | 'score' | 'time' | 'event' | 'sale';
+const SECTION_KEYS: SectionKey[] = ['tag', 'message', 'score', 'time', 'event', 'sale'];
 
 // Anh chốt 2026-05-22: default chỉ 'event' (Sự kiện sắp tới) + 'sale' (Sale phụ trách)
-// expand. Các section khác (tag/score/time/engagement) collapse → user click chevron để mở.
+// expand. Các section khác (tag/score/time) collapse → user click chevron để mở.
 // 2026-06-09: 'message' (Tin nhắn) default mở — tính năng phát hiện ca bị bot đè quan trọng.
 // Spacing compact + tránh dồn UI.
 const DEFAULT_OPEN: Record<SectionKey, boolean> = {
@@ -994,7 +972,6 @@ const DEFAULT_OPEN: Record<SectionKey, boolean> = {
   time: false,
   event: true,
   sale: true,
-  engagement: false,
 };
 const SECTION_DEFAULT_MIGRATION_KEY = 'chat-sidebar.section.v2-default-applied';
 function loadSectionState(): Record<SectionKey, boolean> {
@@ -1203,15 +1180,6 @@ const LAST_MESSAGE_OPTIONS: Array<{ key: NonNullable<LastMessageWithin>; label: 
   { key: 'custom', label: 'Tuỳ chỉnh' },
 ];
 
-// Phase 8 — Engagement pattern filter buttons
-const ENGAGEMENT_PATTERNS: Array<{ key: EngagementPatternKey; icon: string; label: string; tip: string }> = [
-  { key: 'hot', icon: '🔥', label: 'Đang nóng lên', tip: 'KH nhắn tin nhiều dần lên gần đây — cơ hội tốt để chốt.' },
-  { key: 'champion', icon: '💎', label: 'Xuất sắc (đều cao)', tip: 'KH tương tác đều và cao suốt nhiều tuần — khách trung thành.' },
-  { key: 'stable', icon: '📈', label: 'Ổn định', tip: 'KH giữ mức tương tác đều, không tăng không giảm.' },
-  { key: 'cooling', icon: '⚠', label: 'Đang nguội', tip: 'KH nhắn ít dần đi — cần follow-up trước khi mất hẳn.' },
-  { key: 'cold', icon: '😴', label: 'Lạnh', tip: 'KH gần như im lặng — cần chiến dịch hâm nóng lại.' },
-];
-
 // 2026-06-09 (anh chốt) — Nhóm lọc "Tin nhắn" (user vs bot), radio 1-of-3.
 // Xét từ lượt khách nhắn cuối: ai là người trả lời (chưa ai / chỉ bot / có sale thật).
 const MESSAGE_REPLY_STATES: Array<{
@@ -1239,7 +1207,6 @@ const TIPS = {
   time: 'Lọc theo thời điểm nhắn tin gần nhất và việc ai đang chờ ai trả lời.',
   event: 'Lọc KH có sự kiện sắp tới: sinh nhật, lịch hẹn, hẹn quá hạn.',
   sale: 'Lọc theo nhân viên sale đang phụ trách KH.',
-  engagement: 'Lọc theo xu hướng tương tác của KH qua nhiều tuần.',
   message: 'Lọc theo ai trả lời tin nhắn cuối: chưa ai / chỉ bot / sale đã vào.',
   preset: 'Bộ lọc đã lưu — bấm để áp nhanh tổ hợp lọc dùng thường xuyên.',
   // Nhãn con / nút lẻ
@@ -1288,9 +1255,6 @@ const eventActiveCount = computed(() => {
 const saleActiveCount = computed(() =>
   props.filters.state.saleAssigneeId !== null ? 1 : 0
 );
-const engagementActiveCount = computed(() =>
-  props.filters.state.engagementPatterns.length
-);
 // 2026-06-09 — Nhóm "Tin nhắn" (radio 1-of-3)
 const messageActiveCount = computed(() =>
   props.filters.state.messageReplyState !== null ? 1 : 0
@@ -1300,17 +1264,6 @@ function selectMessageReplyState(key: NonNullable<MessageReplyState>) {
   props.filters.state.messageReplyState =
     props.filters.state.messageReplyState === key ? null : key;
   props.filters.activePresetId.value = null;
-}
-
-function toggleEngagementPattern(key: EngagementPatternKey) {
-  const arr = props.filters.state.engagementPatterns as EngagementPatternKey[];
-  const idx = arr.indexOf(key);
-  if (idx >= 0) arr.splice(idx, 1); else arr.push(key);
-  props.filters.activePresetId.value = null;
-}
-
-function toggleEngagementSection() {
-  toggleSection('engagement');
 }
 
 // ─── Score slider ────────────────────────────────────────

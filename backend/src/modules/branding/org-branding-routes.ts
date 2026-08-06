@@ -28,10 +28,10 @@ import { prisma } from '../../shared/database/prisma-client.js';
 // Giá trị mặc định khi chưa có org / trường null. Trùng với hardcode hiện tại
 // trên LoginView để trải nghiệm nhất quán dù endpoint trả defaults.
 const DEFAULTS = {
-  logoUrl: null as string | null,
-  name: 'HS Holding',
-  slogan: 'Bền vững · Trường tồn',
-  copyright: `© ${new Date().getFullYear()} HS Holding`,
+  logoUrl: '/brand/brand-mark.png' as string | null,
+  name: 'Nhà Yến CRM',
+  slogan: 'Lan tỏa hạnh phúc · Kết nối yêu thương',
+  copyright: `© ${new Date().getFullYear()} Thiệp Cưới Nhà Yến`,
   emailDomain: null as string | null,
 };
 

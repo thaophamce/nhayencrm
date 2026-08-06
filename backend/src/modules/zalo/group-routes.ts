@@ -8,6 +8,7 @@ import type { FastifyInstance } from 'fastify';
 import { authMiddleware } from '../auth/auth-middleware.js';
 import { zaloOps } from '../../shared/zalo-operations.js';
 import { resolveAccount, checkAccess, handleError } from './zalo-route-helpers.js';
+import { prisma } from '../../shared/database/prisma-client.js';
 
 export async function groupRoutes(app: FastifyInstance) {
   app.addHook('preHandler', authMiddleware);
@@ -59,6 +60,31 @@ export async function groupRoutes(app: FastifyInstance) {
     } catch (err) { return handleError(reply, err, 'getAllGroups'); }
   });
 
+  // Nh?m chung gi?a nick ?ang d?ng v? m?t UID b?n b?. ??t tr??c route /:groupId.
+  app.get<{ Params: { accountId: string; memberUid: string } }>(`${BASE}/common/:memberUid`, async (request, reply) => {
+    const { accountId, memberUid } = request.params;
+    try {
+      await resolveAccount(accountId, request.user!.orgId);
+      if (!(await checkAccess(request, reply, accountId, 'read'))) return;
+      const related = (await zaloOps.getRelatedFriendGroup(accountId, memberUid)) as {
+        groupRelateds?: Record<string, string[]>;
+      };
+      const ids = [...new Set(related?.groupRelateds?.[memberUid] ?? [])];
+      if (!ids.length) return { groups: [] };
+      const groups: Array<{ id: string; name: string; totalMember: number }> = [];
+      for (let i = 0; i < ids.length; i += 50) {
+        const chunk = ids.slice(i, i + 50);
+        const info = (await zaloOps.getGroupInfo(accountId, chunk)) as { gridInfoMap?: Record<string, any> };
+        for (const id of chunk) {
+          const group = info?.gridInfoMap?.[id];
+          if (!group) continue;
+          groups.push({ id, name: group.name || group.groupName || 'Nh?m Zalo', totalMember: group.totalMember ?? group.memberCount ?? (Array.isArray(group.memVerList) ? group.memVerList.length : 0) });
+        }
+      }
+      return { groups };
+    } catch (err) { return handleError(reply, err, 'getCommonGroups'); }
+  });
+
   app.get<{ Params: { accountId: string; groupId: string } }>(`${BASE}/:groupId`, async (request, reply) => {
     const { accountId, groupId } = request.params;
     try {
@@ -99,9 +125,65 @@ export async function groupRoutes(app: FastifyInstance) {
       return reply.status(400).send({ error: 'name and memberIds are required' });
     }
     try {
-      await resolveAccount(accountId, request.user!.orgId);
+      const account = await resolveAccount(accountId, request.user!.orgId);
       if (!(await checkAccess(request, reply, accountId, 'admin'))) return;
-      return reply.status(201).send({ group: await zaloOps.createGroup(accountId, { name, memberIds }) });
+      const group = await zaloOps.createGroup(accountId, { name, memberIds }) as {
+        groupId?: string; sucessMembers?: string[]; errorMembers?: string[]; [key: string]: unknown;
+      };
+      if (!group?.groupId) throw new Error('Zalo did not return groupId');
+
+      // Tạo hội thoại CRM ngay sau khi Zalo tạo nhóm thành công. Dùng mốc tạo nhóm
+      // làm activity đầu tiên để hội thoại mới đứng đầu danh sách, không phải chờ
+      // group event/message đầu tiên từ listener Zalo.
+      const createdAt = new Date();
+      // L?u b?ng ch?ng th?nh vi?n ngay l?c t?o nh?m. N?u ch? roster scan ho?c tin nh?n ??u ti?n,
+      // ?T?t c? h?i tho?i c?a kh?ch n?y? ch?a th? n?i nh?m m?i v?i kh?ch v?a ???c th?m.
+      const successfulMemberIds = [...new Set(
+        (Array.isArray(group.sucessMembers) ? group.sucessMembers : memberIds)
+          .map((memberId) => String(memberId).trim())
+          .filter(Boolean),
+      )];
+      const conversation = await prisma.$transaction(async (tx) => {
+        const row = await tx.conversation.upsert({
+          where: { zaloAccountId_externalThreadId: { zaloAccountId: accountId, externalThreadId: group.groupId! } },
+          create: {
+            orgId: account.orgId,
+            zaloAccountId: accountId,
+            contactId: null,
+            threadType: 'group',
+            externalThreadId: group.groupId!,
+            groupName: name.trim(),
+            groupMembersCount: successfulMemberIds.length + 1,
+            lastMessageAt: createdAt,
+            unreadCount: 0,
+            isReplied: true,
+          },
+          update: {
+            deletedAt: null,
+            threadType: 'group',
+            groupName: name.trim(),
+            groupMembersCount: successfulMemberIds.length + 1,
+            lastMessageAt: createdAt,
+          },
+          select: { id: true },
+        });
+        if (successfulMemberIds.length) {
+          await tx.groupMember.createMany({
+            data: successfulMemberIds.map((memberUid) => ({
+              orgId: account.orgId,
+              zaloAccountId: accountId,
+              groupId: group.groupId!,
+              memberUid,
+              isFriend: memberIds.includes(memberUid),
+              harvestedAt: createdAt,
+              lastSeenAt: createdAt,
+            })),
+            skipDuplicates: true,
+          });
+        }
+        return row;
+      });
+      return reply.status(201).send({ group, conversationId: conversation.id });
     } catch (err) { return handleError(reply, err, 'createGroup'); }
   });
 
@@ -111,7 +193,7 @@ export async function groupRoutes(app: FastifyInstance) {
     if (!name) return reply.status(400).send({ error: 'name is required' });
     try {
       await resolveAccount(accountId, request.user!.orgId);
-      if (!(await checkAccess(request, reply, accountId, 'admin'))) return;
+      if (!(await checkAccess(request, reply, accountId, 'chat'))) return;
       return { result: await zaloOps.renameGroup(accountId, name, groupId) };
     } catch (err) { return handleError(reply, err, 'renameGroup'); }
   });
@@ -133,7 +215,7 @@ export async function groupRoutes(app: FastifyInstance) {
     if (!Array.isArray(userIds) || userIds.length === 0) return reply.status(400).send({ error: 'userIds array is required' });
     try {
       await resolveAccount(accountId, request.user!.orgId);
-      if (!(await checkAccess(request, reply, accountId, 'admin'))) return;
+      if (!(await checkAccess(request, reply, accountId, 'chat'))) return;
       return { result: await zaloOps.addUserToGroup(accountId, userIds, groupId) };
     } catch (err) { return handleError(reply, err, 'addUserToGroup'); }
   });

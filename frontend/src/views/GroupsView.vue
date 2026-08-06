@@ -81,7 +81,8 @@
     <!-- Dialogs -->
     <GroupCreateDialog
       v-model="showCreateDialog"
-      @create="onCreateGroup"
+      :account-id="selectedAccountId"
+      @create="onCreateGroup" @created="onGroupPancakeCreated"
     />
 
     <GroupSettingsDialog
@@ -231,12 +232,27 @@ async function runAction(fn: () => Promise<any>) {
   }
 }
 
-async function onCreateGroup(payload: { name: string; memberIds: string[] }) {
-  const result = await createGroup(selectedAccountId.value, payload);
-  if (result) notify('Tạo nhóm thành công');
-  else notify('Tạo nhóm thất bại', 'error');
+function onGroupPancakeCreated(payload: { conversationId: string }) {
+  if (payload.conversationId) notify('Nhóm Zalo đã được tạo');
 }
-
+async function onCreateGroup(payload: { name: string; memberIds: string[]; createPancakeOrder?: boolean }) {
+  const result = await createGroup(selectedAccountId.value, { name: payload.name, memberIds: payload.memberIds });
+  if (!result?.conversationId) {
+    notify('Tạo nhóm thất bại. Chưa tạo đơn Pancake.', 'error');
+    return;
+  }
+  if (!payload.createPancakeOrder) {
+    notify('Tạo nhóm thành công');
+    return;
+  }
+  try {
+    const { data } = await api.post(`/orders/pancake/from-conversation/${result.conversationId}`, {});
+    const code = data?.link?.orderCode || data?.link?.pancakeOrderId || '';
+    notify(data?.renameSucceeded ? `Đã tạo nhóm và đơn Pancake ${code}` : `Đã tạo đơn ${code}; chưa đổi được tên nhóm`, data?.renameSucceeded ? 'success' : 'error');
+  } catch (err: any) {
+    notify(err?.response?.data?.error || 'Đã tạo nhóm nhưng chưa tạo được đơn Pancake', 'error');
+  }
+}
 async function onSaveSettings(settings: { name: string }) {
   if (settings.name && settings.name !== selectedGroup.value?.name) {
     await runAction(() => renameGroup(selectedAccountId.value, selectedGroupId.value, settings.name));

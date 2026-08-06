@@ -3,21 +3,14 @@
 <template>
   <MobileChatView v-if="isMobile" />
   <div v-else class="smax-chat-grid">
-    <!-- COL 1: NEW Filter Sidebar (Phase 6+ Inbox Triage) -->
-    <ConversationFilterSidebar
-      :filters="inboxFilters"
-      :workspace-name="workspaceName"
-      :current-user-name="currentUserName"
-      :current-user-id="currentUserId"
-      :all-accounts-count="zaloAccounts?.length || 0"
-      :account-statuses="accountStatuses"
-      :total-unread="totalUnreadCount"
-      :current-account-id="accountFilter"
-      :current-account="currentAccount"
-      @manage-folders="showFolderManagePopup = true"
-      @clear-account-filter="onFilterAccount(null)"
+    <ChatActionRail
+      :active-tab="inboxFilters.state.activeTab"
+      :account-ids="friendRequestAccountIds"
+      :date-from="inboundDateFrom"
+      :date-to="inboundDateTo"
+      @select-tab="onRailSelectTab"
+      @apply-date="onRailApplyDate"
     />
-
     <!-- COL 2: conversation list — FilterBar render INSIDE via named slot
          giữa CRM tag bar và conv list (đúng order user yêu cầu) -->
     <div class="smax-conv-col">
@@ -40,14 +33,18 @@
         <span class="oos-text">{{ outOfScopeTotal }} tin ở {{ outOfScopeNickCount }} nick khác</span>
       </button>
       <ConversationList
-        :conversations="conversations"
+        :conversations="displayedConversations"
         :selected-id="selectedConvId"
-        :loading="loadingConvs"
+        :loading="relatedMode ? relatedLoading : loadingConvs"
         :accounts="accountList"
         :selected-account-ids="selectedAccountIds"
         :active-tab-key="inboxFilters.state.activeTab"
         :auto-compose-phone="autoComposePhone"
         :following-pairs="followingPairs"
+        :advanced-filters-active="advancedFiltersActive"
+        :related-mode="relatedMode"
+        :related-contact-name="relatedContactName"
+        :related-coverage-state="relatedCoverageState"
         v-model:search="searchQuery"
         @select="onSelectConv"
         @filter-account="onFilterAccount"
@@ -55,11 +52,14 @@
         @conversation-moved="onConversationMoved"
         @conversation-deleted="onConversationDeleted"
         @compose-opened="onComposeOpened"
+        @group-created="onGroupCreated"
         @follow-changed="onFollowChanged"
+        @exit-related-mode="exitRelatedMode"
       >
-        <template #filters>
+        <template #filters="{ expanded }">
           <ConversationFilterBar
             :filters="inboxFilters"
+            :expanded="expanded"
             :total-count="conversations.length"
             :counts="conversationCounts"
             :priority-has-unread="priorityHasUnread"
@@ -75,6 +75,8 @@
       :messages="messages"
       :loading="loadingMsgs"
       :sending="sendingMsg"
+      :rate-limit-seconds="rateLimitSeconds"
+      :rate-limit-total-seconds="rateLimitTotalSeconds"
       :ai-suggestion="aiSuggestion"
       :ai-suggestion-loading="aiSuggestionLoading"
       :ai-suggestion-error="aiSuggestionError"
@@ -83,17 +85,20 @@
       :editing-message="editingMessage"
       :typing-users="currentTypers"
       :show-contact-panel="showContactPanel"
+      :pinned-messages="currentPinnedMessages"
       class="smax-msg-col"
       @send="sendMessage"
       @ask-ai="generateAiSuggestion"
       @open-media-tab="onOpenMediaTab"
-      @toggle-contact-panel="showContactPanel = !showContactPanel"
+      @toggle-contact-panel="toggleContactPanel"
       @add-reaction="onAddReaction"
       @remove-reaction="onRemoveReaction"
       @delete-message="onDeleteMessage"
       @undo-message="onUndoMessage"
       @edit-message="onEditMessage"
       @forward-message="onForwardMessage"
+      @pin-message="onPinMessage"
+      @unpin-message="onUnpinMessage"
       @set-reply-to="setReplyTo"
       @set-editing="setEditing"
       @cancel-reply-edit="onCancelReplyEdit"
@@ -101,6 +106,21 @@
       @refresh-thread="selectedConvId && fetchMessages(selectedConvId)"
       @switch-conversation="onSwitchToNickConv"
       @profile-synced="patchContactProfile"
+      @reconnect-nick="onReconnectNick"
+      :related-mode="relatedMode"
+      @toggle-related-conversations="toggleRelatedConversations"
+    />
+
+    <!-- Chế độ an toàn (2026-07-23): wizard QR "Kết nối lại" mở từ banner/overlay mất kết nối trong MessageThread -->
+    <ConnectNickWizard
+      v-if="wizardOpen"
+      v-model:step="wizardStep"
+      :qr-image="qrImage"
+      :qr-scanned="qrScanned"
+      :scanned-name="scannedName"
+      :qr-error="qrError"
+      :qr-session-dead="qrSessionDead"
+      @close="wizardOpen = false; cancelQR()"
     />
 
     <!-- Folder management modal (overlay) -->
@@ -114,17 +134,22 @@
       @view-applied="onFolderViewApplied"
     />
 
-    <!-- COL 4: contact info panel (chỉ hiện khi có contact) -->
+    <!-- COL 4: contact info panel (hiện khi có contact hoặc là hội thoại nhóm) -->
     <ChatContactPanel
-      v-if="showContactPanel && selectedConv?.contact"
+      v-if="showContactPanel && (selectedConv?.contact || selectedConv?.threadType === 'group')"
       ref="contactPanelRef"
-      :contact-id="selectedConv.contact.id"
-      :contact="selectedConv.contact"
+      :contact-id="selectedConv?.contact?.id ?? null"
+      :contact="selectedConv?.contact ?? null"
       :friendship="selectedConv.friendship ?? null"
       :active-zalo-account-id="selectedConv.zaloAccount?.id ?? null"
       :friend-id="selectedConv.friendship?.id ?? null"
       :conversation-id="selectedConv.id ?? null"
+      :external-thread-id="selectedConv.externalThreadId ?? null"
+      :is-pinned="selectedConv.isPinned ?? false"
       :active-zalo-account-name="selectedConv.zaloAccount?.displayName ?? null"
+      :thread-type="selectedConv.threadType ?? null"
+      :group-name="(selectedConv as any).groupName ?? null"
+      :group-avatar-url="(selectedConv as any).groupAvatarUrl ?? null"
       :ai-summary="aiSummary"
       :ai-summary-loading="aiSummaryLoading"
       :ai-sentiment="aiSentiment"
@@ -135,6 +160,10 @@
       @close="showContactPanel = false"
       @saved="fetchConversations()"
       @status-changed="onPanelStatusChanged"
+      @group-created="onGroupCreated"
+      @mark-unread="markUnreadLocal"
+      @show-related-conversations="toggleRelatedConversations"
+      @send-ai-follow-up="sendApprovedFollowUp"
     />
   </div>
 </template>
@@ -146,11 +175,13 @@ import { api } from '@/api/index';
 import { useToast } from '@/composables/use-toast';
 import ConversationList from '@/components/chat/ConversationList.vue';
 import MessageThread from '@/components/chat/MessageThread.vue';
+import ConnectNickWizard from '@/components/zalo-accounts/ConnectNickWizard.vue';
 import ChatContactPanel from '@/components/chat/ChatContactPanel.vue';
-import ConversationFilterSidebar from '@/components/chat/ConversationFilterSidebar.vue';
 import ConversationFilterBar from '@/components/chat/ConversationFilterBar.vue';
+import ChatActionRail from '@/components/chat/ChatActionRail.vue';
+import type { ActiveTab } from '@/composables/use-inbox-filters';
 import FolderManagePopup from '@/components/chat/FolderManagePopup.vue';
-import { useChat } from '@/composables/use-chat';
+import { useChat, type Conversation } from '@/composables/use-chat';
 import { useInboxFilters } from '@/composables/use-inbox-filters';
 import { useAuthStore } from '@/stores/auth';
 import { usePrivacyStore } from '@/stores/privacy';
@@ -167,7 +198,7 @@ const router = useRouter();
 
 const {
   conversations, selectedConvId, selectedConv, messages,
-  loadingConvs, loadingMsgs, sendingMsg, searchQuery, accountFilter, extraFilters,
+  loadingConvs, loadingMsgs, sendingMsg, rateLimitSeconds, rateLimitTotalSeconds, searchQuery, accountFilter, extraFilters,
   aiSuggestion, aiSuggestionLoading, aiSuggestionError,
   aiSummary, aiSummaryLoading, aiSentiment, aiSentimentLoading,
   fetchConversations, fetchAiConfig, fetchMessages, selectConversation, sendMessage,
@@ -176,12 +207,26 @@ const {
   typingConvIds, realtimeOffline,
   outOfScopeCounts, clearOutOfScopeBadge,
   patchContactProfile,
+  patchZaloAccountStatus,
+  markUnreadLocal,
 } = useChat();
 
+async function sendApprovedFollowUp(
+  content: string,
+  onSuccess: () => void,
+  onError: () => void,
+): Promise<void> {
+  try {
+    await sendMessage(content);
+    onSuccess();
+  } catch {
+    onError();
+  }
+}
 const {
-  typingUsers, replyingTo, editingMessage,
+  typingUsers, replyingTo, editingMessage, pinnedMessages,
   addReaction, removeReaction, sendTypingEvent, deleteMessage, undoMessage,
-  editMessage, forwardMessage,
+  editMessage, forwardMessage, pinMessage, unpinMessage, fetchPinnedMessages,
   setReplyTo, clearReplyTo, setEditing, clearEditing,
   registerSocketListeners,
 } = useChatOperations();
@@ -189,8 +234,70 @@ const {
 // ════════ Auth (cần để compute isOwnedByMe fallback cho accountList) ════════
 const authStore = useAuthStore();
 
+type RelatedCoverageState = 'complete' | 'partial' | 'scanning' | 'unscanned';
+const relatedMode = ref(false);
+const relatedLoading = ref(false);
+const relatedConversations = ref<Conversation[]>([]);
+const relatedContactId = ref<string | null>(null);
+const relatedContactName = ref('');
+const relatedCoverageState = ref<RelatedCoverageState>('unscanned');
+const displayedConversations = computed(() => relatedMode.value ? relatedConversations.value : conversations.value);
+
+async function toggleRelatedConversations() {
+  if (relatedMode.value) {
+    exitRelatedMode();
+    return;
+  }
+  const contact = selectedConv.value?.contact;
+  if (!contact?.id) return;
+  relatedMode.value = true;
+  relatedLoading.value = true;
+  relatedContactId.value = contact.id;
+  relatedContactName.value = contact.crmName || contact.fullName || 'khách';
+  relatedConversations.value = [];
+  try {
+    const { data } = await api.get<{
+      items: Conversation[];
+      groupCoverage: { state: RelatedCoverageState };
+    }>(`/contacts/${contact.id}/conversations`);
+    relatedConversations.value = data.items ?? [];
+    relatedCoverageState.value = data.groupCoverage?.state ?? 'unscanned';
+  } catch (err) {
+    relatedMode.value = false;
+    useToast().error('Không tải được tất cả hội thoại của khách');
+    console.error('[related-conversations] load failed', err);
+  } finally {
+    relatedLoading.value = false;
+  }
+}
+
+function exitRelatedMode() {
+  relatedMode.value = false;
+  relatedLoading.value = false;
+  relatedConversations.value = [];
+  relatedContactId.value = null;
+  relatedContactName.value = '';
+  relatedCoverageState.value = 'unscanned';
+}
+
 // ════════ Zalo accounts (for FilterRail nick picker) ════════
-const { accounts: zaloAccounts, fetchAccounts: fetchZaloAccounts } = useZaloAccounts();
+// Chế độ an toàn (2026-07-23): dùng CHUNG instance này cho wizard "Kết nối lại" trong
+// MessageThread — tránh mở socket QR thứ 2 (ZaloAccountsView cũng dùng 1 instance riêng của nó).
+const {
+  accounts: zaloAccounts, fetchAccounts: fetchZaloAccounts,
+  loginAccount, qrImage, qrScanned, scannedName, qrError, qrSessionDead, cancelQR,
+  setupSocket: setupZaloQrSocket,
+} = useZaloAccounts();
+
+// Chế độ an toàn (2026-07-23): banner/overlay "mất kết nối" trong MessageThread bấm
+// "Kết nối lại" → mở đúng wizard QR (clone pattern openQrForReconnect ở ZaloAccountsView).
+const wizardOpen = ref(false);
+const wizardStep = ref<'phone' | 'confirm' | 'qr' | 'done'>('qr');
+function onReconnectNick(accountId: string) {
+  wizardStep.value = 'qr';
+  wizardOpen.value = true;
+  loginAccount(accountId);
+}
 // work-scope (nguồn chân lý mới; accountFilter là facade bắc qua nó). Dùng validateAgainst
 // để lọc scope đã lưu chỉ còn nick CÓ QUYỀN — bảo mật, Anh nhấn mạnh 2026-06-15.
 const workScope = useWorkScope();
@@ -200,6 +307,13 @@ const workScope = useWorkScope();
 // của MỌI nick. Nối thẳng vào workScope.accountIds (nguồn chân lý PHẠM VI XEM): mở 1 nick →
 // chỉ tag nick đó; rỗng = tất cả nick có quyền (đúng thiết kế). Reactive → đổi nick tự refetch.
 const selectedAccountIds = computed(() => workScope.accountIds.value);
+// Popup lời mời cần gọi live API từng nick. Scope [] nghĩa là tất cả nick có quyền,
+// nên phải mở rộng từ danh sách account đã qua ACL thay vì truyền mảng rỗng.
+const friendRequestAccountIds = computed(() =>
+  selectedAccountIds.value.length
+    ? selectedAccountIds.value
+    : (zaloAccounts.value || []).map((account) => account.id),
+);
 
 // 2026-06-09 (anh chốt) — NHỚ "Phạm vi xem" qua reload/tắt-mở tab. Lưu {folderId, accountId}
 // vào localStorage. Khôi phục lúc mount SAU khi fetchZaloAccounts (để validate quyền):
@@ -280,10 +394,6 @@ function onFollowChanged(_contactId: string, _nickId: string, _following: boolea
   void fetchFollowingPairs();
 }
 
-const currentAccount = computed(() => {
-  if (!accountFilter.value) return null;
-  return zaloAccounts.value.find(a => a.id === accountFilter.value) || null;
-});
 const accountList = computed(() =>
   (zaloAccounts.value || []).map(a => ({
     id: a.id,
@@ -296,8 +406,6 @@ const accountList = computed(() =>
     zaloUid: (a as any).zaloUid ?? null,
   })),
 );
-// 2026-06-11: trạng thái LIVE từng nick (liveStatus pool → fallback DB status) cho sidebar
-// đếm online/offline + chấm màu thay vì chỉ tổng "N nick".
 const accountStatuses = computed(() =>
   (zaloAccounts.value || []).map(a => ({
     id: a.id,
@@ -307,10 +415,33 @@ const accountStatuses = computed(() =>
 
 // ════════ Phase 6+ Inbox Triage Filters ════════
 const inboxFilters = useInboxFilters();
-const workspaceName = computed(() => authStore.user?.fullName?.split(' ')[0] || 'CRM');
-const currentUserName = computed(() => authStore.user?.fullName || 'Tôi');
-const currentUserId = computed(() => authStore.user?.id || '');
+const inboundDateFrom = ref('');
+const inboundDateTo = ref('');
+function buildChatQueryParams() {
+  const params = inboxFilters.buildQueryParams();
+  if (inboundDateFrom.value) params.lastInboundFrom = inboundDateFrom.value;
+  if (inboundDateTo.value) params.lastInboundTo = inboundDateTo.value;
+  return params;
+}
+function onRailSelectTab(tab: ActiveTab) {
+  inboxFilters.state.activeTab = tab;
+}
+function onRailApplyDate(value: { from: string; to: string }) {
+  inboundDateFrom.value = value.from;
+  inboundDateTo.value = value.to;
+  const params = buildChatQueryParams();
+  if (value.from) params.lastInboundFrom = value.from;
+  if (value.to) params.lastInboundTo = value.to;
+  extraFilters.value = params;
+  fetchConversations({ bypassCache: true });
+}
+const advancedFiltersActive = computed(() =>
+  inboxFilters.state.quickPills.size > 0
+  || inboxFilters.state.silenceLabels.size > 0
+  || inboxFilters.state.activeTab !== 'all',
+);
 const showFolderManagePopup = ref(false);
+const currentUserId = computed(() => authStore.user?.id || '');
 
 const totalUnreadCount = computed(() =>
   conversations.value.reduce((sum, c) => sum + ((c as any).unreadCount || 0), 0)
@@ -364,7 +495,7 @@ const conversationCounts = computed(() => {
 // Apply inbox filter state → extraFilters → refetch.
 // Sync ngay extraFilters trên mount để first fetch dùng đúng default tab
 // (Cá nhân → threadType=user) thay vì load tất cả conv.
-extraFilters.value = inboxFilters.buildQueryParams();
+extraFilters.value = buildChatQueryParams();
 
 let filterApplyTimer: ReturnType<typeof setTimeout> | null = null;
 // M-tier follow-up (2026-05-21) — tách activeTab khỏi debounce.
@@ -379,7 +510,7 @@ watch(
     // search dính mãi). Clear trước khi fetch để list tab mới không còn lọc theo từ
     // khóa cũ. Chỉ clear khi đang có search → tránh đổi tab thường bị double-fetch.
     if (searchQuery.value) searchQuery.value = '';
-    const params = inboxFilters.buildQueryParams();
+    const params = buildChatQueryParams();
     extraFilters.value = params;
     fetchConversations();
     // Bộ lọc link với nhau: số đếm folder cột 1 lọc theo cùng tab (anh chốt).
@@ -397,6 +528,7 @@ watch(
     inboxFilters.state.folderId,
     inboxFilters.state.saleAssigneeId,
     Array.from(inboxFilters.state.quickPills).join(','),
+    Array.from(inboxFilters.state.silenceLabels).join(','),
     inboxFilters.state.tagsZalo.join(','),
     inboxFilters.state.tagsCrm.join(','),
     inboxFilters.state.sortMode,
@@ -416,16 +548,23 @@ watch(
     inboxFilters.state.birthdayWithin7d,
     inboxFilters.state.appointmentWithin24h,
     inboxFilters.state.appointmentOverdue,
-    inboxFilters.state.engagementPatterns.join(','),
     inboxFilters.state.messageReplyState,
   ],
   () => {
     if (filterApplyTimer) clearTimeout(filterApplyTimer);
     filterApplyTimer = setTimeout(() => {
-      const params = inboxFilters.buildQueryParams();
+      const params = buildChatQueryParams();
       extraFilters.value = params;
       fetchConversations();
     }, 150);
+  },
+  { deep: true }
+);
+
+watch(
+  () => workScope.accountIds.value,
+  () => {
+    fetchConversations();
   },
   { deep: true }
 );
@@ -442,6 +581,11 @@ watch(
     if (selectedConvId.value) fetchMessages(selectedConvId.value);
   },
 );
+
+// Ghim tin nhắn (2026-07-14) — nạp danh sách tin đã ghim mỗi khi đổi hội thoại.
+watch(selectedConvId, (id) => {
+  if (id) void fetchPinnedMessages(id);
+}, { immediate: true });
 
 // ════════ Existing handlers ════════
 // currentTypers: sale collab typing (typingUsers từ presence) + KH typing
@@ -507,6 +651,27 @@ async function onForwardMessage(msgId: string, targetIds: string[]) {
     toast.error(err?.response?.data?.error || 'Không chuyển tiếp được');
   }
 }
+const currentPinnedMessages = computed(() =>
+  (selectedConvId.value ? pinnedMessages.value.get(selectedConvId.value) : null) || [],
+);
+async function onPinMessage(msgId: string) {
+  if (!selectedConvId.value) return;
+  try {
+    await pinMessage(selectedConvId.value, msgId);
+    toast.success('Đã ghim tin nhắn');
+  } catch (err: any) {
+    toast.error(err?.response?.data?.error || 'Không ghim được tin nhắn');
+  }
+}
+async function onUnpinMessage(msgId: string) {
+  if (!selectedConvId.value) return;
+  try {
+    await unpinMessage(selectedConvId.value, msgId);
+    toast.success('Đã bỏ ghim tin nhắn');
+  } catch (err: any) {
+    toast.error(err?.response?.data?.error || 'Không bỏ ghim được');
+  }
+}
 function onCancelReplyEdit() {
   clearReplyTo();
   clearEditing();
@@ -554,6 +719,22 @@ async function onComposeOpened(conversationId: string) {
   router.push({ name: 'Chat', params: { convId: conversationId } });
 }
 
+// Nhóm vừa tạo phải xuất hiện ngay ở đầu cột hội thoại. Chuyển sang tab Nhóm,
+// lấy dữ liệu mới không qua cache, rồi ưu tiên row vừa tạo trước khi mở hội thoại.
+async function onGroupCreated(conversationId: string) {
+  showContactPanel.value = true;
+  inboxFilters.setActiveTab('group');
+  searchQuery.value = '';
+  extraFilters.value = buildChatQueryParams();
+  await fetchConversations({ bypassCache: true });
+  const index = conversations.value.findIndex(c => c.id === conversationId);
+  if (index > 0) {
+    const [created] = conversations.value.splice(index, 1);
+    conversations.value.unshift(created);
+  }
+  await router.push({ name: 'Chat', params: { convId: conversationId } });
+}
+
 // Sprint v3 Tuần 3 Row 6.9 (2026-06-03): sale switch nick trong header chat.
 // Conv mới có thể chưa nằm trong list 100 → refresh trước khi push.
 async function onSwitchToNickConv(convId: string) {
@@ -561,15 +742,22 @@ async function onSwitchToNickConv(convId: string) {
   if (!conversations.value.find(c => c.id === convId)) {
     await fetchConversations();
   }
-  router.push({ name: 'Chat', params: { convId } });
+  router.push({ name: 'Chat', params: { convId }, query: route.query });
 }
 
-// Auto-show panel khi chọn conv có contact
+// Cột phải mặc định luôn hiện cho từng hội thoại. Đóng chỉ áp dụng hội thoại đang mở;
+// khi chuyển hội thoại phải hiện lại, tránh trạng thái ẩn vô tình kéo dài và trông như mất cột.
 const showContactPanel = ref(true);
+function toggleContactPanel() {
+  showContactPanel.value = !showContactPanel.value;
+}
+watch(selectedConvId, (id, previousId) => {
+  if (id && id !== previousId) showContactPanel.value = true;
+});
 
 // 2026-06-12 (anh chốt): nút "Chèn từ kho" ở composer cột 3 → mở cột 4 sang tab Media.
 // Panel render bằng v-if nên nếu đang ẩn phải bật + chờ nextTick rồi mới gọi setMainTab.
-const contactPanelRef = ref<{ setMainTab: (t: 'profile' | 'media' | 'ai' | 'followup') => void } | null>(null);
+const contactPanelRef = ref<{ setMainTab: (t: 'profile' | 'media' | 'ai' | 'followup' | 'orders') => void } | null>(null);
 async function onOpenMediaTab() {
   if (!showContactPanel.value) {
     showContactPanel.value = true;
@@ -588,7 +776,7 @@ function onSelectConv(convId: string) {
     void selectConversation(convId).then(() => refreshPriorityUnread());
     return;
   }
-  router.push({ name: 'Chat', params: { convId } });
+  router.push({ name: 'Chat', params: { convId }, query: route.query });
 }
 
 // Watch route → select conv khi convId thay đổi (deep-link, back/forward, mới click)
@@ -604,7 +792,10 @@ watch(
       void selectConversation(id).then(() => {
         // Sau resolve: selectedConv đã có (từ list HOẶC selectedConvDetail). Đọc nick của nó.
         const convNick = (selectedConv.value as any)?.zaloAccount?.id as string | undefined;
-        if (shouldAdoptNickScope(workScope.accountIds.value, convNick) && convNick) {
+        if (route.query.source !== 'pancake'
+          && !relatedMode.value
+          && shouldAdoptNickScope(workScope.accountIds.value, convNick)
+          && convNick) {
           // setScope idempotent (đã check shouldAdopt → chắc chắn đổi). Persist localStorage
           // rồi reload → restoreScope nạp scope mới → cột 2 + cột 3 đều đúng nick B (hết split-brain).
           workScope.setScope([convNick]);
@@ -650,20 +841,30 @@ function onLabelsSynced() {
 
 onMounted(async () => {
   if (!isMobile.value) {
-    await fetchZaloAccounts();
-    // 2026-06-09 — khôi phục Phạm vi xem đã lưu (validate quyền nick) TRƯỚC khi fetch
-    // conversations, để lần đầu load đúng scope đã chọn thay vì ALL rồi mới đổi.
-    restoreScope();
-    extraFilters.value = inboxFilters.buildQueryParams();
+    // 1. Restore folder scope from localStorage synchronously first
+    const saved = loadScopeRaw();
+    inboxFilters.setFolder(saved.folderId);
+    extraFilters.value = buildChatQueryParams();
+
+    // 2. Fetch conversations immediately using restored scope
     fetchConversations();
-    void fetchPriorityUnread(); // badge đậm tab Ưu tiên — load NGAY lúc mount (không debounce)
-    void fetchFollowingPairs(); // theo dõi — Set để cột 2 hiện chuông (anh chốt 2026-06-15)
+
+    // 3. Trigger all other initial API calls in parallel (Parallel Loading)
+    const accountsPromise = fetchZaloAccounts().then(() => {
+      // Validate active scope permissions after accounts are fetched
+      restoreScope();
+    });
+
+    void fetchPriorityUnread(); // badge Ưu tiên - load song song
+    void fetchFollowingPairs(); // theo dõi - load song song
     fetchAiConfig();
     initSocket();
     registerSocketListeners(getSocket());
-    // 2026-06-06 (Anh chốt): listen 'friend:updated' để sync realtime giai đoạn KH
-    // cross-device. BE emit patch.statusId cho mọi friend của contact khi đổi trạng thái.
-    // Cập nhật conversations[].contact.statusId → cột 3 (DealStageSelector watch) + cột 4 đổi ngay.
+    setupZaloQrSocket();
+
+    // Wait for Zalo accounts to finish loading
+    await accountsPromise;
+
     const _socket = getSocket();
     if (_socket) {
       _socket.emit('org:join', { orgId: authStore.user?.orgId });
@@ -696,6 +897,14 @@ onMounted(async () => {
           }
         }
       });
+
+      // Chế độ an toàn (2026-07-23): nick đang xem mất/lấy lại kết nối Zalo → patch trạng
+      // thái tại chỗ để banner "mất kết nối" trong MessageThread cập nhật NGAY, không cần F5.
+      // Room org đã join ở dòng emit('org:join') trên — zalo-pool.ts emit các event này vào
+      // đúng room org (fix #A 2026-06-16), không cần subscribe gì thêm.
+      _socket.on('zalo:connected', (d: { accountId: string }) => patchZaloAccountStatus(d.accountId, 'connected'));
+      _socket.on('zalo:disconnected', (d: { accountId: string }) => patchZaloAccountStatus(d.accountId, 'disconnected'));
+      _socket.on('zalo:reconnect-failed', (d: { accountId: string }) => patchZaloAccountStatus(d.accountId, 'disconnected'));
     }
     // Nếu URL đã có /chat/:convId → select luôn (deep-link)
     const initId = route.params.convId;
@@ -738,27 +947,19 @@ watch(searchQuery, () => {
    toggle localStorage. Grid template column 1 thay đổi theo. */
 .smax-chat-grid {
   display: grid;
-  grid-template-columns: 290px 380px 1fr 350px;
+  grid-template-columns: 56px 2.55fr 4.45fr 3fr; /* Giảm cột 1 đi 15% (3fr * 0.85 = 2.55fr) và dồn sang cột 2 khung chat */
   height: calc(100vh - var(--smax-topnav-h, 52px));
   overflow: hidden;
   background: var(--smax-grey-100);
 }
 
-/* Khi info-panel đóng, col 4 collapse → grid auto-adjust */
+/* Khi info-panel đóng, khung chat giữa chiếm toàn bộ phần còn lại */
 .smax-chat-grid:has(.smax-info-col:not(:empty)) { /* presence query placeholder */ }
 .smax-chat-grid:not(:has(.smax-info-col)) {
-  grid-template-columns: 290px 380px 1fr;
+  grid-template-columns: 56px 2.55fr 7.45fr;
 }
-/* Khi filter rail collapsed → col 1 = 56px (cả new sidebar lẫn legacy) */
-.smax-chat-grid:has(.filter-rail.collapsed),
-.smax-chat-grid:has(.filter-sidebar.collapsed) {
-  grid-template-columns: 56px 380px 1fr 350px;
-}
-.smax-chat-grid:has(.filter-rail.collapsed):not(:has(.smax-info-col)),
-  .smax-chat-grid:has(.filter-sidebar.collapsed):not(:has(.smax-info-col)),
-.smax-chat-grid:has(.filter-sidebar.collapsed):not(:has(.smax-info-col)) {
-  grid-template-columns: 56px 380px 1fr;
-}
+
+/* Kế thừa responsive 3 cột tối giản */
 
 .smax-conv-col,
 .smax-msg-col,
@@ -821,79 +1022,17 @@ watch(searchQuery, () => {
   background: var(--smax-grey-100);
 }
 
-/* HD+ compact: thu nhỏ chút để thread có thêm space */
-@media (max-width: 1700px) {
-  .smax-chat-grid { grid-template-columns: 260px 340px 1fr 310px; }
-  .smax-chat-grid:not(:has(.smax-info-col)) {
-    grid-template-columns: 260px 340px 1fr;
-  }
-  .smax-chat-grid:has(.filter-rail.collapsed),
-  .smax-chat-grid:has(.filter-sidebar.collapsed) {
-    grid-template-columns: 56px 340px 1fr 310px;
-  }
-  .smax-chat-grid:has(.filter-rail.collapsed):not(:has(.smax-info-col)),
-  .smax-chat-grid:has(.filter-sidebar.collapsed):not(:has(.smax-info-col)) {
-    grid-template-columns: 56px 340px 1fr;
-  }
-}
-/* Tight: filter rail vẫn show nhưng compact */
+/* Responsive 3 cột + side rail Pancake */
 @media (max-width: 1440px) {
-  .smax-chat-grid { grid-template-columns: 240px 320px 1fr 280px; }
-  .smax-chat-grid:not(:has(.smax-info-col)) {
-    grid-template-columns: 240px 320px 1fr;
-  }
-  .smax-chat-grid:has(.filter-rail.collapsed),
-  .smax-chat-grid:has(.filter-sidebar.collapsed) {
-    grid-template-columns: 56px 320px 1fr 280px;
-  }
-  .smax-chat-grid:has(.filter-rail.collapsed):not(:has(.smax-info-col)),
-  .smax-chat-grid:has(.filter-sidebar.collapsed):not(:has(.smax-info-col)) {
-    grid-template-columns: 56px 320px 1fr;
-  }
+  .smax-chat-grid { grid-template-columns: 56px 300px 1fr 300px; }
+  .smax-chat-grid:not(:has(.smax-info-col)) { grid-template-columns: 56px 300px 1fr; }
 }
-/* HD 1366 — target chính sale VN. Chèn 2026-06-06 (/plan-design-review), giữ :has() động đủ 4 trạng thái. */
-@media (max-width: 1366px) {
-  .smax-chat-grid { grid-template-columns: 220px 296px 1fr 288px; }
-  .smax-chat-grid:not(:has(.smax-info-col)) {
-    grid-template-columns: 220px 296px 1fr;
-  }
-  .smax-chat-grid:has(.filter-rail.collapsed),
-  .smax-chat-grid:has(.filter-sidebar.collapsed) {
-    grid-template-columns: 56px 296px 1fr 288px;
-  }
-  .smax-chat-grid:has(.filter-rail.collapsed):not(:has(.smax-info-col)),
-  .smax-chat-grid:has(.filter-sidebar.collapsed):not(:has(.smax-info-col)) {
-    grid-template-columns: 56px 296px 1fr;
-  }
-}
-/* 1280 — XGA, vẫn giữ 4 cột, thread giữa ~450px đủ rộng. */
-@media (max-width: 1280px) {
-  .smax-chat-grid { grid-template-columns: 208px 280px 1fr 280px; }
-  .smax-chat-grid:not(:has(.smax-info-col)) {
-    grid-template-columns: 208px 280px 1fr;
-  }
-  .smax-chat-grid:has(.filter-rail.collapsed),
-  .smax-chat-grid:has(.filter-sidebar.collapsed) {
-    grid-template-columns: 56px 280px 1fr 280px;
-  }
-  .smax-chat-grid:has(.filter-rail.collapsed):not(:has(.smax-info-col)),
-  .smax-chat-grid:has(.filter-sidebar.collapsed):not(:has(.smax-info-col)) {
-    grid-template-columns: 56px 280px 1fr;
-  }
-}
-/* < 1200: drop filter rail */
 @media (max-width: 1200px) {
-  .smax-chat-grid { grid-template-columns: 0 320px 1fr 280px; }
-  .smax-chat-grid:not(:has(.smax-info-col)) {
-    grid-template-columns: 0 320px 1fr;
-  }
-  .smax-chat-grid > :first-child { display: none; }
+  .smax-chat-grid { grid-template-columns: 56px 280px 1fr 280px; }
+  .smax-chat-grid:not(:has(.smax-info-col)) { grid-template-columns: 56px 280px 1fr; }
 }
-/* < 1024: drop info panel too — chỉ còn conv list + thread */
-@media (max-width: 1024px) {
-  .smax-chat-grid { grid-template-columns: 320px 1fr; }
-  .smax-chat-grid > :first-child,
+@media (max-width: 900px) {
+  .smax-chat-grid { grid-template-columns: 56px 260px 1fr; }
   .smax-chat-grid > :nth-child(4) { display: none; }
 }
-
 </style>

@@ -266,7 +266,7 @@ export function useFriends() {
   // DB-backed friend list — paginated read from our Friend table
   async function fetchFriendsDb(
     accountId: string,
-    opts: { kind?: string; page?: number; limit?: number; search?: string; sortBy?: string; statusId?: string } = {},
+    opts: { kind?: string; page?: number; limit?: number; search?: string; sortBy?: string; statusId?: string; tag?: string } = {},
   ) {
     loadingDb.value = true;
     try {
@@ -278,6 +278,7 @@ export function useFriends() {
           search: opts.search ?? '',
           sortBy: opts.sortBy ?? 'recent',
           statusId: opts.statusId ?? '',
+          tag: opts.tag ?? '',
         },
       });
       friendsDb.value = res.data?.friends ?? [];

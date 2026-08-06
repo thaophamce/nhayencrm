@@ -10,7 +10,6 @@
         <img :src="logo" :alt="name" @error="onLogoError" />
       </div>
       <h1 class="brand-name">{{ name }}</h1>
-      <div class="brand-product">CRM</div>
       <div class="brand-divider"></div>
       <p v-if="slogan" class="brand-slogan">{{ slogan }}</p>
     </div>
@@ -28,7 +27,7 @@ const props = defineProps<{
   copyright?: string | null;
 }>();
 
-const DEFAULT_LOGO = '/brand/hs-monogram.png';
+const DEFAULT_LOGO = '/brand/brand-mark.png';
 const logo = ref(props.logoUrl || DEFAULT_LOGO);
 
 // Logo cấu hình hỏng (404/URL sai) → fallback ảnh mặc định.
@@ -52,7 +51,7 @@ watch(
   justify-content: center;
   align-items: center;
   padding: 40px 32px;
-  background: linear-gradient(160deg, #0e445a 0%, #06222f 100%);
+  background: linear-gradient(160deg, #2F80ED 0%, #1a6fd4 100%);
   color: #fff;
   overflow: hidden;
   text-align: center;
@@ -61,7 +60,7 @@ watch(
   position: absolute;
   top: -80px; right: -80px;
   width: 280px; height: 280px;
-  background: radial-gradient(circle, rgba(23, 134, 190, 0.45) 0%, transparent 70%);
+  background: radial-gradient(circle, rgba(255, 184, 77, 0.45) 0%, transparent 70%);
   pointer-events: none;
 }
 .brand-inner { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; }
@@ -78,21 +77,24 @@ watch(
 .brand-name {
   font-size: 26px; font-weight: 800; letter-spacing: 0.5px;
   margin: 0; line-height: 1.1;
+  font-family: 'Quicksand', sans-serif !important;
 }
 .brand-product {
   margin-top: 6px;
   font-size: 13px; font-weight: 600; letter-spacing: 3px;
-  color: #6fc5ea; text-transform: uppercase;
+  color: #FFB84D; text-transform: uppercase;
+  font-family: 'Quicksand', sans-serif !important;
 }
 .brand-divider {
   width: 44px; height: 3px; border-radius: 2px;
-  background: linear-gradient(90deg, #1786be, #6fc5ea);
+  background: linear-gradient(90deg, #2F80ED, #FFB84D);
   margin: 22px 0 16px;
 }
 .brand-slogan {
   font-size: 17px; font-weight: 600; letter-spacing: 1px;
   color: rgba(255, 255, 255, 0.92);
   margin: 0;
+  font-family: 'Quicksand', sans-serif !important;
 }
 .brand-foot {
   position: relative; z-index: 1;

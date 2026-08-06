@@ -39,10 +39,29 @@
         />
       </div>
 
+      <!-- Bộ lọc nhãn Zalo (giống popup thêm thành viên) -->
+      <div v-if="availableTags.length" class="fw-tags-wrap">
+        <button v-show="canScrollTagsLeft" type="button" class="fw-tag-arrow left" aria-label="Xem nhãn bên trái" @click="scrollTags(-1)">&#8249;</button>
+        <div ref="tagsScroller" class="fw-tags" @scroll.passive="updateTagScrollState">
+          <button :class="{ active: !activeTag }" @click="selectNativeTag('')">Tất cả</button>
+          <button
+            v-for="tag in availableTags"
+            :key="tag.key"
+            class="fw-native-tag"
+            :class="{ active: activeTag === tag.key }"
+            :style="{ '--tag-color': tag.color }"
+            :title="`${tag.assignedCount} bạn đang có nhãn này`"
+            @click="selectNativeTag(tag.key)"
+          ><span class="fw-tag-dot" />{{ tag.name }}<small>{{ tag.assignedCount }}</small></button>
+        </div>
+        <button v-show="canScrollTagsRight" type="button" class="fw-tag-arrow right" aria-label="Xem nhãn bên phải" @click="scrollTags(1)">&#8250;</button>
+      </div>
+
       <!-- List -->
       <div class="fw-list">
+        <div v-if="loadingConversations" class="fw-empty">&#272;ang t&#7843;i h&#7897;i tho&#7841;i...</div>
         <button
-          v-for="conv in filtered"
+          v-for="conv in loadingConversations ? [] : filtered"
           :key="conv.id"
           type="button"
           class="fw-item"
@@ -74,7 +93,7 @@
           </span>
         </button>
 
-        <div v-if="filtered.length === 0" class="fw-empty">
+        <div v-if="!loadingConversations && filtered.length === 0" class="fw-empty">
           <div class="fw-empty__icon">
             <svg viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
               <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
@@ -105,13 +124,14 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
+import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue';
+import { api } from '@/api';
 
 interface ConvShape {
   id: string;
   threadType: string;
   contact?: { fullName?: string | null; crmName?: string | null; avatarUrl?: string | null } | null;
-  friendship?: { aliasInNick?: string | null; zaloDisplayName?: string | null; zaloAvatarUrl?: string | null } | null;
+  friendship?: { aliasInNick?: string | null; zaloDisplayName?: string | null; zaloAvatarUrl?: string | null; zaloLabels?: Array<{ id?: string | number; name?: string; color?: string }> | null } | null;
   zaloAccount?: { id: string; displayName?: string | null } | null;
   groupName?: string | null;
   groupAvatarUrl?: string | null;
@@ -137,35 +157,149 @@ const emit = defineEmits<{
 const query = ref('');
 const selectedSet = ref(new Set<string>());
 const brokenAvatars = ref(new Set<string>());
+const activeTag = ref('');
+const pickerConversations = ref<ConvShape[]>([]);
+const loadingConversations = ref(false);
+const pickerLoadFailed = ref(false);
+
+const tagsScroller = ref<HTMLElement | null>(null);
+const canScrollTagsLeft = ref(false);
+const canScrollTagsRight = ref(false);
+
+type NativeLabel = { key: string; id: number; name: string; color: string; assignedCount: number; offset: number };
+const nativeLabels = ref<NativeLabel[]>([]);
+const availableTags = computed(() => nativeLabels.value);
 
 // Reset selection mỗi lần dialog mở (tránh dirty state cross-session)
 watch(() => props.modelValue, (open) => {
   if (open) {
     selectedSet.value = new Set();
     query.value = '';
+    activeTag.value = '';
     brokenAvatars.value = new Set();
+    void Promise.all([loadNativeLabels(), loadConversations()]);
   }
+}, { immediate: true });
+
+watch(() => props.sourceZaloAccountId, () => {
+  if (props.modelValue) void Promise.all([loadNativeLabels(), loadConversations()]);
 });
+
+let searchTimer: ReturnType<typeof setTimeout> | undefined;
+watch(query, () => {
+  if (!props.modelValue) return;
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(loadConversations, 250);
+});
+
+function normalizeTagColor(value: unknown): string {
+  const raw = String(value || '').trim();
+  if (/^#[0-9a-f]{3,8}$/i.test(raw)) return raw;
+  if (/^rgb(a)?\(/i.test(raw)) return raw;
+  const numeric = Number(raw);
+  if (Number.isFinite(numeric) && numeric > 0) return `#${(numeric & 0xffffff).toString(16).padStart(6, '0')}`;
+  return '#4DA3FF';
+}
+
+async function loadNativeLabels() {
+  if (!props.sourceZaloAccountId) { nativeLabels.value = []; return; }
+  try {
+    const { data } = await api.get(`/zalo-accounts/${props.sourceZaloAccountId}/labels`);
+    nativeLabels.value = (data.labels || []).map((label: any) => ({
+      key: `zalo:${String(label.id)}`,
+      id: Number(label.id),
+      name: String(label.text || 'Nhãn Zalo'),
+      color: normalizeTagColor(label.color),
+      assignedCount: Number(label.assignedCount || 0),
+      offset: Number(label.offset || 0),
+    })).sort((a: NativeLabel, b: NativeLabel) => a.offset - b.offset);
+    await nextTick();
+    updateTagScrollState();
+  } catch { nativeLabels.value = []; }
+}
+
+function updateTagScrollState() {
+  const el = tagsScroller.value;
+  if (!el) { canScrollTagsLeft.value = false; canScrollTagsRight.value = false; return; }
+  canScrollTagsLeft.value = el.scrollLeft > 2;
+  canScrollTagsRight.value = el.scrollLeft + el.clientWidth < el.scrollWidth - 2;
+}
+
+function scrollTags(direction: -1 | 1) {
+  const el = tagsScroller.value;
+  if (!el) return;
+  el.scrollBy({ left: direction * Math.max(180, el.clientWidth * 0.7), behavior: 'smooth' });
+  window.setTimeout(updateTagScrollState, 350);
+}
+
+function selectedNativeLabelId(): number | undefined {
+  if (!activeTag.value.startsWith('zalo:')) return undefined;
+  const id = Number(activeTag.value.slice(5));
+  return Number.isInteger(id) ? id : undefined;
+}
+
+function selectNativeTag(key: string) {
+  activeTag.value = !key || activeTag.value === key ? '' : key;
+  void loadConversations();
+}
 
 // Scope: chỉ giữ conv của cùng nick + loại bỏ conv hiện tại + sort recent
-const scoped = computed(() => {
-  const list = props.conversations.filter((c) => {
-    if (props.sourceZaloAccountId && c.zaloAccount?.id !== props.sourceZaloAccountId) return false;
-    if (props.currentConversationId && c.id === props.currentConversationId) return false;
-    return true;
-  });
-  return list.sort((a, b) => {
-    const ta = a.lastMessageAt ? new Date(a.lastMessageAt).getTime() : 0;
-    const tb = b.lastMessageAt ? new Date(b.lastMessageAt).getTime() : 0;
-    return tb - ta;
-  });
-});
+function localFallbackConversations(): ConvShape[] {
+  const q = query.value.trim().toLocaleLowerCase('vi');
+  const labelId = selectedNativeLabelId();
+  return props.conversations
+    .filter((conv) => {
+      if (props.sourceZaloAccountId && conv.zaloAccount?.id !== props.sourceZaloAccountId) return false;
+      if (props.currentConversationId && conv.id === props.currentConversationId) return false;
+      if (labelId != null && !conv.friendship?.zaloLabels?.some((label) => Number(label.id) === labelId)) return false;
+      if (!q) return true;
+      return [conv.groupName, conv.contact?.crmName, conv.contact?.fullName, conv.friendship?.aliasInNick, conv.friendship?.zaloDisplayName]
+        .some((value) => value?.toLocaleLowerCase('vi').includes(q));
+    })
+    .sort((a, b) => {
+      const left = a.lastMessageAt ? new Date(a.lastMessageAt).getTime() : 0;
+      const right = b.lastMessageAt ? new Date(b.lastMessageAt).getTime() : 0;
+      return right - left;
+    });
+}
 
-const filtered = computed(() => {
-  const q = query.value.trim().toLowerCase();
-  if (!q) return scoped.value;
-  return scoped.value.filter((c) => displayName(c).toLowerCase().includes(q));
-});
+const scoped = computed(() => pickerConversations.value);
+const filtered = computed(() => scoped.value);
+
+let conversationRequestId = 0;
+async function loadConversations() {
+  const fallback = localFallbackConversations();
+  // Hi?n d? li?u sidebar ngay, kh?ng ?? popup tr?ng trong l?c ch? API.
+  pickerConversations.value = fallback;
+  pickerLoadFailed.value = false;
+  if (!props.sourceZaloAccountId) return;
+
+  const requestId = ++conversationRequestId;
+  loadingConversations.value = fallback.length === 0;
+  try {
+    const { data } = await api.get('/conversations/picker', {
+      params: {
+        accountId: props.sourceZaloAccountId,
+        search: query.value,
+        limit: 80,
+        zaloLabelId: selectedNativeLabelId(),
+        excludeId: props.currentConversationId || undefined,
+      },
+    });
+    if (requestId !== conversationRequestId) return;
+    const remote = Array.isArray(data.conversations) ? data.conversations : [];
+    // Backend r?ng nh?ng sidebar c? h?i tho?i: gi? fallback ?? user v?n ch?n ???c.
+    pickerConversations.value = remote.length > 0 ? remote : fallback;
+  } catch (error) {
+    if (requestId === conversationRequestId) {
+      pickerLoadFailed.value = true;
+      pickerConversations.value = fallback;
+      console.error('[forward-dialog] load conversations failed', error);
+    }
+  } finally {
+    if (requestId === conversationRequestId) loadingConversations.value = false;
+  }
+}
 
 function isUsable(s: string | null | undefined): s is string {
   return !!s && s.trim().length > 0 && s.trim().toLowerCase() !== 'unknown';
@@ -328,6 +462,23 @@ function formatRelativeTime(iso: string, _tick: number = now.value): string {
   background: #fff;
   box-shadow: 0 0 0 3px rgba(41, 98, 255, 0.12);
 }
+
+/* Bộ lọc nhãn Zalo */
+.fw-tags-wrap { position: relative; padding: 0 16px 8px; }
+.fw-tags { display: flex; gap: 7px; overflow-x: auto; padding-right: 28px; scroll-behavior: smooth; scrollbar-width: none; }
+.fw-tags::-webkit-scrollbar { display: none; }
+.fw-tag-arrow { position: absolute; z-index: 2; top: calc(50% - 4px); transform: translateY(-50%); width: 26px; height: 28px; padding: 0; border: 1px solid #e5e7eb; border-radius: 50%; background: #fff; color: #2962ff; box-shadow: 0 2px 8px rgba(30,32,44,.16); font: 700 20px/24px Arial, sans-serif; cursor: pointer; }
+.fw-tag-arrow:hover { background: rgba(41, 98, 255, 0.08); }
+.fw-tag-arrow.left { left: 9px; }
+.fw-tag-arrow.right { right: 9px; }
+.fw-tags button { border: 1px solid transparent; border-radius: 999px; background: #f3f4f6; color: #6b7280; padding: 5px 12px; white-space: nowrap; font: 600 11px/1.2 inherit; cursor: pointer; }
+.fw-tags button:hover { border-color: #c7d2fe; color: #2962ff; }
+.fw-tags button.active { background: #2962ff; color: #fff; }
+.fw-tags .fw-native-tag { display: inline-flex; align-items: center; gap: 6px; }
+.fw-native-tag small { min-width: 16px; height: 16px; padding: 0 4px; border-radius: 999px; display: inline-grid; place-items: center; background: rgba(95,97,115,.12); color: inherit; font: 700 9px/1 inherit; }
+.fw-native-tag.active small { background: rgba(255,255,255,.22); }
+.fw-tag-dot { width: 11px; height: 11px; border-radius: 50%; flex: 0 0 auto; background: var(--tag-color, #4DA3FF); box-shadow: inset 0 0 0 1px rgba(0,0,0,.18); }
+.fw-tags .fw-native-tag.active .fw-tag-dot { box-shadow: 0 0 0 2px rgba(255,255,255,.7), inset 0 0 0 1px rgba(0,0,0,.15); }
 
 /* List */
 .fw-list {

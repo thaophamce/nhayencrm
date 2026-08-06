@@ -61,12 +61,43 @@ export interface BackfillResult {
 
 interface PumpStats { pagesRequested: number; messagesInserted: number; messagesReceived: number; }
 
+type GroupInfo = {
+  groupId?: string;
+  id?: string;
+  name?: string;
+  groupName?: string;
+  avt?: string;
+  avatar?: string;
+  totalMember?: number;
+  memberCount?: number;
+};
+
+export function groupIdsFromCatalog(raw: unknown): string[] {
+  const catalog = (raw && typeof raw === 'object' ? raw : {}) as {
+    gridVerMap?: Record<string, unknown>;
+    gridInfoMap?: Record<string, unknown>;
+  };
+  return [...new Set([
+    ...Object.keys(catalog.gridVerMap ?? {}),
+    ...Object.keys(catalog.gridInfoMap ?? {}),
+  ])];
+}
+
+const backfillInFlight = new Map<string, Promise<BackfillResult>>();
+const recentBackfills = new Map<string, { completedAt: number; result: BackfillResult }>();
+const BACKFILL_REPEAT_GUARD_MS = 30_000;
+
 /**
  * Drives Zalo's `requestOldMessages` pagination AND directly persists each
  * incoming batch via `handleIncomingMessage`. This bypasses the main listener's
  * `old_messages` handler so insertion is deterministic and counted.
  */
-async function pumpOldMessages(api: any, threadType: number, accountId: string): Promise<PumpStats> {
+async function pumpOldMessages(
+  api: any,
+  threadType: number,
+  accountId: string,
+  emitProgress?: (step: string, message: string) => void
+): Promise<PumpStats> {
   return new Promise((resolve) => {
     const stats: PumpStats = { pagesRequested: 0, messagesInserted: 0, messagesReceived: 0 };
     const requestedCursors = new Set<string>();
@@ -106,14 +137,37 @@ async function pumpOldMessages(api: any, threadType: number, accountId: string):
       if (type !== threadType) return;
       if (!Array.isArray(messages) || messages.length === 0) { finish(); return; }
 
+      const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
+      const allOlderThan30Days = messages.every(m => {
+        const ts = parseInt(m?.data?.ts || '0');
+        return ts > 0 && ts < thirtyDaysAgo;
+      });
+
+      if (allOlderThan30Days) {
+        logger.info(`[backfill:${accountId}] All messages in page are older than 30 days. Stopping DM pump.`);
+        if (emitProgress) {
+          emitProgress('dm_progress', `Đã đạt giới hạn 30 ngày. Dừng tải tin nhắn cá nhân.`);
+        }
+        finish();
+        return;
+      }
+
       const threadTypeLabel = threadType === THREAD_TYPE_USER ? 'user' : 'group';
       stats.messagesReceived += messages.length;
       logger.info(`[backfill:${accountId}] DM page received: ${messages.length} message(s) (received total=${stats.messagesReceived})`);
+      if (emitProgress) {
+        emitProgress('dm_progress', `Đã tải ${stats.messagesReceived} tin nhắn cá nhân (trang ${stats.pagesRequested})...`);
+      }
 
       // Persist each message directly. Use senderUid as fallback threadId for
       // self messages, since Zalo's payload puts the peer in idTo.
       for (const m of messages) {
         try {
+          const timestamp = parseInt(m?.data?.ts || String(Date.now()));
+          if (timestamp < thirtyDaysAgo) {
+            continue; // Skip messages older than 30 days
+          }
+
           const isSelf = Boolean(m?.isSelf);
           const senderUid = String(m?.data?.uidFrom || '');
           const threadId = String(m?.threadId || (isSelf ? m?.data?.idTo : senderUid) || '');
@@ -166,7 +220,30 @@ async function pumpOldMessages(api: any, threadType: number, accountId: string):
   });
 }
 
-export async function backfillAccountHistory(api: any, accountId: string): Promise<BackfillResult> {
+export function backfillAccountHistory(api: any, accountId: string): Promise<BackfillResult> {
+  const existing = backfillInFlight.get(accountId);
+  if (existing) {
+    logger.info(`[backfill:${accountId}] Reusing in-flight backfill`);
+    return existing;
+  }
+  const recent = recentBackfills.get(accountId);
+  if (recent && Date.now() - recent.completedAt < BACKFILL_REPEAT_GUARD_MS) {
+    logger.info(`[backfill:${accountId}] Reusing recently completed backfill`);
+    return Promise.resolve(recent.result);
+  }
+  const task = backfillAccountHistoryImpl(api, accountId)
+    .then((result) => {
+      recentBackfills.set(accountId, { completedAt: Date.now(), result });
+      return result;
+    })
+    .finally(() => {
+      if (backfillInFlight.get(accountId) === task) backfillInFlight.delete(accountId);
+    });
+  backfillInFlight.set(accountId, task);
+  return task;
+}
+
+async function backfillAccountHistoryImpl(api: any, accountId: string): Promise<BackfillResult> {
   const result: BackfillResult = {
     friendsSynced: 0,
     groupsSynced: 0,
@@ -184,73 +261,99 @@ export async function backfillAccountHistory(api: any, accountId: string): Promi
     return result;
   }
 
-  // ── 1. Sync friends → contacts ─────────────────────────────────────────
+  const { zaloPool } = await import('./zalo-pool.js');
+  const io = zaloPool.getIO();
+  const emitProgress = (step: string, message: string) => {
+    io?.to(`org:${account.orgId}`).emit('zalo:sync-progress', { accountId, step, message });
+  };
+
+  // ── 1. Sync friends → contacts (Bỏ qua quét toàn bộ để tăng tốc) ──────────────────
   try {
-    const friendsRaw = await api.getAllFriends();
-    const friends = Array.isArray(friendsRaw) ? friendsRaw : Object.values(friendsRaw || {});
-    for (const friend of friends as any[]) {
-      const uid = String(friend?.userId || friend?.uid || '');
-      if (!uid) continue;
-
-      const zaloName = friend?.zaloName || friend?.zalo_name || friend?.displayName || friend?.display_name || '';
-      const avatar = friend?.avatar || '';
-      const phone = friend?.phoneNumber || '';
-      const globalId = friend?.globalId || '';
-      const username = friend?.username || '';
-
-      try {
-        // Wave 1.5-B (B7 fix): dùng central resolver thay vì Contact.zaloUid only dedup
-        const { resolveOrCreateContact } = await import('../contacts/resolve-contact.js');
-        await resolveOrCreateContact({
-          orgId: account.orgId,
-          zaloAccountId: accountId,
-          zaloUidInNick: uid,
-          zaloGlobalId: globalId || null,
-          zaloUsername: username || null,
-          phone: phone || null,
-          fallbackFullName: zaloName || null,
-          fallbackAvatarUrl: avatar || null,
-          enrichViaGetUserInfo: false,
-        });
-        result.friendsSynced++;
-      } catch (err) {
-        result.errors++;
-        logger.warn(`[backfill:${accountId}] Friend ${uid} upsert failed:`, err);
-      }
-    }
+    emitProgress('friends_start', 'Bỏ qua tải toàn bộ danh bạ để tối ưu tốc độ...');
+    await new Promise(resolve => setTimeout(resolve, 300));
+    emitProgress('friends_done', 'Liên hệ sẽ được tạo tự động khi tải tin nhắn.');
   } catch (err) {
     result.errors++;
-    logger.warn(`[backfill:${accountId}] getAllFriends failed:`, err);
   }
+
+  const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
 
   // ── 2. Sync groups → conversations + history ───────────────────────────
   let groups: any[] = [];
   try {
+    emitProgress('groups_start', 'Đang tải danh sách nhóm chat từ Zalo...');
     const groupsRaw = await api.getAllGroups();
-    // getAllGroups returns { gridVerMap: {...}, gridInfoMap: { groupId: { groupInfo... } } }
-    const gridInfoMap = groupsRaw?.gridInfoMap || groupsRaw || {};
-    groups = Object.values(gridInfoMap) as any[];
+    const groupIds = groupIdsFromCatalog(groupsRaw);
+    const infoMap: Record<string, GroupInfo> = { ...(groupsRaw?.gridInfoMap ?? {}) };
+    const missingInfoIds = groupIds.filter((id) => !(infoMap[id]?.name || infoMap[id]?.groupName));
+    for (let i = 0; i < missingInfoIds.length; i += 50) {
+      const ids = missingInfoIds.slice(i, i + 50);
+      try {
+        const more = await api.getGroupInfo(ids);
+        Object.assign(infoMap, more?.gridInfoMap ?? {});
+      } catch (err) {
+        logger.warn(`[backfill:${accountId}] getGroupInfo batch failed (${ids.length} groups):`, err);
+      }
+    }
+    groups = groupIds.map((groupId) => ({ ...(infoMap[groupId] ?? {}), groupId }));
   } catch (err) {
     result.errors++;
     logger.warn(`[backfill:${accountId}] getAllGroups failed:`, err);
+    emitProgress('groups_error', 'Không thể tải danh sách nhóm chat.');
     return result;
   }
 
   const groupSubset = groups.slice(0, MAX_GROUPS);
-  for (const group of groupSubset) {
+  const totalGroups = groupSubset.length;
+  let groupHistoryUnavailable = false;
+  emitProgress('groups_progress', `Đang tải lịch sử nhóm (0/${totalGroups})...`);
+
+  for (let i = 0; i < totalGroups; i++) {
+    const group = groupSubset[i];
     const groupId = String(group?.groupId || group?.id || '');
     if (!groupId) continue;
 
     try {
       const groupName = group?.name || group?.groupName || 'Nhóm';
+      emitProgress('groups_progress', `Đang tải lịch sử nhóm [${groupName}] (${i + 1}/${totalGroups})...`);
+
       const groupAvatar = group?.avt || group?.avatar || null;
       const membersCount = group?.totalMember ?? group?.memberCount ?? null;
+
+      await prisma.conversation.upsert({
+        where: { zaloAccountId_externalThreadId: { zaloAccountId: accountId, externalThreadId: groupId } },
+        create: {
+          orgId: account.orgId,
+          zaloAccountId: accountId,
+          contactId: null,
+          threadType: 'group',
+          externalThreadId: groupId,
+          groupName,
+          groupAvatarUrl: groupAvatar,
+          groupMembersCount: typeof membersCount === 'number' ? membersCount : null,
+        },
+        update: {
+          deletedAt: null,
+          threadType: 'group',
+          groupName,
+          groupAvatarUrl: groupAvatar,
+          groupMembersCount: typeof membersCount === 'number' ? membersCount : null,
+        },
+      });
+      result.groupsSynced++;
+
+      if (groupHistoryUnavailable) continue;
 
       const history = await api.getGroupChatHistory(groupId, MESSAGES_PER_GROUP);
       const messages = history?.groupMsgs || history?.data?.groupMsgs || [];
 
       for (const msg of messages as any[]) {
         try {
+          const timestamp = parseInt(msg?.data?.ts || String(Date.now()));
+          if (timestamp < thirtyDaysAgo) {
+            continue; // Bỏ qua tin nhắn nhóm cũ hơn 30 ngày
+          }
+
           const zaloMsgId = String(msg?.data?.msgId || msg?.data?.cliMsgId || '');
           if (!zaloMsgId) continue;
 
@@ -287,20 +390,20 @@ export async function backfillAccountHistory(api: any, accountId: string): Promi
           logger.warn(`[backfill:${accountId}] Group ${groupId} message insert failed:`, err);
         }
       }
-      result.groupsSynced++;
     } catch (err) {
       result.errors++;
       logger.warn(`[backfill:${accountId}] Group ${groupId} history fetch failed:`, err);
+      if (/status code 404|\b404\b/i.test(String(err))) groupHistoryUnavailable = true;
     }
   }
+  emitProgress('groups_done', `Đồng bộ nhóm thành công: ${result.groupsSynced} nhóm.`);
 
   // ── 3. DM history via requestOldMessages pagination ────────────────────
-  // Zalo pushes batches via `old_messages` event; the listener handler in
-  // zalo-listener-factory persists them. We only drive cursor pagination.
   let dmReceived = 0;
   try {
+    emitProgress('dm_start', 'Đang kết nối tải tin nhắn cá nhân...');
     if (api?.listener?.requestOldMessages) {
-      const stats = await pumpOldMessages(api, THREAD_TYPE_USER, accountId);
+      const stats = await pumpOldMessages(api, THREAD_TYPE_USER, accountId, emitProgress);
       result.dmPagesRequested = stats.pagesRequested;
       dmReceived = stats.messagesReceived;
       // Count by raw received — main listener may win the insert race, but

@@ -8,8 +8,10 @@ import type { FastifyInstance } from 'fastify';
 import { Prisma } from '@prisma/client';
 import { authMiddleware } from '../auth/auth-middleware.js';
 import { zaloPool } from './zalo-pool.js';
+import { resolveZaloStatus } from './zalo-status.js';
 import { prisma, tenantTransaction } from '../../shared/database/prisma-client.js';
 import { getZaloScope, canManageAccount, requireAccountManagement, requireAccountVisible } from './zalo-scope.js';
+import { requireGrant } from '../rbac/rbac-middleware.js';
 
 export async function zaloRoutes(app: FastifyInstance): Promise<void> {
   // All routes in this plugin require auth
@@ -49,19 +51,28 @@ export async function zaloRoutes(app: FastifyInstance): Promise<void> {
     });
 
     // Merge live status from pool; mask proxy credentials; thêm canManage flag
-    return accounts.map((a) => ({
-      ...a,
-      proxyUrl: a.proxyUrl ? maskProxyUrl(a.proxyUrl) : null,
-      hasProxy: !!a.proxyUrl,
-      liveStatus: zaloPool.getStatus(a.id),
-      canManage: canManageAccount(a.ownerUserId, userId, user.role),
-      isOwnedByMe: a.ownerUserId === userId,
-    }));
+    return accounts.map((a) => {
+      const liveStatus = resolveZaloStatus(a.status, zaloPool.getInstance(a.id)?.status);
+      return {
+        ...a,
+        // `status` là trạng thái hiệu lực để mọi consumer cũ cũng đọc đúng.
+        // `liveStatus` giữ tương thích cho các màn hình đã ưu tiên trạng thái realtime.
+        status: liveStatus,
+        proxyUrl: a.proxyUrl ? maskProxyUrl(a.proxyUrl) : null,
+        hasProxy: !!a.proxyUrl,
+        liveStatus,
+        canManage: canManageAccount(a.ownerUserId, userId, user.role),
+        isOwnedByMe: a.ownerUserId === userId,
+      };
+    });
   });
 
   // POST /api/v1/zalo-accounts — create a new account record
+  // RBAC 2026-07-14: chặn sale tự tạo nick mới (chỉ Admin có zalo_account.create).
+  // Reconnect/login dùng requireAccountManagement (ownership), KHÔNG bị ảnh hưởng bởi gate này.
   app.post<{ Body: { displayName?: string; proxyUrl?: string; phone?: string } }>(
     '/api/v1/zalo-accounts',
+    { preHandler: requireGrant('zalo_account', 'create') },
     async (request, reply) => {
       const user = request.user!;
       const { displayName, proxyUrl } = request.body ?? {};

@@ -12,7 +12,19 @@
  * Fire-and-forget reactions that need rich logic (e.g. the customer-reply care
  * session) are NOT modelled here — core emits a domain event on the shared
  * event bus instead (see ./event-bus.ts) and the engine reacts.
+ *
+ * 2026-07-08: Block content-resolution/visibility/template-render now have real
+ * Community implementations (modules/block/*) — wired directly below instead of
+ * routed through registerAutomationHooks(), since there is no _ee bundle here.
  */
+
+import { resolveBlockContent as realResolveBlockContent } from '../../modules/block/resolve-block-content.js';
+import { blockVisibilityWhere as realBlockVisibilityWhere } from '../../modules/block/block-visibility.js';
+import {
+  renderTemplate as realRenderTemplate,
+  renderTemplateDetailed as realRenderTemplateDetailed,
+  shiftStylesForRender as realShiftStylesForRender,
+} from '../../modules/block/render-template.js';
 
 // ── Types (copied minimal/structural; identical to the real automation types) ──
 
@@ -86,9 +98,7 @@ export interface TemplateVarValues {
   first_active: string; last_active: string; last_message: string;
   last_inbound: string; last_outbound: string; last_interaction: string; msg_count: string;
   uid: string; nick_name: string; kb_status: string; became_friend: string;
-  zalo_name: string;
   sale: string; sale_full: string;
-  date: string;
 }
 
 export type Style = { st: string; start: number; len: number };
@@ -180,11 +190,11 @@ const hooks: AutomationHooks = {
   logEvent: async () => {},
   isListeningState: () => false,
   onTagAdded: async () => {},
-  resolveBlockContent: () => ({ ok: false, error: 'AUTOMATION_DISABLED', resolved: [] }),
-  renderTemplate: async (raw) => raw,
-  renderTemplateDetailed: async (raw) => ({ rendered: raw, values: {} as TemplateVarValues }),
-  shiftStylesForRender: (_text, styles) => styles,
-  blockVisibilityWhere: () => ({}),
+  resolveBlockContent: (actionType, content) => realResolveBlockContent(actionType, content),
+  renderTemplate: (raw, contactId, assignedNickId) => realRenderTemplate(raw, contactId, assignedNickId),
+  renderTemplateDetailed: (raw, contactId, assignedNickId) => realRenderTemplateDetailed(raw, contactId, assignedNickId),
+  shiftStylesForRender: (rawText, styles, values) => realShiftStylesForRender(rawText, styles, values),
+  blockVisibilityWhere: (ownerScope, userId) => realBlockVisibilityWhere(ownerScope, userId),
   emitLeadScoreThresholdIfCrossed: async () => {},
   onFriendAccepted: async () => {},
   sendStrangerFollowUp: async () => {},

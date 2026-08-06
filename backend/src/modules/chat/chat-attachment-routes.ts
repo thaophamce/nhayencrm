@@ -29,6 +29,8 @@ import { getUserFullName, createMediaMessage } from './chat-helpers.js';
 export const IMAGE_MAX = 100 * 1024 * 1024;
 export const VIDEO_MAX = 500 * 1024 * 1024;
 export const FILE_MAX = 1024 * 1024 * 1024;
+export const ATTACHMENT_MAX_FILES = 10;
+export const ATTACHMENT_TOTAL_MAX = 500 * 1024 * 1024;
 export const ALLOWED_IMAGE = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
 export const ALLOWED_VIDEO = ['video/mp4', 'video/quicktime', 'video/webm'];
 export const ALLOWED_FILE = [
@@ -108,11 +110,15 @@ export async function chatAttachmentRoutes(app: FastifyInstance) {
       // Parse multipart parts
       let caption = '';
       const files: ParsedFile[] = [];
+      let totalBytes = 0;
       try {
         for await (const part of request.parts()) {
           if (part.type === 'field' && part.fieldname === 'caption') {
             caption = String(part.value ?? '');
           } else if (part.type === 'file') {
+            if (files.length >= ATTACHMENT_MAX_FILES) {
+              return reply.status(413).send({ error: `Maximum ${ATTACHMENT_MAX_FILES} files per upload` });
+            }
             if (!isAllowed(part.mimetype)) {
               return reply.status(415).send({ error: `Unsupported file type: ${part.mimetype}` });
             }
@@ -121,6 +127,10 @@ export async function chatAttachmentRoutes(app: FastifyInstance) {
             const max = kind === 'image' ? IMAGE_MAX : kind === 'video' ? VIDEO_MAX : FILE_MAX;
             if (buf.length > max) {
               return reply.status(413).send({ error: `${kind} exceeds ${max / 1024 / 1024}MB` });
+            }
+            totalBytes += buf.length;
+            if (totalBytes > ATTACHMENT_TOTAL_MAX) {
+              return reply.status(413).send({ error: 'Total attachment size exceeds 500MB' });
             }
             files.push({ buffer: buf, filename: part.filename, mimeType: part.mimetype, kind, size: buf.length });
           }
@@ -134,25 +144,35 @@ export async function chatAttachmentRoutes(app: FastifyInstance) {
       const threadId = conversation.externalThreadId || '';
       const threadType = conversation.threadType === 'group' ? 1 : 0;
       const io = (app as any).io as Server;
+      const attachmentRequestStartedAt = Date.now();
 
       // Write each file to tmp + upload to MinIO in parallel
       const tmpRoot = path.join(tmpdir(), 'zalocrm-upload', randomUUID());
       await mkdir(tmpRoot, { recursive: true });
       const tmpPaths: string[] = [];
       const mirrors: UploadResult[] = [];
+      const localReady: Array<Promise<void>> = [];
+      const resolveLocalReady: Array<() => void> = [];
+      for (let i = 0; i < files.length; i++) {
+        localReady[i] = new Promise<void>((resolve) => { resolveLocalReady[i] = resolve; });
+      }
       try {
-        await Promise.all(files.map(async (f, i) => {
+        const mirrorStartedAt = Date.now();
+        const mirrorPromise = Promise.all(files.map(async (f, i) => {
           const tmpPath = path.join(tmpRoot, `${i}-${f.filename || 'upload'}`);
           await writeFile(tmpPath, f.buffer);
           tmpPaths[i] = tmpPath;
-          // 2026-06-22: NÉN ảnh trước khi LƯU mirror (R2) — giảm dung lượng. Ảnh GỬI khách dùng
-          // tmpPath (bytes GỐC) nên khách vẫn nhận ảnh nét; chỉ bản lưu/hiển thị-CRM là webp nhẹ.
-          // compressImage tự bỏ qua video/file + gif/định dạng lạ + fallback gốc nếu sharp lỗi.
+          resolveLocalReady[i]();
           const proc = f.kind === 'image'
             ? await compressImage(f.buffer, f.mimeType)
             : { buffer: f.buffer, mimeType: f.mimeType };
           mirrors[i] = await uploadBuffer(proc.buffer, proc.mimeType, f.filename);
-        }));
+        })).then(() => {
+          logger.info(`[chat-attachment][perf] stage=mirror files=${files.length} bytes=${files.reduce((sum, file) => sum + file.size, 0)} mirrorMs=${Date.now() - mirrorStartedAt}`);
+        });
+
+        // Zalo upload starts as soon as local files exist; CRM mirror continues in parallel.
+        await Promise.all(localReady);
 
         const created: any[] = [];
 
@@ -177,6 +197,7 @@ export async function chatAttachmentRoutes(app: FastifyInstance) {
           );
           const zaloMsgId = String(sendResult?.msgId || sendResult?.data?.msgId || '');
           for (const i of imageIndexes) {
+            await mirrorPromise;
             const mirror = mirrors[i];
             const msg = await createMediaMessage({
               conversationId: id,
@@ -215,6 +236,7 @@ export async function chatAttachmentRoutes(app: FastifyInstance) {
               message: caption,
             });
             const zaloMsgId = String((sendResult as any)?.msgId || (sendResult as any)?.data?.msgId || '');
+            await mirrorPromise;
             const mirror = mirrors[i];
             const thumbUrl = thumbnailMirror?.url ?? mirror.url;
             const msg = await createMediaMessage({
@@ -239,6 +261,7 @@ export async function chatAttachmentRoutes(app: FastifyInstance) {
               io,
             );
             const zaloMsgId = String(sendResult?.msgId || sendResult?.data?.msgId || '');
+            await mirrorPromise;
             const mirror = mirrors[i];
             const thumbUrl = thumbnailMirror?.url ?? mirror.url;
             const msg = await createMediaMessage({
@@ -267,6 +290,7 @@ export async function chatAttachmentRoutes(app: FastifyInstance) {
             caption,
           );
           const zaloMsgId = String(sendResult?.msgId || sendResult?.data?.msgId || '');
+          await mirrorPromise;
           const mirror = mirrors[i];
           const f = files[i];
           const msg = await createMediaMessage({
@@ -299,6 +323,10 @@ export async function chatAttachmentRoutes(app: FastifyInstance) {
           });
         }
 
+        await mirrorPromise;
+        const attachmentTotalMs = Date.now() - attachmentRequestStartedAt;
+        logger.info(`[chat-attachment][perf] stage=send_total files=${files.length} totalMs=${attachmentTotalMs}`);
+        reply.header('Server-Timing', `chat-attachment;dur=${attachmentTotalMs}`);
         return { messages: created };
       } catch (err: any) {
         logger.error('[chat-attachment] upload error:', err);

@@ -934,11 +934,12 @@ onBeforeUnmount(() => { editor.value?.destroy(); });
 /* Editor content */
 .editor-content :deep(.tiptap-input) {
   padding: 8px 13px;
-  min-height: 60px;
+  min-height: var(--editor-min-h, 36px); /* Dynamic minimum height */
   max-height: var(--editor-max-h, 320px);
   overflow-y: auto;
   outline: none;
-  font-size: 14px;
+  font-size: 16px;
+  font-weight: 600;
   line-height: 1.5;
   color: var(--smax-text, #212121);
   box-sizing: border-box;

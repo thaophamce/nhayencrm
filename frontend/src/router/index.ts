@@ -22,6 +22,12 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/SetupView.vue'),
     meta: { layout: 'auth' },
   },
+  {
+    path: '/select-account',
+    name: 'SelectAccount',
+    component: () => import('@/views/SelectAccountView.vue'),
+    meta: { layout: 'auth', requiresAuth: true },
+  },
   // Phase Onboarding v1 2026-05-24 — force change password lần đầu
   {
     path: '/setup-password',
@@ -43,13 +49,25 @@ const routes: RouteRecordRaw[] = [
     path: '/',
     name: 'Dashboard',
     component: () => import('@/views/DashboardView.vue'),
-    meta: { requiresAuth: true },
+    meta: { requiresAuth: true, resource: 'dashboard' },
   },
   {
     path: '/chat/:convId?',
     name: 'Chat',
     component: () => import('@/views/ChatView.vue'),
     meta: { requiresAuth: true, resource: 'conversation' },
+  },
+  {
+    path: '/pancake-orders',
+    name: 'PancakeOrders',
+    component: () => import('@/views/PancakeOrdersView.vue'),
+    meta: { requiresAuth: true, resource: 'delivery' },
+  },
+  {
+    path: '/orders',
+    name: 'Orders',
+    component: () => import('@/views/OrdersView.vue'),
+    meta: { requiresAuth: true, resource: 'orders' },
   },
   {
     path: '/contacts',
@@ -80,6 +98,24 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/AppointmentsView.vue'),
     meta: { requiresAuth: true },
   },
+  // ════════ Nhân sự (Phase HR 2026-07-17) — Chấm công / Nghỉ phép / Lương ════════
+  {
+    path: '/timekeeping',
+    redirect: '/salary',
+  },
+  {
+    path: '/salary',
+    name: 'Salary',
+    component: () => import('@/views/hr/SalaryView.vue'),
+    meta: { requiresAuth: true, anyResource: ['attendance', 'payroll'] },
+  },
+  {
+    path: '/finance',
+    name: 'Finance',
+    component: () => import('@/views/finance/FinanceView.vue'),
+    // Dữ liệu số dư, công nợ và dòng tiền chỉ dành cho admin/owner.
+    meta: { requiresAuth: true, resource: 'settings' },
+  },
   // ════════ Module Báo cáo — shell + 7 màn (2026-06-17) ════════
   {
     path: '/reports',
@@ -91,7 +127,6 @@ const routes: RouteRecordRaw[] = [
       { path: 'nick',       name: 'Reports.Nick',       component: () => import('@/views/reports/NickFleetReport.vue'),  meta: { resource: 'engagement_score' } },
       { path: 'sale',       name: 'Reports.Sales',      component: () => import('@/views/reports/SalesReport.vue'),      meta: { resource: 'engagement_score' } },
       { path: 'pipeline',   name: 'Reports.Pipeline',   component: () => import('@/views/reports/PipelineReport.vue'),   meta: { resource: 'engagement_score' } },
-      { path: 'engagement', name: 'Reports.Engagement', component: () => import('@/views/reports/EngagementReport.vue'), meta: { resource: 'engagement_score' } },
       { path: 'audit',      name: 'Reports.Audit',      component: () => import('@/views/reports/AuditReport.vue'),      meta: { resource: 'engagement_score' } },
       ...eeReportsChildren,
     ],
@@ -149,6 +184,7 @@ const routes: RouteRecordRaw[] = [
       { path: 'crm/scoring',     name: 'Settings.Scoring',     component: () => import('@/views/ScoringSettingsView.vue'), meta: { resource: 'settings' } },
       // Lịch hẹn → nhắc hẹn Zalo (2026-06-16) — bật/tắt + delay phút gửi link đánh dấu.
       { path: 'crm/appointments', name: 'Settings.Appointments', component: () => import('@/views/settings/AppointmentSettingsPage.vue'), meta: { resource: 'settings' } },
+      { path: 'crm/quick-replies', name: 'Settings.QuickReplies', component: () => import('@/views/settings/QuickReplySettingsPage.vue'), meta: { resource: 'quick_reply' } },
       { path: 'crm/stuck',       name: 'Settings.Stuck',       component: () => import('@/views/settings/SettingsComingSoon.vue'), props: { feature: 'stuck' }, meta: { resource: 'settings' } },
       { path: 'crm/folders',     name: 'Settings.Folders',     component: () => import('@/views/settings/SettingsComingSoon.vue'), props: { feature: 'folders' }, meta: { resource: 'settings' } },
       { path: 'crm/templates',   name: 'Settings.Templates',   component: () => import('@/views/settings/SettingsComingSoon.vue'), props: { feature: 'templates' }, meta: { resource: 'settings' } },
@@ -217,12 +253,22 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/marketing/CommunityMarketingShell.vue'),
         meta: { requiresAuth: true },
         children: [
-          { path: '', redirect: '/marketing/group-scan' },
-          // E1 — Quét nhóm & thành viên (group scan).
+          { path: '', redirect: '/marketing/friend-blast' },
+          // Gửi tin nhắn bạn bè (friend blast) — pick friends + compose + blast with pacing.
+          { path: 'friend-blast', name: 'CE.FriendBlast', component: () => import('@/views/marketing/FriendBlastView.vue'), meta: { requiresAuth: true, resource: 'friend_blast' } },
+          // Gửi tin nhắn nhóm (group blast) — pick groups + compose + blast with pacing.
+          { path: 'group-blast', name: 'CE.GroupBlast', component: () => import('@/views/marketing/GroupBlastView.vue'), meta: { requiresAuth: true, resource: 'friend_blast' } },
+          // Huỷ kết bạn hàng loạt (unfriend-blast)
+          { path: 'unfriend-blast', name: 'CE.UnfriendBlast', component: () => import('@/views/marketing/FriendUnfriendBlastView.vue'), meta: { requiresAuth: true } },
+          // Rời nhóm hàng loạt (group-leave-blast)
+          { path: 'group-leave-blast', name: 'CE.GroupLeaveBlast', component: () => import('@/views/marketing/GroupLeaveBlastView.vue'), meta: { requiresAuth: true } },
+          // E1 — Quét nhóm & thành viên (group scan). Ẩn khỏi nav, route vẫn sống (deep-link).
           { path: 'group-scan', name: 'CE.GroupScan', component: () => import('@/views/GroupScanView.vue'), meta: { requiresAuth: true } },
           // Tệp khách hàng (Customer Lists) — open-core, dùng được ở Community.
           { path: 'lists', name: 'CE.Lists', component: () => import('@/views/marketing/ListsView.vue'), meta: { requiresAuth: true } },
           { path: 'lists/:id', name: 'CE.ListDetail', component: () => import('@/views/marketing/ListDetailView.vue'), meta: { requiresAuth: true } },
+          // Khối nội dung (Blocks) — content-authoring dependency of Broadcasts.
+          { path: 'blocks', name: 'CE.Blocks', component: () => import('@/views/marketing/BlocksView.vue'), meta: { requiresAuth: true, resource: 'block' } },
         ],
       } as RouteRecordRaw]
     : []),
@@ -240,6 +286,15 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/NotFoundView.vue'),
   },
 ];
+
+if (import.meta.env.DEV) {
+  routes.splice(routes.length - 1, 0, {
+    path: '/dev/pancake-chat',
+    name: 'PancakeChatPreview',
+    component: () => import('@/views/dev/PancakeChatPreviewView.vue'),
+    meta: { layout: 'default' },
+  });
+}
 
 export const router = createRouter({
   history: createWebHistory(),
@@ -305,7 +360,29 @@ router.beforeEach(async (to, _from, next) => {
     // RBAC page-level guard 2026-06-08 — chặn theo nhóm quyền (grants).
     // Route khai báo meta.resource → user phải canAccess(resource, action) mới vào.
     // owner/admin = full (canAccess tự bypass). Default action = 'access'.
+    const anyResource = to.meta.anyResource as string[] | undefined;
+    if (anyResource?.length && !anyResource.some((resource) => authStore.canAccess(resource))) {
+      try { useToast().error('Bạn không có quyền truy cập trang này'); } catch { /* toast chưa sẵn sàng */ }
+      if (_from?.name) { next(false); return; }
+      next('/'); return;
+    }
     const required = to.meta.resource as string | undefined;
+    // Các tab trong trang Giao vận dùng chung một route nên phải kiểm tra
+    // quyền theo query tab, không chỉ kiểm tra quyền access của cả site.
+    if (required === 'delivery' && to.path === '/pancake-orders') {
+      const tab = typeof to.query.tab === 'string' ? to.query.tab : 'overview';
+      const tabActions: Record<string, string> = {
+        overview: 'access', delivery: 'create', reports: 'view_all', products: 'edit',
+        business: 'delivery_business.access', activity: 'view_all', pancake: 'access',
+      };
+      const tabAction = tabActions[tab] || 'access';
+      const [tabResource, tabGrantAction] = tabAction.includes('.') ? tabAction.split('.') : ['delivery', tabAction];
+      if (!authStore.canAccess(tabResource, tabGrantAction)) {
+        try { useToast().error('Bạn không có quyền truy cập mục này'); } catch { /* toast chưa sẵn sàng */ }
+        if (_from?.name) { next(false); return; }
+        next('/pancake-orders?tab=overview'); return;
+      }
+    }
     // Redesign Đợt 1: route có meta.managerOr=true → cho trưởng phòng (leader/deputy) vào dù
     // không có grant `resource` (vd Lead Pool: leader xem tab Báo cáo đội/Nhật ký). Tab tự ẩn theo quyền.
     const managerBypass = to.meta.managerOr === true && authStore.isManager;
@@ -323,8 +400,8 @@ router.beforeEach(async (to, _from, next) => {
 // ── Tiêu đề tab trình duyệt theo màn hình (2026-06-16) ─────────────────────────
 // Map route.name → tên màn hình hiển thị trên tab Chrome. Gom 1 chỗ cho dễ bảo
 // trì (khỏi rải meta.title khắp ~70 route). Route không có trong map → chỉ hiện
-// brand. Title dạng "Tên màn hình · ZaloCRM".
-const BRAND = 'ZaloCRM';
+// brand. Title dạng "Tên màn hình · Nhà Yến CRM".
+const BRAND = 'Nhà Yến CRM';
 const ROUTE_TITLES: Record<string, string> = {
   // Top-level
   Login: 'Đăng nhập',
@@ -342,7 +419,6 @@ const ROUTE_TITLES: Record<string, string> = {
   'Reports.Sales': 'Báo cáo · Hiệu suất Sale & Team',
   'Reports.Pipeline': 'Báo cáo · Pipeline & Lead Pool',
   'Reports.Automation': 'Báo cáo · Automation & Chăm sóc',
-  'Reports.Engagement': 'Báo cáo · Engagement KH',
   'Reports.Audit': 'Báo cáo · Audit & Sức khỏe hệ thống',
   Analytics: 'Phân tích',
   CustomerActivityLog: 'Nhật ký hoạt động KH',

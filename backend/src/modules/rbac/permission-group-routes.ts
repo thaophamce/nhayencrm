@@ -13,7 +13,8 @@ import {
   updatePermissionGroup,
   archivePermissionGroup,
 } from './permission-group-service.js';
-import { RESOURCES, ACTIONS, RESOURCE_ACTIONS } from './permission-types.js';
+import { syncDefaultPermissionGroups } from './seed-default-groups.js';
+import { RESOURCES, ACTIONS, RESOURCE_ACTIONS, MENU_TREE } from './permission-types.js';
 import { requireGrant } from './rbac-middleware.js';
 
 export async function registerPermissionGroupRoutes(app: FastifyInstance): Promise<void> {
@@ -35,6 +36,7 @@ export async function registerPermissionGroupRoutes(app: FastifyInstance): Promi
       resources: RESOURCES,
       actions: ACTIONS,
       resourceActions: RESOURCE_ACTIONS,
+      menuTree: MENU_TREE,
     });
   });
 
@@ -108,6 +110,18 @@ export async function registerPermissionGroupRoutes(app: FastifyInstance): Promi
       return reply.send({ ok: true });
     } catch (e: any) {
       return reply.status(400).send({ error: e.message });
+    }
+  });
+
+  // POST /api/v1/permission-groups/sync-defaults — sync grants Sale+Admin với DEFAULT_PERMISSION_GROUPS
+  app.post('/api/v1/permission-groups/sync-defaults', { preHandler: [authMiddleware, requireGrant('permission_group', 'edit')] }, async (request, reply) => {
+    const user = (request as any).user;
+    if (!user) return reply.status(401).send({ error: 'unauthorized' });
+    try {
+      const result = await syncDefaultPermissionGroups(user.orgId);
+      return reply.send(result);
+    } catch (e: any) {
+      return reply.status(500).send({ error: e.message });
     }
   });
 }

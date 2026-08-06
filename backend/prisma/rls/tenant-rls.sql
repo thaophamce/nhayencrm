@@ -580,3 +580,65 @@ DROP POLICY IF EXISTS tenant_isolation ON "zalo_lead_events";
 CREATE POLICY tenant_isolation ON "zalo_lead_events"
   USING ("org_id" = current_setting('app.current_org', true) OR current_setting('app.bypass_rls', true) = 'on')
   WITH CHECK ("org_id" = current_setting('app.current_org', true) OR current_setting('app.bypass_rls', true) = 'on');
+
+-- ── Phase HR 2026-07-17 — Chấm công / Nghỉ phép / Lương (3 bảng có org_id) ──
+-- attendance_records
+ALTER TABLE "attendance_records" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "attendance_records" FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON "attendance_records";
+CREATE POLICY tenant_isolation ON "attendance_records"
+  USING ("org_id" = current_setting('app.current_org', true) OR current_setting('app.bypass_rls', true) = 'on')
+  WITH CHECK ("org_id" = current_setting('app.current_org', true) OR current_setting('app.bypass_rls', true) = 'on');
+
+-- leave_requests
+ALTER TABLE "leave_requests" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "leave_requests" FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON "leave_requests";
+CREATE POLICY tenant_isolation ON "leave_requests"
+  USING ("org_id" = current_setting('app.current_org', true) OR current_setting('app.bypass_rls', true) = 'on')
+  WITH CHECK ("org_id" = current_setting('app.current_org', true) OR current_setting('app.bypass_rls', true) = 'on');
+
+-- salary_records
+ALTER TABLE "salary_records" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "salary_records" FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON "salary_records";
+CREATE POLICY tenant_isolation ON "salary_records"
+  USING ("org_id" = current_setting('app.current_org', true) OR current_setting('app.bypass_rls', true) = 'on')
+  WITH CHECK ("org_id" = current_setting('app.current_org', true) OR current_setting('app.bypass_rls', true) = 'on');
+
+-- pancake_order_links
+ALTER TABLE "pancake_order_links" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "pancake_order_links" FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON "pancake_order_links";
+CREATE POLICY tenant_isolation ON "pancake_order_links"
+  USING ("org_id" = current_setting('app.current_org', true) OR current_setting('app.bypass_rls', true) = 'on')
+  WITH CHECK ("org_id" = current_setting('app.current_org', true) OR current_setting('app.bypass_rls', true) = 'on');
+
+-- Release 3.5: orders, friend blast and pinned messages.
+ALTER TABLE "orders" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "orders" FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON "orders";
+CREATE POLICY tenant_isolation ON "orders"
+  USING ("org_id" = current_setting('app.current_org', true) OR current_setting('app.bypass_rls', true) = 'on')
+  WITH CHECK ("org_id" = current_setting('app.current_org', true) OR current_setting('app.bypass_rls', true) = 'on');
+
+ALTER TABLE "friend_blast_campaigns" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "friend_blast_campaigns" FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON "friend_blast_campaigns";
+CREATE POLICY tenant_isolation ON "friend_blast_campaigns"
+  USING ("org_id" = current_setting('app.current_org', true) OR current_setting('app.bypass_rls', true) = 'on')
+  WITH CHECK ("org_id" = current_setting('app.current_org', true) OR current_setting('app.bypass_rls', true) = 'on');
+
+ALTER TABLE "friend_blacklists" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "friend_blacklists" FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON "friend_blacklists";
+CREATE POLICY tenant_isolation ON "friend_blacklists"
+  USING ("org_id" = current_setting('app.current_org', true) OR current_setting('app.bypass_rls', true) = 'on')
+  WITH CHECK ("org_id" = current_setting('app.current_org', true) OR current_setting('app.bypass_rls', true) = 'on');
+
+ALTER TABLE "pinned_messages" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "pinned_messages" FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON "pinned_messages";
+CREATE POLICY tenant_isolation ON "pinned_messages"
+  USING ("org_id" = current_setting('app.current_org', true) OR current_setting('app.bypass_rls', true) = 'on')
+  WITH CHECK ("org_id" = current_setting('app.current_org', true) OR current_setting('app.bypass_rls', true) = 'on');

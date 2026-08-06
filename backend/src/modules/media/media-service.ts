@@ -19,6 +19,7 @@
  *   • sharp lỗi (ảnh hỏng/format lạ) → fallback lưu ảnh GỐC + log warn (compressImage).
  */
 import sharp from 'sharp';
+import { createHash } from 'node:crypto';
 import { imageSize } from 'image-size';
 import { readFile, writeFile, mkdtemp, rm } from 'node:fs/promises';
 import { resolve as resolvePath, join as joinPath } from 'node:path';
@@ -34,6 +35,8 @@ const IMAGE_MIMES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif
 // Ngưỡng nén: cạnh dài tối đa + chất lượng webp. Ảnh bảng giá/mặt bằng giữ rõ chữ.
 const MAX_EDGE = 2000;
 const WEBP_QUALITY = 82;
+const THUMB_MAX_EDGE = 400;
+const THUMB_WEBP_QUALITY = 70;
 // GIF (ảnh động) KHÔNG nén qua sharp (mất animation) — giữ nguyên.
 const COMPRESSIBLE = new Set(['image/jpeg', 'image/png', 'image/webp']);
 
@@ -113,6 +116,9 @@ export async function compressImage(
     const img = sharp(buffer, { failOn: 'error' });
     const meta = await img.metadata();
     const needResize = (meta.width ?? 0) > MAX_EDGE || (meta.height ?? 0) > MAX_EDGE;
+    if (mimeType === 'image/webp' && !needResize) {
+      return { buffer, mimeType, width: meta.width, height: meta.height, compressed: false };
+    }
     let pipeline = img.rotate(); // tôn trọng EXIF orientation
     if (needResize) {
       pipeline = pipeline.resize(MAX_EDGE, MAX_EDGE, { fit: 'inside', withoutEnlargement: true });
@@ -140,6 +146,19 @@ export async function compressImage(
  *   2. DB: upsert MediaBlob theo [orgId,contentHash]; nếu trùng → đọc lại,
  *      tăng usageCount của asset đang trỏ tới (KHÔNG tạo asset mới).
  */
+export async function createImageThumbnail(buffer: Buffer): Promise<Buffer | null> {
+  try {
+    return await sharp(buffer, { failOn: 'error' })
+      .rotate()
+      .resize(THUMB_MAX_EDGE, THUMB_MAX_EDGE, { fit: 'inside', withoutEnlargement: true })
+      .webp({ quality: THUMB_WEBP_QUALITY })
+      .toBuffer();
+  } catch (err) {
+    logger.warn('[media] createImageThumbnail failed:', (err as Error)?.message ?? err);
+    return null;
+  }
+}
+
 /**
  * Sinh thumbnail + metadata (duration/width/height) cho VIDEO upload vào kho (ffmpeg).
  * Trả thumbnailUrl (đã mirror lên MinIO) + durationSec/width/height. Lỗi ffmpeg → trả rỗng
@@ -198,9 +217,11 @@ export async function registerAsset(input: RegisterAssetInput): Promise<Register
   const tagIds = normalizeTags(input.tagIds ?? []);
 
   // 1. Nén (chỉ ảnh) — variant 'original' đã-nén là bytes thật lưu.
+  const processingStartedAt = Date.now();
   const processed = kind === 'image'
     ? await compressImage(input.buffer, mimeType)
     : { buffer: input.buffer, mimeType, width: undefined, height: undefined, compressed: false };
+  logger.info(`[media][perf] stage=process kind=${kind} inputBytes=${input.buffer.length} outputBytes=${processed.buffer.length} processMs=${Date.now() - processingStartedAt}`);
 
   // 1b. VIDEO: sinh thumbnail + metadata (ffmpeg) để kho hiển thị đẹp (anh chốt 2026-06-12).
   const videoMeta = kind === 'video'
@@ -210,17 +231,17 @@ export async function registerAsset(input: RegisterAssetInput): Promise<Register
   const originalFilename = input.originalFilename ?? null;
   const name = input.name ?? originalFilename ?? 'Media';
 
-  // 2. Upload dedup → contentHash của bytes THẬT LƯU.
-  const up = await uploadBuffer(processed.buffer, processed.mimeType, originalFilename ?? undefined);
+  // 2. Hash + DB dedup before storage. Known duplicates avoid R2 HEAD/PUT entirely.
+  const contentHash = createHash('sha256').update(processed.buffer).digest('hex');
 
-  // 3. Đã có blob với contentHash này trong org? → dedup-hit ở tầng DB.
+  // 3. Existing blob in this organization means bytes already persisted.
   const existingBlob = await prisma.mediaBlob.findUnique({
-    where: { orgId_contentHash: { orgId, contentHash: up.contentHash } },
+    where: { orgId_contentHash: { orgId, contentHash } },
     include: { asset: true },
   });
   if (existingBlob) {
     // S8 observability: log dedup-hit (đo tiết kiệm thật — bao nhiêu ô lưu trữ né được).
-    logger.info(`[media][dedup] hit org=${orgId} hash=${up.contentHash.slice(0, 12)} reusedAsset=${existingBlob.assetId} source=${source}`);
+    logger.info(`[media][dedup] hit org=${orgId} hash=${contentHash.slice(0, 12)} reusedAsset=${existingBlob.assetId} source=${source}`);
     // FIX 2026-06-12 (anh báo file .doc/.xlsx lưu cũ kẹt tên "Lưu từ chat"): khi dedup-hit,
     // asset cũ có thể được lưu TỪ TRƯỚC lúc code chưa biết đọc tên thật → name placeholder +
     // originalFilename=null. Nếu lần lưu này CÓ tên thật tốt hơn (có đuôi) → VÁ tên + đuôi cho
@@ -250,6 +271,18 @@ export async function registerAsset(input: RegisterAssetInput): Promise<Register
     // CHỈ nâng false→true (re-arm gate), KHÔNG hạ true→false. Gắn nick nguồn nếu asset cũ chưa có.
     const shouldArmPrivate = !!sourceIsPrivateNick && !old?.sourceIsPrivateNick;
     const shouldSetSourceNick = !!sourceZaloAccountId && !old?.sourceZaloAccountId;
+    let restoredThumbnailUrl: string | null = null;
+    if (kind === 'image' && !old?.thumbnailUrl) {
+      const thumbnail = await createImageThumbnail(processed.buffer);
+      if (thumbnail) {
+        restoredThumbnailUrl = await uploadBuffer(thumbnail, 'image/webp', 'thumbnail.webp')
+          .then((uploaded) => uploaded.url)
+          .catch((error) => {
+            logger.warn('[media] dedup thumbnail repair failed:', (error as Error)?.message ?? error);
+            return null;
+          });
+      }
+    }
     const asset = await prisma.mediaAsset.update({
       where: { id: existingBlob.assetId },
       data: {
@@ -262,6 +295,7 @@ export async function registerAsset(input: RegisterAssetInput): Promise<Register
         ...(shouldRestore ? { archivedAt: null, trashedById: null } : {}),
         ...(shouldArmPrivate ? { sourceIsPrivateNick: true } : {}),
         ...(shouldSetSourceNick ? { sourceZaloAccountId } : {}),
+        ...(restoredThumbnailUrl ? { thumbnailUrl: restoredThumbnailUrl } : {}),
       },
     });
     if (shouldArmPrivate) {
@@ -287,6 +321,23 @@ export async function registerAsset(input: RegisterAssetInput): Promise<Register
     }
     return { asset, blob: existingBlob, deduped: true };
   }
+  const storageStartedAt = Date.now();
+  const up = await uploadBuffer(
+    processed.buffer,
+    processed.mimeType,
+    originalFilename ?? undefined,
+    { skipExistsCheck: true },
+  );
+  const thumbnailStartedAt = Date.now();
+  const thumbnailBuffer = kind === 'image' ? await createImageThumbnail(processed.buffer) : null;
+  const thumbnailUpload = thumbnailBuffer
+    ? await uploadBuffer(thumbnailBuffer, 'image/webp', 'thumbnail.webp').catch((error) => {
+        logger.warn('[media] thumbnail upload failed; keeping original:', (error as Error)?.message ?? error);
+        return null;
+      })
+    : null;
+  logger.info(`[media][perf] stage=storage_write kind=${kind} inputBytes=${input.buffer.length} storedBytes=${processed.buffer.length} storageMs=${Date.now() - storageStartedAt} thumbnailMs=${Date.now() - thumbnailStartedAt}`);
+
   // S8: log MISS (bytes mới hoàn toàn) — để tính hit-rate = hit/(hit+miss).
   logger.info(`[media][dedup] miss org=${orgId} hash=${up.contentHash.slice(0, 12)} source=${source}`);
 
@@ -308,7 +359,7 @@ export async function registerAsset(input: RegisterAssetInput): Promise<Register
           tagIds,
           originalFilename,
           // VIDEO: ảnh đại diện (ffmpeg) để kho không hiện <img> vỡ.
-          thumbnailUrl: videoMeta.thumbnailUrl,
+          thumbnailUrl: kind === 'image' ? thumbnailUpload?.url ?? null : videoMeta.thumbnailUrl,
         },
       });
       const blob = await tx.mediaBlob.create({

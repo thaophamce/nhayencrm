@@ -30,6 +30,60 @@ const BASE = '/api/v1/zalo-accounts/:accountId/friends';
 export async function friendRoutes(app: FastifyInstance) {
   app.addHook('preHandler', authMiddleware);
 
+  app.get(`${BASE}-db/picker`, { preHandler: requireGrant('friend', 'access') }, async (request: FastifyRequest, reply: FastifyReply) => {
+    const { accountId } = request.params as { accountId: string };
+    const { search = '', limit = '80', zaloLabelId = '' } = request.query as { search?: string; limit?: string; zaloLabelId?: string };
+    const user = request.user!;
+    if (!await checkAccess(request, reply, accountId, 'read')) return;
+    try {
+      await resolveAccount(accountId, user.orgId);
+      const take = Math.min(100, Math.max(1, parseInt(limit, 10) || 80));
+      const where: any = { zaloAccountId: accountId, orgId: user.orgId, relationshipKind: 'friend' };
+      if (zaloLabelId) {
+        const nativeId = Number(zaloLabelId);
+        if (!Number.isInteger(nativeId)) return reply.status(400).send({ error: 'Invalid zaloLabelId' });
+        const label = await prisma.zaloLabel.findUnique({
+          where: { zaloAccountId_zaloLabelId: { zaloAccountId: accountId, zaloLabelId: nativeId } },
+          select: { conversations: true },
+        });
+        const memberUids = Array.isArray(label?.conversations) ? label.conversations.filter((value): value is string => typeof value === 'string') : [];
+        if (memberUids.length === 0) return { friends: [] };
+        where.zaloUidInNick = { in: memberUids };
+      }
+      const query = search.trim();
+      if (query) {
+        const canonicalPhone = normalizePhone(query);
+        const contactOr: Record<string, unknown>[] = [
+          { fullName: { contains: query, mode: 'insensitive' } },
+          { crmName: { contains: query, mode: 'insensitive' } },
+        ];
+        if (canonicalPhone) contactOr.push({ phoneNormalized: canonicalPhone });
+        where.OR = [
+          { contact: { OR: contactOr } },
+          { zaloUidInNick: query },
+          { zaloDisplayName: { contains: query, mode: 'insensitive' } },
+          { aliasInNick: { contains: query, mode: 'insensitive' } },
+        ];
+      }
+      const friends = await prisma.friend.findMany({
+        where,
+        select: {
+          zaloUidInNick: true,
+          aliasInNick: true,
+          zaloDisplayName: true,
+          zaloAvatarUrl: true,
+          lastInteractionAt: true,
+          contact: { select: { fullName: true, crmName: true, phone: true, avatarUrl: true } },
+        },
+        orderBy: [{ lastInteractionAt: { sort: 'desc', nulls: 'last' } }, { id: 'asc' }],
+        take,
+      });
+      return { friends };
+    } catch (err) {
+      return handleError(reply, err, 'friends-db-picker');
+    }
+  });
+
   // ── DB-backed friend list (preferred over live for /friends UI) ───────────
 
   // GET .../friends-db?kind=...&page=1&limit=25&search=...&sortBy=recent|score-desc|score-asc|stuck
@@ -42,7 +96,10 @@ export async function friendRoutes(app: FastifyInstance) {
       search = '',
       sortBy = 'recent',
       statusId = '',
-    } = request.query as { kind?: string; page?: string; limit?: string; search?: string; sortBy?: string; statusId?: string };
+      tag = '',
+      zaloLabelId = '',
+      friendshipStatus = '',
+    } = request.query as { kind?: string; page?: string; limit?: string; search?: string; sortBy?: string; statusId?: string; tag?: string; zaloLabelId?: string; friendshipStatus?: string };
     const user = request.user!;
     if (!await checkAccess(request, reply, accountId, 'read')) return;
     try {
@@ -53,8 +110,26 @@ export async function friendRoutes(app: FastifyInstance) {
 
       const where: any = { zaloAccountId: accountId, orgId: user.orgId };
       if (kind && kind !== 'all') where.relationshipKind = kind;
+      if (friendshipStatus) where.friendshipStatus = friendshipStatus;
       // Filter theo Trạng thái KH per-nick (Friend.statusId). '' = tất cả.
       if (statusId) where.statusId = statusId;
+      // Filter theo tag CRM per-nick (Friend.crmTagsPerNick, JSON array string).
+      if (tag.trim()) where.crmTagsPerNick = { array_contains: tag.trim() };
+      // Bộ lọc nhãn Zalo native lấy từ nguồn chuẩn ZaloLabel.conversations (UID thread).
+      // Không dựa vào Friend.zaloLabels vì dữ liệu có thể chưa rebuild hoặc danh sách đang phân trang.
+      if (zaloLabelId) {
+        const nativeId = Number(zaloLabelId);
+        if (!Number.isInteger(nativeId)) return reply.status(400).send({ error: 'Invalid zaloLabelId' });
+        const label = await prisma.zaloLabel.findUnique({
+          where: { zaloAccountId_zaloLabelId: { zaloAccountId: accountId, zaloLabelId: nativeId } },
+          select: { conversations: true },
+        });
+        const memberUids = Array.isArray(label?.conversations) ? label.conversations.filter((v): v is string => typeof v === 'string') : [];
+        if (memberUids.length === 0) {
+          return { friends: [], total: 0, counts: {}, page: pageNum, limit: limitNum };
+        }
+        where.zaloUidInNick = { in: memberUids };
+      }
       if (search.trim()) {
         const q = search.trim();
         // Phone fast path: normalize input canonical → exact match phoneNormalized
@@ -124,7 +199,8 @@ export async function friendRoutes(app: FastifyInstance) {
       search = '',
       sortBy = 'recent',
       statusId = '',
-    } = request.query as { kind?: string; page?: string; limit?: string; search?: string; sortBy?: string; statusId?: string };
+      friendshipStatus = '',
+    } = request.query as { kind?: string; page?: string; limit?: string; search?: string; sortBy?: string; statusId?: string; friendshipStatus?: string };
     try {
       // Phase Zalo Account Mutation Gate 2026-05-27: migrate sang getZaloScope
       // (helper cũ getAccessibleZaloAccountIds chỉ ACL+owned, KHÔNG cascade dept.
@@ -144,6 +220,7 @@ export async function friendRoutes(app: FastifyInstance) {
         zaloAccountId: { in: accessibleIds },
       };
       if (kind && kind !== 'all') where.relationshipKind = kind;
+      if (friendshipStatus) where.friendshipStatus = friendshipStatus;
       // Filter theo Trạng thái KH per-nick (Friend.statusId). '' = tất cả.
       if (statusId) where.statusId = statusId;
       if (search.trim()) {
@@ -395,6 +472,40 @@ export async function friendRoutes(app: FastifyInstance) {
   });
 
   // ── Friend Requests ───────────────────────────────────────────────────────
+
+  // GET .../friends/requests/received — live incoming requests from Zalo.
+  // zca-js gộp lời mời nhận và gợi ý kết bạn trong getFriendRecommendations();
+  // recommType=2 mới là lời mời thật. Không đọc DB vì listener có thể bỏ lỡ event
+  // lúc backend mất kết nối trong khi Zalo điện thoại vẫn nhận đủ.
+  app.get(`${BASE}/requests/received`, async (request: FastifyRequest, reply: FastifyReply) => {
+    const { accountId } = request.params as { accountId: string };
+    const user = request.user!;
+    try {
+      if (!await checkAccess(request, reply, accountId, 'read')) return;
+      await resolveAccount(accountId, user.orgId);
+      const raw: any = await zaloOps.getFriendRecommendations(accountId);
+      const items = Array.isArray(raw) ? raw
+        : Array.isArray(raw?.recommItems) ? raw.recommItems
+        : Array.isArray(raw?.data?.recommItems) ? raw.data.recommItems
+        : [];
+      const data = items
+        .map((item: any) => item?.dataInfo ?? item)
+        .filter((info: any) => Number(info?.recommType ?? info?.type) === 2)
+        .map((info: any) => ({
+          userId: String(info.userId ?? info.uid ?? ''),
+          displayName: info.displayName ?? info.zaloName ?? null,
+          avatar: info.avatar ?? null,
+          phone: info.phoneNumber ?? null,
+          message: info.recommInfo?.message ?? null,
+          requestedAt: info.recommTime ? new Date(Number(info.recommTime)).toISOString() : null,
+          isSeen: Boolean(info.isSeenFriendReq),
+        }))
+        .filter((info: { userId: string }) => info.userId);
+      return { data };
+    } catch (err) {
+      return handleError(reply, err, 'friend-op');
+    }
+  });
 
   // GET .../friends/requests/sent — list sent friend requests
   // NOTE: Registered before :userId routes to avoid route conflicts
@@ -731,6 +842,10 @@ function buildFriendOrderBy(sortBy: string): any[] {
     case 'stuck':
       // Stuck KH lên đầu (oldest stuck first), KH không stuck xuống cuối.
       return [{ stuckSince: { sort: 'asc' as const, nulls: 'last' as const } }, ...tieBreak];
+    case 'name':
+      // Sort A-Z theo tên hiển thị Zalo (field đơn duy nhất Prisma sort được;
+      // aliasInNick/contact.crmName không dùng vì là fallback chain 2 bảng).
+      return [{ zaloDisplayName: { sort: 'asc' as const, nulls: 'last' as const } }, ...tieBreak];
     case 'recent':
     default:
       return [

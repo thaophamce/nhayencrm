@@ -42,15 +42,14 @@ const PRIORITY_MAP: Record<TagSource, number> = {
   manual_per_nick: 2,
   auto_detect: 3,
   auto_score: 4,
-  auto_engagement: 5,
-  segment_rule: 6,
-  manual_crm: 7,
-  ai_suggest: 8,
-  status: 9,
-  import: 10,
+  segment_rule: 5,
+  manual_crm: 6,
+  ai_suggest: 7,
+  status: 8,
+  import: 9,
 };
 
-const FRIEND_SOURCES: TagSource[] = ['zalo_real', 'manual_per_nick', 'auto_detect', 'auto_score', 'auto_engagement'];
+const FRIEND_SOURCES: TagSource[] = ['zalo_real', 'manual_per_nick', 'auto_detect', 'auto_score'];
 const CRM_SOURCES: TagSource[] = ['manual_crm', 'ai_suggest', 'segment_rule', 'status', 'import'];
 
 const RETRY_BACKOFF_MS = [100, 500, 2000];
@@ -333,7 +332,7 @@ async function dualWriteLegacyFriend(
       if (idx >= 0) labels.splice(idx, 1);
     }
     await tx.friend.update({ where: { id: friendId }, data: { zaloLabels: labels } });
-  } else if (source === 'auto_detect' || source === 'auto_score' || source === 'auto_engagement') {
+  } else if (source === 'auto_detect' || source === 'auto_score') {
     const cur = await tx.friend.findUnique({
       where: { id: friendId },
       select: { autoTags: true },

@@ -191,7 +191,8 @@ async function exec<T>(opts: ExecOptions, fn: (api: any) => Promise<T>): Promise
 
       // Record successful operation. (getAllFriends giờ là category 'contact_sync'
       // nên đã tự đếm vào rl:daily:nick:contact_sync — không cần recordOperation riêng.)
-      zaloRateLimiter.recordSend(accountId, category);
+      void zaloRateLimiter.recordSend(accountId, category);
+      void zaloRateLimiter.recordOperation(accountId, operation);
 
       // 4. Emit Socket.IO event if configured
       if (opts.io && opts.socketEvent) {
@@ -219,7 +220,8 @@ async function exec<T>(opts: ExecOptions, fn: (api: any) => Promise<T>): Promise
           if (freshInstance?.api && freshInstance.status === 'connected') {
             // Use fresh API directly — don't mutate the captured reference
             const retryResult = await fn(freshInstance.api);
-            zaloRateLimiter.recordSend(accountId, category);
+            void zaloRateLimiter.recordSend(accountId, category);
+      void zaloRateLimiter.recordOperation(accountId, operation);
             return retryResult;
           }
         } catch (reconnectErr) {
@@ -341,7 +343,7 @@ async function sendVideo(accountId: string, threadId: string, threadType: 0 | 1,
     (api) => api.sendVideo(videoPayload, threadId, threadType));
 }
 
-async function sendFile(accountId: string, threadId: string, threadType: 0 | 1, filePaths: string[], io?: Server | null, caption: string = '') {
+async function sendFile(accountId: string, threadId: string, threadType: 0 | 1, filePaths: any[], io?: Server | null, caption: string = '') {
   return exec({ accountId, category: 'message', operation: 'sendFile', io },
     (api) => api.sendMessage({ msg: caption, attachments: filePaths }, threadId, threadType));
 }
@@ -463,10 +465,22 @@ async function getPinConversations(accountId: string) {
     (api) => api.getPinConversations());
 }
 
+async function setConversationMute(accountId: string, muted: boolean, threadId: string, threadType: 0 | 1) {
+  return exec({ accountId, category: 'chat_action', operation: muted ? 'mute' : 'unmute' },
+    (api) => api.setMute({ action: muted ? 1 : 3, duration: muted ? -1 : undefined }, threadId, threadType));
+}
+
+async function getMutedConversations(accountId: string) {
+  return exec({ accountId, category: 'query', operation: 'getMute' },
+    (api) => api.getMute());
+}
+
 // ─── Group Management ───────────────────────────────────────────────────────
 async function createGroup(accountId: string, options: { name: string; memberIds: string[] }) {
+  // zca-js nhận field members, không nhận memberIds. API HTTP của CRM giữ
+  // memberIds để đồng nhất các route khác rồi chuyển đổi tại adapter này.
   return exec({ accountId, category: 'group_admin', operation: 'createGroup' },
-    (api) => api.createGroup(options));
+    (api) => api.createGroup({ name: options.name, members: options.memberIds }));
 }
 
 async function renameGroup(accountId: string, name: string, groupId: string) {
@@ -539,6 +553,12 @@ async function getGroupInfo(accountId: string, groupId: string | string[]) {
 async function getAllGroups(accountId: string) {
   return exec({ accountId, category: 'group_read', operation: 'getAllGroups' },
     (api) => api.getAllGroups());
+}
+
+// Zalo tr? tr?c ti?p danh s?ch nh?m chung theo UID b?n b?. Nhanh h?n qu?t roster m?i nh?m.
+async function getRelatedFriendGroup(accountId: string, friendId: string | string[]) {
+  return exec({ accountId, category: 'group_read', operation: 'getRelatedFriendGroup' },
+    (api) => api.getRelatedFriendGroup(friendId));
 }
 
 // LƯU Ý: zca-js getGroupMembersInfo nhận DANH SÁCH UID MEMBER (string|string[]),
@@ -771,6 +791,8 @@ export const zaloOps = {
   editMessage,
   pinConversation,
   getPinConversations,
+  setConversationMute,
+  getMutedConversations,
 
   // Group management
   createGroup,
@@ -790,6 +812,7 @@ export const zaloOps = {
   // Group read
   getGroupInfo,
   getAllGroups,
+  getRelatedFriendGroup,
   getGroupMembersInfo,
   getGroupBlockedMembers,
   getPendingGroupMembers,

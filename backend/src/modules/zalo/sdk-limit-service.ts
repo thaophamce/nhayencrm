@@ -20,7 +20,8 @@ export interface CategoryLimit {
 // Fallback CUỐI CÙNG nếu DB chưa cấu hình (= giá trị hardcode lịch sử). KHÔNG còn là
 // nguồn chính — chỉ dùng khi org chưa có hàng sdk_limits cho category đó.
 export const DEFAULT_SDK_LIMITS: Record<OpCategory, CategoryLimit> = {
-  message:       { daily: 200,  burst: 20, burstWindowMs: 30_000 },
+  // Tối đa 500 tin/ngày/nick, tối đa 10 tin trong một cửa sổ 60 giây.
+  message:       { daily: 500,  burst: 10, burstWindowMs: 60_000 },
   reaction:      { daily: 300,  burst: 10, burstWindowMs: 30_000 },
   chat_action:   { daily: 500,  burst: 15, burstWindowMs: 30_000 },
   group_admin:   { daily: 50,   burst: 5,  burstWindowMs: 60_000 },
@@ -33,7 +34,9 @@ export const DEFAULT_SDK_LIMITS: Record<OpCategory, CategoryLimit> = {
   // friend_lookup CAO (tìm SĐT→UID là việc chính của chiến dịch, cần nhiều).
   // contact_sync THẤP (đồng bộ danh bạ nền chỉ vài lần/ngày khi reconnect).
   friend_lookup: { daily: 1000, burst: 15, burstWindowMs: 30_000 },
-  contact_sync:  { daily: 100,  burst: 5,  burstWindowMs: 60_000 },
+  // Lịch nền 15 phút/lần đã cần 96 lượt/ngày; chừa khoảng đệm cho startup,
+  // reconnect và thao tác đồng bộ thủ công để không bị ngắt vào cuối ngày.
+  contact_sync:  { daily: 200,  burst: 5,  burstWindowMs: 60_000 },
 };
 
 export const ALL_CATEGORIES = Object.keys(DEFAULT_SDK_LIMITS) as OpCategory[];

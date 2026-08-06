@@ -52,10 +52,8 @@ export interface RemindersBlock {
 }
 export interface ScoresBlock {
   leadAvg: number;
-  engagementAvg: number;
   priorityHigh: number;
   leadHi: number; leadMid: number;
-  engHi: number; engMid: number;
 }
 export interface InteractionToday {
   sent: number;

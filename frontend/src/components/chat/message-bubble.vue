@@ -21,53 +21,17 @@
       <!-- Bubble -->
       <div
         class="message-bubble"
-        :class="{ 'is-self': isSelf, 'is-other': !isSelf }"
+        :class="{ 'is-self': isSelf, 'is-other': !isSelf, 'is-media': isMediaBubble }"
         @contextmenu.prevent="emit('contextmenu', $event)"
       >
-        <!-- Tên người gửi cho tin INBOUND — Anh chốt 2026-06-03 (4 case):
-             1a. Nick có owner trong org (CASE B): "Tuan HS · Sale: Anh Tuấn"
-             2b. Nick lẻ có crmName (CASE A): "Chị Lan · Lan Nguyen"
-             2a. Nick lẻ không crmName: chỉ tên Zalo thật
-             3.  Bubble INBOUND tím pastel (khác xanh nhạt OUTBOUND)
-             4a. Hiện ở CẢ 1-1 + group (đồng nhất)
-             Click → mở Zalo user info dialog. -->
+        <!-- Tên người gửi — ẨN theo yêu cầu 2026-07-13: chỉ giữ avatar + tin nhắn + thời gian.
+             (Code giữ lại comment để dễ bật lại nếu cần.)
         <div
           v-if="!isSelf && (message as any).senderResolved"
           class="sender-name sender-name-clickable"
-          :class="{ 'is-internal': (message as any).senderResolved?.senderIsInternalNick }"
-          @click="emit('sender-click')"
-        >
-          <span class="sender-name-primary">
-            {{ (message as any).senderResolved?.senderDisplayName || message.senderName || 'Người lạ' }}
-          </span>
-
-          <!-- CASE B: nick nội bộ (sale khác trong org) — chip "Sale: {owner}" -->
-          <span
-            v-if="(message as any).senderResolved?.senderIsInternalNick && (message as any).senderResolved?.senderInternalNickOwner"
-            class="sender-internal-chip"
-            :title="`Nick ${(message as any).senderResolved.senderInternalNickLabel ?? ''} của ${(message as any).senderResolved.senderInternalNickOwner}`"
-          >
-            · Sale: {{ (message as any).senderResolved.senderInternalNickOwner }}
-          </span>
-
-          <!-- CASE A có crmName: kèm tên Zalo nhỏ bên cạnh để đối chiếu -->
-          <span
-            v-else-if="(message as any).senderResolved?.senderCrmName && (message as any).senderResolved?.senderZaloName && (message as any).senderResolved.senderCrmName !== (message as any).senderResolved.senderZaloName"
-            class="sender-zalo-secondary"
-            :title="`Tên Zalo: ${(message as any).senderResolved.senderZaloName}`"
-          >
-            · {{ (message as any).senderResolved.senderZaloName }}
-          </span>
-        </div>
-
-        <!-- Fallback group cũ khi senderResolved null (vd tin cũ trước migration) -->
-        <div
-          v-else-if="isGroup && !isSelf"
-          class="sender-name sender-name-clickable"
-          @click="emit('sender-click')"
-        >
-          {{ message.senderName || 'Người lạ' }}
-        </div>
+          ...
+        />
+        -->
 
         <!-- M55 2026-05-30: Sender attribution cho multi-sale cùng chăm.
              Bubble self (tin sale gửi qua CRM) — nếu repliedByUserId !== viewer
@@ -154,8 +118,8 @@
 
           <!-- File/PDF -->
           <div v-else-if="getFileInfo(message)">
-            <div class="file-card">
-              <v-icon size="20" class="mr-2" color="info">mdi-file-document-outline</v-icon>
+            <div class="file-card clickable" @click="openFile(getFileInfo(message)!.href, getFileInfo(message)!.name)">
+              <v-icon size="20" class="mr-2" color="#2F80ED">mdi-file-document-outline</v-icon>
               <div class="flex-grow-1">
                 <div class="text-body-2 font-weight-medium">{{ getFileInfo(message)!.name }}</div>
                 <div class="text-caption" style="opacity: 0.6;">{{ getFileInfo(message)!.size }}</div>
@@ -165,7 +129,8 @@
                 icon
                 size="x-small"
                 variant="text"
-                @click="openFile(getFileInfo(message)!.href, getFileInfo(message)!.name)"
+                color="#2F80ED"
+                @click.stop="downloadFileDirectly(getFileInfo(message)!.href, getFileInfo(message)!.name)"
               >
                 <v-icon size="16">mdi-download</v-icon>
               </v-btn>
@@ -271,9 +236,12 @@
             v-else-if="isSpecialType(message.contentType)"
             :type="resolveSpecialType(message)"
             :content="parseContent(message.content)"
+            :active-zalo-account-id="activeZaloAccountId ?? null"
             @callback="$emit('callback', message)"
             @open-profile="onOpenProfile"
             @open-phone="(p) => emit('open-phone', p)"
+            @send-friend-request="(uid) => emit('send-friend-request', uid)"
+            @open-chat-with-uid="(payload) => emit('open-chat-with-uid', payload)"
           />
 
           <!-- Default text — parse @mention + bullets + linebreaks -->
@@ -340,18 +308,88 @@
         </span>
       </div>
 
-      <!-- Hover reaction picker — bubble hover → trigger button visible →
-           hover trigger → emoji picker mở (open-on-hover trong reaction-picker) -->
-      <div class="reaction-trigger" :class="isSelf ? 'reaction-trigger--left' : 'reaction-trigger--right'">
-        <reaction-picker @react="onPickerReact" />
+      <!-- Hover Quick Actions Bar — hiển thị 4 nút bấm tương tác nhanh khi hover tin nhắn (2026-07-13) -->
+      <div
+        class="quick-actions-bar"
+        :class="isSelf ? 'quick-actions-bar--left' : 'quick-actions-bar--right'"
+      >
+        <!-- Nút 1: Thả biểu cảm Smiley (Reaction) -->
+        <div class="qab-item">
+          <reaction-picker @react="onPickerReact" />
+        </div>
+
+        <!-- Nút 2: Trả lời (Dấu ngoặc kép) -->
+        <button
+          class="qab-btn"
+          title="Trả lời"
+          @click.stop="onReplyClick"
+        >
+          <QuoteIcon :size="14" :stroke-width="1.8" />
+        </button>
+
+        <!-- Nút 3: Chuyển tiếp (Mũi tên chia sẻ) -->
+        <button
+          class="qab-btn"
+          title="Chuyển tiếp"
+          @click.stop="onForwardClick"
+        >
+          <ForwardIcon :size="14" :stroke-width="1.8" />
+        </button>
+
+        <!-- Nút 4: Menu khác (Ba chấm) -->
+        <button
+          class="qab-btn"
+          title="Thao tác khác"
+          @click.stop="onMoreClick($event)"
+        >
+          <MoreHorizontalIcon :size="14" :stroke-width="1.8" />
+        </button>
       </div>
     </div>
+
+    <!-- Dialog xem trước file PDF giống Pancake -->
+    <v-dialog v-model="showPdfPreview" max-width="900" scrollable>
+      <v-card class="rounded-xl overflow-hidden">
+        <v-card-title class="d-flex align-center justify-space-between py-3 px-4 border-b">
+          <span class="text-subtitle-1 font-weight-bold text-truncate pr-4" style="max-width: 80%">
+            📄 {{ pdfPreviewName }}
+          </span>
+          <v-btn icon size="small" variant="text" @click="closePdfPreview">
+            <v-icon size="20">mdi-close</v-icon>
+          </v-btn>
+        </v-card-title>
+
+        <v-card-text class="pa-0 bg-grey-lighten-4">
+          <div v-if="pdfPreviewUrl" class="d-flex justify-center align-center" style="height: 75vh;">
+            <embed :src="pdfPreviewUrl" type="application/pdf" width="100%" height="100%" />
+          </div>
+          <div v-else class="d-flex flex-column align-center justify-center py-10">
+            <v-progress-circular indeterminate color="primary" class="mb-2" />
+            <span class="text-caption">Đang tải file PDF...</span>
+          </div>
+        </v-card-text>
+
+        <v-card-actions class="py-3 px-4 border-t d-flex justify-end gap-2 bg-white">
+          <v-btn variant="outlined" color="grey-darken-1" rounded="lg" @click="closePdfPreview">
+            Hủy
+          </v-btn>
+          <v-btn color="primary" rounded="lg" @click="downloadPdf">
+            Đồng ý
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
 import type { Message } from '@/composables/use-chat';
 import { computed, ref, watch } from 'vue';
+import {
+  Quote as QuoteIcon,
+  Forward as ForwardIcon,
+  MoreHorizontal as MoreHorizontalIcon,
+} from 'lucide-vue-next';
 import { formatInOrgTz, weekdayInOrgTz } from '@/composables/use-org-timezone';
 import { linkifyHtml } from '@/composables/use-rich-format';
 import SpecialMessageRenderer from '@/components/chat/special-message-renderer.vue';
@@ -378,7 +416,14 @@ const props = defineProps<{
   prevMessage?: Message | null;
   /** M55 2026-05-30 — viewer userId để phân biệt "tin mình gửi" vs "tin sale khác cùng chăm gửi" */
   currentUserId?: string | null;
+  /** Nick CRM hiện đang xem hội thoại — dùng để gọi API kết bạn / mở chat từ danh thiếp */
+  activeZaloAccountId?: string | null;
 }>();
+
+const isMediaBubble = computed(() => {
+  const type = props.message.contentType;
+  return type === 'image' || type === 'video' || type === 'gif' || type === 'sticker';
+});
 
 const emit = defineEmits<{
   contextmenu: [event: MouseEvent];
@@ -391,10 +436,15 @@ const emit = defineEmits<{
   'open-phone': [phone: string];
   'open-reaction-detail': [payload: { reactions: any[]; message: Message }];
   'jump-to-reply': [msgId: string];
+  'reply-click': [];
+  'forward-click': [];
   // Luồng Mục Tiêu M11 source badge events
   'open-sequence': [sequenceId: string];
   'explain-native': [];
   'audit-ai': [];
+  // Danh thiếp actions
+  'send-friend-request': [uid: string];
+  'open-chat-with-uid': [payload: { uid: string; name?: string; avatarUrl?: string }];
 }>();
 
 // 2026-06-11 — ảnh tin nhắn 404 (link Zalo hết hạn) → hiện placeholder thay ô vỡ.
@@ -432,17 +482,29 @@ function parseContent(content: string | null): unknown {
  *   recommened.user   → 'user_suggest'         (gợi ý kết bạn — chip Gợi ý + Xem thông tin)
  *   recommened.link   → 'link'                 (share link có preview)
  *   khác (incl recall)→ giữ nguyên contentType (rich fallback)
+ *
+ * 2026-07-13: Zalo đôi khi gửi danh thiếp dưới content_type='qr_code' với action='recommened.user'
+ *   → cũng map sang 'user_suggest' thay vì hiện QR đơn thuần.
  */
 function resolveSpecialType(msg: Message): string {
-  if (msg.contentType !== 'contact_card') return msg.contentType;
-  try {
-    const p = safeParse(msg.content);
-    const action = String(p?.action || '').toLowerCase();
-    if (action === 'show.profile') return 'contact_card_profile';
-    if (action === 'recommened.user' || action === 'recommended.user') return 'user_suggest';
-    if (action === 'recommened.link' || action === 'recommended.link') return 'link';
-  } catch { /* fallthrough */ }
-  return 'contact_card';
+  const p = safeParse(msg.content);
+  const action = String(p?.action || '').toLowerCase();
+
+  if (msg.contentType === 'contact_card') {
+    try {
+      if (action === 'show.profile') return 'contact_card_profile';
+      if (action === 'recommened.user' || action === 'recommended.user') return 'user_suggest';
+      if (action === 'recommened.link' || action === 'recommended.link') return 'link';
+    } catch { /* fallthrough */ }
+    return 'contact_card';
+  }
+
+  // qr_code + recommened.user = danh thiếp người dùng (Zalo lưu QR code profile)
+  if (msg.contentType === 'qr_code' && (action === 'recommened.user' || action === 'recommended.user')) {
+    return 'user_suggest';
+  }
+
+  return msg.contentType;
 }
 
 // E21/E22 — mở Zalo user info dialog cho UID trong card. Parent (MessageThread) handle.
@@ -910,6 +972,18 @@ function onPickerReact(key: string) {
   emit('toggle-reaction', key);
 }
 
+function onReplyClick() {
+  emit('reply-click');
+}
+
+function onForwardClick() {
+  emit('forward-click');
+}
+
+function onMoreClick(e: MouseEvent) {
+  emit('contextmenu', e);
+}
+
 // 2026-06-13 (anh báo tải file mất tên): kho lưu media/{hash}.ext nên mở thẳng URL → tải về
 // tên-hash. Tải QUA cổng CRM /media/download (cùng origin, gắn Content-Disposition tên thật) →
 // trình duyệt giữ đúng tên. Dùng axios api (kèm auth) → blob → <a download="tên thật">.
@@ -917,6 +991,55 @@ function onPickerReact(key: string) {
 // TIMEOUT tạm thời → trước đây fallback window.open(href) = tải tên-hash (sai). Giờ: RETRY 1
 // lần (timeout 60s cho file lớn), nếu vẫn lỗi thì BÁO toast (KHÔNG window.open để tránh tên-hash).
 const downloadingFiles = new Set<string>();
+const showPdfPreview = ref(false);
+const pdfPreviewUrl = ref('');
+const pdfPreviewName = ref('');
+
+function closePdfPreview() {
+  showPdfPreview.value = false;
+  if (pdfPreviewUrl.value) {
+    URL.revokeObjectURL(pdfPreviewUrl.value);
+    pdfPreviewUrl.value = '';
+  }
+}
+
+function downloadPdf() {
+  if (!pdfPreviewUrl.value) return;
+  const a = document.createElement('a');
+  a.href = pdfPreviewUrl.value;
+  a.download = pdfPreviewName.value || 'download.pdf';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  showPdfPreview.value = false;
+}
+
+async function downloadFileDirectly(href: string, name?: string) {
+  if (downloadingFiles.has(href)) return;
+  downloadingFiles.add(href);
+  const { api } = await import('@/api/index');
+  try {
+    const res = await api.get('/media/download', {
+      params: { url: href, name: name || '' },
+      responseType: 'blob',
+      timeout: 60000,
+    });
+    const blobUrl = URL.createObjectURL(res.data as Blob);
+    const a = document.createElement('a');
+    a.href = blobUrl;
+    a.download = name || 'tep';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 4000);
+  } catch (e) {
+    console.error('[downloadFileDirectly] lỗi tải:', e);
+    try { useToast().warning('Tải tệp lỗi, thử lại sau.'); } catch {}
+  } finally {
+    downloadingFiles.delete(href);
+  }
+}
+
 async function openFile(href: string, name?: string) {
   if (downloadingFiles.has(href)) return; // chống double-click → tránh Chrome hỏi popup "tải nhiều"
   downloadingFiles.add(href);
@@ -930,14 +1053,24 @@ async function openFile(href: string, name?: string) {
     let res;
     try { res = await fetchBlob(); }
     catch { res = await fetchBlob(); } // retry 1 lần (lỗi mạng/timeout tạm thời)
-    const blobUrl = URL.createObjectURL(res.data as Blob);
-    const a = document.createElement('a');
-    a.href = blobUrl;
-    a.download = name || 'tep';
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(blobUrl), 4000);
+    const isPdf = name?.toLowerCase().endsWith('.pdf');
+    let blobUrl = '';
+    if (isPdf) {
+      const pdfBlob = new Blob([res.data], { type: 'application/pdf' });
+      blobUrl = URL.createObjectURL(pdfBlob);
+      pdfPreviewUrl.value = blobUrl;
+      pdfPreviewName.value = name || 'Tài liệu.pdf';
+      showPdfPreview.value = true;
+    } else {
+      blobUrl = URL.createObjectURL(res.data as Blob);
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = name || 'tep';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 4000);
+    }
   } catch (e) {
     console.error('[openFile] tải qua cổng lỗi sau retry:', e);
     try { useToast().warning('Tải tệp lỗi tạm thời, thử lại sau ít giây.'); } catch { /* */ }
@@ -974,7 +1107,7 @@ async function openFile(href: string, name?: string) {
 .msg-avatar-clickable { cursor: pointer; transition: transform 0.1s ease; }
 .msg-avatar-clickable:hover { transform: scale(1.06); }
 .bubble-wrapper {
-  max-width: 65%;
+  max-width: 85%;
   position: relative;
   /* Chừa chỗ cho reaction-display overlap (12px = 50% chiều cao chip 24px) */
   margin-bottom: 12px;
@@ -1014,7 +1147,8 @@ async function openFile(href: string, name?: string) {
 .message-bubble {
   padding: 8px 13px;
   border-radius: 15px;
-  font-size: 14px;
+  font-size: 16px;
+  font-weight: 600;
   line-height: 1.45;
   word-wrap: break-word;
   word-break: break-word;
@@ -1024,15 +1158,57 @@ async function openFile(href: string, name?: string) {
 /* INBOUND bubble — GIỮ NGUYÊN trắng như cũ (Anh chốt lại 2026-06-03:
    chỉ nền tím PHẦN TÊN người gửi, không nhuộm cả bubble) */
 .message-bubble.is-other {
-  background: var(--smax-bg, #ffffff);
-  color: var(--smax-text, #212121);
+  background: #E6E7E8;
+  color: #1E202C;
   border-radius: 4px 15px 15px 15px;
-  border: 1px solid var(--smax-grey-200, #ebedf0);
+  border: 1px solid #E6E7E8;
+}
+.message-bubble.is-other .bubble-time,
+.message-bubble.is-other .text-content,
+.message-bubble.is-other .media-caption,
+.message-bubble.is-other .reply-text,
+.message-bubble.is-other .voice-mic-icon,
+.message-bubble.is-other .voice-fallback,
+.message-bubble.is-other :deep(.link),
+.message-bubble.is-other :deep(.phone-link) {
+  color: #1E202C;
 }
 .message-bubble.is-self {
-  background: var(--smax-bubble-self, #d7ecf7);
-  color: var(--smax-text, #212121);
+  background: #267EFF;
+  color: #FFFFFF;
   border-radius: 15px 15px 4px 15px;
+  border: 1px solid #267EFF;
+}
+
+/* Outbound content stays white on solid blue bubble. */
+.message-bubble.is-self .bubble-time,
+.message-bubble.is-self .text-content,
+.message-bubble.is-self .media-caption,
+.message-bubble.is-self .reply-card,
+.message-bubble.is-self .reply-text,
+.message-bubble.is-self .reply-header,
+.message-bubble.is-self .voice-mic-icon,
+.message-bubble.is-self .voice-fallback,
+.message-bubble.is-self :deep(.link),
+.message-bubble.is-self :deep(.phone-link) {
+  color: #FFFFFF;
+}
+
+/* Media bubble: sent and received use same neutral transparent frame. */
+.message-bubble.is-media,
+.message-bubble.is-media.is-self,
+.message-bubble.is-media.is-other {
+  background: transparent;
+  color: #1E202C;
+  border: 1px solid #E5E7EB;
+  padding: 6px;
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.04);
+}
+.message-bubble.is-media .bubble-time,
+.message-bubble.is-media.is-self .bubble-time,
+.message-bubble.is-media.is-other .bubble-time,
+.message-bubble.is-media .media-caption {
+  color: #1E202C;
 }
 
 /* INBOUND sender name row (Anh chốt 2026-06-03 - 3 case):
@@ -1184,8 +1360,14 @@ async function openFile(href: string, name?: string) {
   align-items: center;
   padding: 8px 12px;
   border-radius: 7px;
-  background: rgba(33, 150, 243, 0.06);
-  border: 1px solid var(--smax-grey-200, #ebedf0);
+  background: #F0F7FF;
+  border: 1px solid #93c5fd;
+  cursor: pointer;
+  transition: all 150ms;
+}
+.file-card:hover {
+  background: #EBF3FF;
+  border-color: #60a5fa;
 }
 .chat-image {
   max-width: 100%;
@@ -1403,21 +1585,55 @@ async function openFile(href: string, name?: string) {
   word-break: break-word;
 }
 
-.bubble-wrapper .reaction-trigger {
+.bubble-wrapper .quick-actions-bar {
   position: absolute;
   top: 50%;
   transform: translateY(-50%);
   opacity: 0;
   transition: opacity 0.15s;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: #ffffff;
+  padding: 2px 4px;
+  border-radius: 20px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  border: 1px solid #ebedf0;
+  z-index: 10;
 }
-.bubble-wrapper:hover .reaction-trigger {
+.bubble-wrapper:hover .quick-actions-bar {
   opacity: 1;
 }
-.reaction-trigger--left {
-  left: -28px;
+.quick-actions-bar--left {
+  /* Tin gửi đi (Self, bên phải): hiển thị thanh công cụ ở phía bên trái bubble */
+  right: 100%;
+  margin-right: 8px;
 }
-.reaction-trigger--right {
-  right: -28px;
+.quick-actions-bar--right {
+  /* Tin nhận được (Other, bên trái): hiển thị thanh công cụ ở phía bên phải bubble */
+  left: 100%;
+  margin-left: 8px;
+}
+.qab-item {
+  display: flex;
+  align-items: center;
+}
+.qab-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #ffffff;
+  border: none;
+  color: #4b5563;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 130ms, color 130ms;
+}
+.qab-btn:hover {
+  background: #f3f4f6;
+  color: #111827;
 }
 
 /* Phase A UI fix v4 (2026-05-22) — Zalo native reaction box.

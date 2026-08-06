@@ -86,8 +86,8 @@ describe('GET /api/v1/public/org-branding (public)', () => {
     const res = await buildApp().inject({ method: 'GET', url: PUB });
     expect(res.statusCode).toBe(200);
     const body = JSON.parse(res.body);
-    expect(body.name).toBe('HS Holding');
-    expect(body.logoUrl).toBeNull();
+    expect(body.name).toBe('Nhà Yến CRM');
+    expect(body.logoUrl).toBe('/brand/brand-mark.png');
     expect(body.emailDomain).toBeNull();
   });
 
@@ -107,7 +107,7 @@ describe('GET /api/v1/public/org-branding (public)', () => {
     prismaMock.organization.findFirst.mockRejectedValue(new Error('db down'));
     const res = await buildApp().inject({ method: 'GET', url: PUB });
     expect(res.statusCode).toBe(200);
-    expect(JSON.parse(res.body).name).toBe('HS Holding');
+    expect(JSON.parse(res.body).name).toBe('Nhà Yến CRM');
   });
 
   it('set Cache-Control 60s', async () => {

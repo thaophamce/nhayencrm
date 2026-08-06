@@ -27,6 +27,7 @@ import { randomUUID } from 'node:crypto';
 import { getOwnerScope, applyOwnerScope } from '../rbac/owner-scope.js';
 import { onPhoneUidResolved } from './list-event-handlers.js';
 import { zaloOps } from '../../shared/zalo-operations.js';
+import type { MappedRow } from './types.js';
 
 type EntryStatusTab =
   | 'all'
@@ -412,150 +413,11 @@ export async function customerListEntryRoutes(app: FastifyInstance): Promise<voi
     if (!list) return reply.status(404).send({ error: 'list_not_found' });
 
     try {
-      const { lines, internalDup, crossListDup, crmContactDup } = await parseAndDedup(
-        rawText,
-        list.orgId,
-      );
-      if (lines.length === 0) {
+      const result = await appendRowsToList(id, list.orgId, rawText);
+      if (!result) {
         return reply.status(400).send({ error: 'no_lines_parsed' });
       }
-
-      // Find next rowIndex
-      const lastRow = await prisma.customerListEntry.findFirst({
-        where: { customerListId: id },
-        select: { rowIndex: true },
-        orderBy: { rowIndex: 'desc' },
-      });
-      const baseIdx = (lastRow?.rowIndex ?? 0);
-
-      // Cũng phải check dup với entries hiện có trong CHÍNH list này (parseAndDedup
-      // chỉ check internal-batch + cross-list). Build map phoneE164 → existingEntryId.
-      const validPhones = lines.filter((l) => l.valid && l.phoneE164).map((l) => l.phoneE164!);
-      const existingInList = validPhones.length
-        ? await prisma.customerListEntry.findMany({
-            where: { customerListId: id, phoneE164: { in: validPhones } },
-            select: { id: true, phoneE164: true },
-            orderBy: { createdAt: 'asc' },
-          })
-        : [];
-      const existingByPhone = new Map<string, string>();
-      for (const e of existingInList) {
-        if (e.phoneE164 && !existingByPhone.has(e.phoneE164)) {
-          existingByPhone.set(e.phoneE164, e.id);
-        }
-      }
-
-      // Fetch dup list names cho cross-list messages
-      const dupListIds = [...new Set(
-        Array.from(crossListDup.values()).map((v) => v.dupListId)
-      )];
-      const dupListNameMap = new Map<string, string>();
-      if (dupListIds.length > 0) {
-        const lists = await prisma.customerList.findMany({
-          where: { id: { in: dupListIds } },
-          select: { id: true, name: true },
-        });
-        for (const l of lists) dupListNameMap.set(l.id, l.name);
-      }
-
-      const rowsToInsert: Array<Record<string, unknown>> = [];
-      for (const line of lines) {
-        const status: string = line.valid ? 'validated' : 'invalid';
-        let dupInListWithEntryId: string | null = null;
-        let dupWithListId: string | null = null;
-        let dupWithListEntryId: string | null = null;
-        let dupWithContactId: string | null = null;
-        let dupWithListName: string | null = null;
-
-        if (line.valid && line.phoneE164) {
-          const sameList = existingByPhone.get(line.phoneE164);
-          if (sameList) {
-            dupInListWithEntryId = sameList;
-          } else if (internalDup.has(line.rowIndex)) {
-            // resolve trong second pass
-          } else if (crossListDup.has(line.rowIndex)) {
-            const ref = crossListDup.get(line.rowIndex)!;
-            dupWithListId = ref.dupListId;
-            dupWithListEntryId = ref.dupEntryId;
-            dupWithListName = dupListNameMap.get(ref.dupListId) ?? null;
-          } else if (crmContactDup.has(line.rowIndex)) {
-            dupWithContactId = crmContactDup.get(line.rowIndex)!;
-          }
-        }
-
-        const initialMsgs = buildMessagesFromState({
-          invalidReason: line.invalidReason,
-          dupInListWithEntryId,
-          dupWithListId,
-          dupWithListEntryId,
-          dupWithListName,
-          dupWithContactId,
-        });
-        if (line.valid && internalDup.get(line.rowIndex) != null) {
-          initialMsgs.push({
-            type: 'DUP_IN_LIST',
-            text: 'Trùng dòng khác trong tệp này',
-            payload: { rowIndex: internalDup.get(line.rowIndex) },
-          });
-        }
-        const now = new Date().toISOString();
-        const fullMsgs: SystemMessage[] = initialMsgs.map((m) => ({ ...m, ts: now }));
-
-        rowsToInsert.push({
-          id: randomUUID(),
-          customerListId: id,
-          rowIndex: baseIdx + line.rowIndex,
-          phoneRaw: line.phoneRaw.slice(0, 500),
-          nameRaw: line.nameRaw,
-          personalNote: line.personalNote ? line.personalNote.slice(0, 2000) : null,
-          phoneE164: line.phoneE164,
-          phoneLocal: line.phoneLocal,
-          phoneValid: line.valid,
-          invalidReason: line.invalidReason,
-          status,
-          dupInListWithEntryId,
-          dupWithListId,
-          dupWithListEntryId,
-          dupWithContactId,
-          // Wave 1.5-B (B5 fix): link entry.contactId ngay khi import phát hiện dup_with_crm.
-          // Tránh downstream nick-worker re-resolve qua phone (có thể tạo stub tách rời Contact cha).
-          contactId: dupWithContactId,
-          hasZalo: null,
-          multiNickCount: 0,
-          systemMessages: fullMsgs,
-        });
-      }
-
-      await prisma.customerListEntry.createMany({ data: rowsToInsert as never });
-
-      // Resolve internal dup references — cùng batch
-      if (internalDup.size > 0) {
-        const created = await prisma.customerListEntry.findMany({
-          where: { customerListId: id, rowIndex: { in: rowsToInsert.map((r) => r.rowIndex as number) } },
-          select: { id: true, rowIndex: true },
-        });
-        const rowIdxToEntryId = new Map(created.map((e) => [e.rowIndex, e.id]));
-        for (const [dupRowIdx, firstRowIdx] of internalDup) {
-          const dupEntryId = rowIdxToEntryId.get(baseIdx + dupRowIdx);
-          const firstEntryId = rowIdxToEntryId.get(baseIdx + firstRowIdx);
-          if (dupEntryId && firstEntryId) {
-            await prisma.customerListEntry.update({
-              where: { id: dupEntryId },
-              data: { dupInListWithEntryId: firstEntryId },
-            });
-          }
-        }
-      }
-
-      await recomputeListCounters(id);
-      void kickoffEnrichment(id);
-
-      return reply.status(201).send({
-        ok: true,
-        added: rowsToInsert.length,
-        valid: lines.filter((l) => l.valid).length,
-        invalid: lines.filter((l) => !l.valid).length,
-      });
+      return reply.status(201).send({ ok: true, ...result });
     } catch (err) {
       logger.error({ err, id }, '[list-entries] add failed');
       return reply.status(500).send({ error: 'internal_error' });
@@ -768,6 +630,157 @@ export async function customerListEntryRoutes(app: FastifyInstance): Promise<voi
       }
     },
   );
+}
+
+/**
+ * Append rows (raw pasted text hoặc MappedRow[]) vào 1 CustomerList hiện có —
+ * logic dùng chung giữa POST /:id/entries (sale paste tay) và các nguồn
+ * import khác (vd Group Scan "Đưa vào Tệp KH"). Trả về null nếu không parse
+ * được dòng nào hợp lệ.
+ */
+export async function appendRowsToList(
+  listId: string,
+  orgId: string,
+  input: string | MappedRow[],
+): Promise<{ added: number; valid: number; invalid: number } | null> {
+  const { lines, internalDup, crossListDup, crmContactDup } = await parseAndDedup(input, orgId);
+  if (lines.length === 0) return null;
+
+  // Find next rowIndex
+  const lastRow = await prisma.customerListEntry.findFirst({
+    where: { customerListId: listId },
+    select: { rowIndex: true },
+    orderBy: { rowIndex: 'desc' },
+  });
+  const baseIdx = (lastRow?.rowIndex ?? 0);
+
+  // Cũng phải check dup với entries hiện có trong CHÍNH list này (parseAndDedup
+  // chỉ check internal-batch + cross-list). Build map phoneE164 → existingEntryId.
+  const validPhones = lines.filter((l) => l.valid && l.phoneE164).map((l) => l.phoneE164!);
+  const existingInList = validPhones.length
+    ? await prisma.customerListEntry.findMany({
+        where: { customerListId: listId, phoneE164: { in: validPhones } },
+        select: { id: true, phoneE164: true },
+        orderBy: { createdAt: 'asc' },
+      })
+    : [];
+  const existingByPhone = new Map<string, string>();
+  for (const e of existingInList) {
+    if (e.phoneE164 && !existingByPhone.has(e.phoneE164)) {
+      existingByPhone.set(e.phoneE164, e.id);
+    }
+  }
+
+  // Fetch dup list names cho cross-list messages
+  const dupListIds = [...new Set(
+    Array.from(crossListDup.values()).map((v) => v.dupListId)
+  )];
+  const dupListNameMap = new Map<string, string>();
+  if (dupListIds.length > 0) {
+    const lists = await prisma.customerList.findMany({
+      where: { id: { in: dupListIds } },
+      select: { id: true, name: true },
+    });
+    for (const l of lists) dupListNameMap.set(l.id, l.name);
+  }
+
+  const rowsToInsert: Array<Record<string, unknown>> = [];
+  for (const line of lines) {
+    const status: string = line.valid ? 'validated' : 'invalid';
+    let dupInListWithEntryId: string | null = null;
+    let dupWithListId: string | null = null;
+    let dupWithListEntryId: string | null = null;
+    let dupWithContactId: string | null = null;
+    let dupWithListName: string | null = null;
+
+    if (line.valid && line.phoneE164) {
+      const sameList = existingByPhone.get(line.phoneE164);
+      if (sameList) {
+        dupInListWithEntryId = sameList;
+      } else if (internalDup.has(line.rowIndex)) {
+        // resolve trong second pass
+      } else if (crossListDup.has(line.rowIndex)) {
+        const ref = crossListDup.get(line.rowIndex)!;
+        dupWithListId = ref.dupListId;
+        dupWithListEntryId = ref.dupEntryId;
+        dupWithListName = dupListNameMap.get(ref.dupListId) ?? null;
+      } else if (crmContactDup.has(line.rowIndex)) {
+        dupWithContactId = crmContactDup.get(line.rowIndex)!;
+      }
+    }
+
+    const initialMsgs = buildMessagesFromState({
+      invalidReason: line.invalidReason,
+      dupInListWithEntryId,
+      dupWithListId,
+      dupWithListEntryId,
+      dupWithListName,
+      dupWithContactId,
+    });
+    if (line.valid && internalDup.get(line.rowIndex) != null) {
+      initialMsgs.push({
+        type: 'DUP_IN_LIST',
+        text: 'Trùng dòng khác trong tệp này',
+        payload: { rowIndex: internalDup.get(line.rowIndex) },
+      });
+    }
+    const now = new Date().toISOString();
+    const fullMsgs: SystemMessage[] = initialMsgs.map((m) => ({ ...m, ts: now }));
+
+    rowsToInsert.push({
+      id: randomUUID(),
+      customerListId: listId,
+      rowIndex: baseIdx + line.rowIndex,
+      phoneRaw: line.phoneRaw.slice(0, 500),
+      nameRaw: line.nameRaw,
+      personalNote: line.personalNote ? line.personalNote.slice(0, 2000) : null,
+      phoneE164: line.phoneE164,
+      phoneLocal: line.phoneLocal,
+      phoneValid: line.valid,
+      invalidReason: line.invalidReason,
+      status,
+      dupInListWithEntryId,
+      dupWithListId,
+      dupWithListEntryId,
+      dupWithContactId,
+      // Wave 1.5-B (B5 fix): link entry.contactId ngay khi import phát hiện dup_with_crm.
+      // Tránh downstream nick-worker re-resolve qua phone (có thể tạo stub tách rời Contact cha).
+      contactId: dupWithContactId,
+      hasZalo: null,
+      multiNickCount: 0,
+      systemMessages: fullMsgs,
+    });
+  }
+
+  await prisma.customerListEntry.createMany({ data: rowsToInsert as never });
+
+  // Resolve internal dup references — cùng batch
+  if (internalDup.size > 0) {
+    const created = await prisma.customerListEntry.findMany({
+      where: { customerListId: listId, rowIndex: { in: rowsToInsert.map((r) => r.rowIndex as number) } },
+      select: { id: true, rowIndex: true },
+    });
+    const rowIdxToEntryId = new Map(created.map((e) => [e.rowIndex, e.id]));
+    for (const [dupRowIdx, firstRowIdx] of internalDup) {
+      const dupEntryId = rowIdxToEntryId.get(baseIdx + dupRowIdx);
+      const firstEntryId = rowIdxToEntryId.get(baseIdx + firstRowIdx);
+      if (dupEntryId && firstEntryId) {
+        await prisma.customerListEntry.update({
+          where: { id: dupEntryId },
+          data: { dupInListWithEntryId: firstEntryId },
+        });
+      }
+    }
+  }
+
+  await recomputeListCounters(listId);
+  void kickoffEnrichment(listId);
+
+  return {
+    added: rowsToInsert.length,
+    valid: lines.filter((l) => l.valid).length,
+    invalid: lines.filter((l) => !l.valid).length,
+  };
 }
 
 /**

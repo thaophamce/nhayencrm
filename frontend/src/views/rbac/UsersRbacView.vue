@@ -283,6 +283,7 @@
               </span>
             </td>
             <td class="cell-actions">
+              <button v-if="canBulk" class="at-btn-icon" title="Cấp quyền nick Zalo" @click.stop="openZaloAssign(u)">📱</button>
               <button class="at-btn-icon" title="Mở chi tiết" @click.stop="openPanel(u)">✎</button>
             </td>
           </tr>
@@ -308,6 +309,13 @@
       @created="onCreatedWithZalo"
     />
 
+    <!-- Task C 2026-07-14 (anh chốt) — cấp quyền nhiều nick Zalo cho 1 nhân viên -->
+    <ZaloBulkAssignDialog
+      v-model="zaloAssignOpen"
+      :user-id="zaloAssignUser?.id ?? ''"
+      :user-name="zaloAssignUser?.fullName || zaloAssignUser?.email || ''"
+    />
+
   </div>
 </template>
 
@@ -325,6 +333,7 @@ import { useAuthStore } from '@/stores/auth';
 import { api } from '@/api/index';
 import UserEditPanel from '@/components/rbac/UserEditPanel.vue';
 import CreateUserWithZaloModal from '@/components/users/CreateUserWithZaloModal.vue';
+import ZaloBulkAssignDialog from '@/components/rbac/ZaloBulkAssignDialog.vue';
 
 const store = useRbacStore();
 const authStore = useAuthStore();
@@ -411,6 +420,14 @@ const createWithZaloOpen = ref(false);
 function openCreateWithZaloDialog() { createWithZaloOpen.value = true; }
 async function onCreatedWithZalo() {
   await store.loadUsers();
+}
+
+// Task C 2026-07-14 (anh chốt) — cấp quyền hàng loạt nick Zalo cho 1 nhân viên
+const zaloAssignOpen = ref(false);
+const zaloAssignUser = ref<RbacUser | null>(null);
+function openZaloAssign(u: RbacUser) {
+  zaloAssignUser.value = u;
+  zaloAssignOpen.value = true;
 }
 
 onMounted(async () => {

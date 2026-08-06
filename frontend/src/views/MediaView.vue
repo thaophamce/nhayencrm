@@ -427,12 +427,25 @@ async function onFilesPicked(e: Event) {
   const input = e.target as HTMLInputElement;
   const files = Array.from(input.files ?? []);
   if (!files.length) return;
+  let progressToast: number | null = null;
   try {
-    const res = await uploadMedia(files, { visibility: 'private', folderId: activeFolder.value ?? undefined });
+    progressToast = toast.push(`Đang chuẩn bị 0/${files.length} tệp…`, 'default', 5 * 60_000);
+    const res = await uploadMedia(files, {
+      visibility: 'private',
+      folderId: activeFolder.value ?? undefined,
+      onProgress: ({ completed, total, filename, state }) => {
+        if (state === 'done' && completed < total) {
+          toast.push(`Đã tải ${completed}/${total} tệp · ${filename}`, 'default', 1200);
+        }
+      },
+    });
+    if (progressToast != null) toast.dismiss(progressToast);
     const dup = res.assets.filter((a) => a.deduped).length;
     toast.success(dup > 0 ? `Đã tải ${res.assets.length} tệp (${dup} đã có sẵn, không tốn thêm dung lượng)` : `Đã tải ${res.assets.length} tệp lên kho`);
+    if (res.failed.length) toast.warning(`${res.failed.length} tệp lỗi; các tệp còn lại đã tải thành công`);
     reload();
   } catch (err: any) {
+    if (progressToast != null) toast.dismiss(progressToast);
     toast.warning(err?.response?.data?.error || 'Tải lên thất bại');
   } finally {
     input.value = '';

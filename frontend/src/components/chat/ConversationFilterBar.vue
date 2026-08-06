@@ -2,6 +2,8 @@
 <!-- Copyright (C) 2026 Nguyễn Tiến Lộc -->
 <template>
   <div class="cfb">
+    <Transition name="cfb-expand">
+      <div v-show="expanded" class="cfb-advanced">
     <!-- ① Quick pills row — soft button, no icon, count fixed-slot tránh nhảy UI -->
     <div class="cfb-pills-wrap">
       <div class="cfb-pills">
@@ -40,6 +42,24 @@
       </div>
     </div>
 
+    <!-- ①b Nhãn ngày im (MVP phân loại hội thoại 2026-07-19) — lọc theo silenceLabel.
+         Emoji ngược trực giác: 🔥 mới im (đuổi gấp) → ❄️ im lâu (gần mất). -->
+    <div class="cfb-silence-wrap">
+      <div class="cfb-silence">
+        <button
+          v-for="s in SILENCE_LABELS"
+          :key="s.key"
+          class="silence-pill"
+          :class="{ active: filters.state.silenceLabels.has(s.key) }"
+          @click="filters.toggleSilenceLabel(s.key)"
+          :title="s.tooltip"
+        >
+          <span class="silence-emoji">{{ s.emoji }}</span>
+          <span class="silence-label">{{ s.label }}</span>
+        </button>
+      </div>
+    </div>
+
     <!-- ② 4 tabs row — Main Tab style, chia 4 equal, KHÔNG icon KHÔNG count.
          User spec: "Đây dạng Main Tab — fix size không cần đếm số hội thoại". -->
     <div class="cfb-tabs main-tab-style">
@@ -57,6 +77,8 @@
         <span class="tab-label">{{ tab.label }}</span>
       </button>
     </div>
+      </div>
+    </Transition>
 
     <!-- ③ Mini counter + sort row — half height, muted -->
     <div class="cfb-mini">
@@ -92,25 +114,38 @@ const props = defineProps<{
   /** 2026-06-11 — tab Ưu tiên KHÔNG hiện số đếm, nhưng IN ĐẬM hơn khi có hội thoại
    *  chưa đọc trong tab này. Đọc hết → hết đậm. ChatView truyền cờ này xuống. */
   priorityHasUnread?: boolean;
+  expanded?: boolean;
 }>();
 
 // 2026-06-20: phát khi click LẠI tab đang active → ChatView clear ô tìm kiếm.
 const emit = defineEmits<{ 'reselect-tab': [] }>();
 
-type TabKey = 'personal' | 'group' | 'main' | 'other';
+type TabKey = 'all' | 'personal' | 'group' | 'main' | 'other';
+type SilenceKey = 'hot' | 'warm' | 'cool' | 'cold';
+
+// MVP phân loại hội thoại (2026-07-19) — emoji ngược trực giác: 🔥 mới im → ❄️ im lâu.
+const SILENCE_LABELS: Array<{
+  key: SilenceKey;
+  emoji: string;
+  label: string;
+  tooltip: string;
+}> = [
+  { key: 'hot',  emoji: '🔥', label: '4–6n',  tooltip: 'Im 4–6 ngày — đuổi gấp kẻo nguội' },
+  { key: 'warm', emoji: '☀️', label: '7–14n', tooltip: 'Im 7–14 ngày' },
+  { key: 'cool', emoji: '🌤', label: '15–29n', tooltip: 'Im 15–29 ngày' },
+  { key: 'cold', emoji: '❄️', label: '30n+',  tooltip: 'Im từ 30 ngày — gần mất, cần cứu' },
+];
 
 const TABS: Array<{
   key: TabKey;
   label: string;
   tooltip: string;
 }> = [
+  { key: 'all',      label: 'Tất cả',  tooltip: 'Xem toàn bộ hội thoại không phân biệt' },
   { key: 'personal', label: 'Cá nhân', tooltip: 'Chỉ hội thoại 1-1 (user với user)' },
   { key: 'group',    label: 'Nhóm',    tooltip: 'Chỉ hội thoại nhóm' },
   { key: 'main',     label: 'Chính',   tooltip: 'Hộp thư chính (cả user lẫn nhóm)' },
-  // 2026-06-11 — đổi "Khác" → "Ưu tiên" (key 'other' giữ nguyên, load-bearing
-  // ở use-inbox-filters + PATCH /:id/tab). Hội thoại chuyển vào đây sẽ KHÔNG còn
-  // ở tab Cá nhân nữa (loại trừ lẫn nhau, xử lý ở backend).
-  { key: 'other',    label: 'Ưu tiên', tooltip: 'Hội thoại ưu tiên (đã ghim từ menu chuột phải)' },
+  { key: 'other',    label: 'Ưu tiên', tooltip: 'Hộp thư ưu tiên' }
 ];
 
 function setActiveTab(key: TabKey) {
@@ -134,6 +169,19 @@ function toggleSort() {
   background: white;
   border-bottom: 1px solid #F3F4F6;
   flex-shrink: 0;
+}
+.cfb-advanced {
+  overflow: hidden;
+}
+.cfb-expand-enter-active,
+.cfb-expand-leave-active {
+  max-height: 190px;
+  transition: max-height 180ms ease, opacity 150ms ease;
+}
+.cfb-expand-enter-from,
+.cfb-expand-leave-to {
+  max-height: 0;
+  opacity: 0;
 }
 
 /* ① Quick pills — 4 pills chia ĐỀU, vừa khít khung cột 2, KHÔNG scroll ngang */
@@ -223,46 +271,92 @@ function toggleSort() {
 .pill.danger.active .count { color: #B91C1C; }
 .pill.success.active .count { color: #047857; }
 
-/* ② Main Tab style — 4 tabs prominent, fix size, KHÔNG count */
-.cfb-tabs.main-tab-style {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  padding: 6px;
-  margin: 8px 10px 0;
-  background: #F3F4F6;
+/* ①b Nhãn ngày im — 4 pill nhỏ emoji, cùng style pill nhưng gọn hơn */
+.cfb-silence-wrap {
+  border-bottom: 1px solid #F3F4F6;
+}
+.cfb-silence {
+  display: flex;
+  gap: 4px;
+  padding: 6px 10px;
+  align-items: center;
+}
+.silence-pill {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 4px;
   border-radius: 10px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.18s ease, border-color 0.18s ease, color 0.18s ease;
+  border: 1px solid #E5E7EB;
+  background: white;
+  color: #4B5563;
+  font-family: inherit;
+  line-height: 1.2;
+}
+.silence-pill .silence-emoji { font-size: 13px; }
+.silence-pill .silence-label {
+  font-size: 10.5px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.silence-pill:hover {
+  background: #FAFBFC;
+  border-color: #D1D5DB;
+  color: #111827;
+}
+.silence-pill.active {
+  background: #EEF2FF;
+  border-color: #A5B4FC;
+  color: #4338CA;
+  font-weight: 600;
+}
+
+/* ② Main Tab style — Segmented Control hiện đại giống Lark/Linear/Attio */
+.cfb-tabs.main-tab-style {
+  display: flex;
+  background: #F3F4F6;
+  padding: 4px;
+  border-radius: 12px;
   gap: 2px;
   border-bottom: none;
+  margin: 10px 12px 2px;
+  height: 44px;
+  align-items: center;
 }
 .cfb-tabs.main-tab-style .cfb-tab {
-  padding: 7px 1px;
+  flex: 1;
+  height: 36px;
+  padding: 0 8px;
   text-align: center;
-  /* 2026-06-11 — "Ưu tiên" (7 ký tự) dài hơn "Khác"; giảm font + padding để 4 tab
-     đều không bị cắt chữ ở 1366px. */
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
-  letter-spacing: -0.2px;
+  letter-spacing: -0.1px;
   color: #6B7280;
   cursor: pointer;
   border: none;
   background: transparent;
-  border-radius: 7px;
-  transition: background-color 0.18s ease, color 0.18s ease, box-shadow 0.18s ease;
-  display: flex;
+  border-radius: 10px;
+  transition: background-color 150ms cubic-bezier(0.4, 0, 0.2, 1), color 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  display: inline-flex;
   align-items: center;
   justify-content: center;
   white-space: nowrap;
-  overflow: hidden;
   font-family: inherit;
 }
 .cfb-tabs.main-tab-style .cfb-tab:hover {
-  background: rgba(255, 255, 255, 0.6);
-  color: #4338CA;
+  background: #E5E7EB;
+  color: #374151;
 }
 .cfb-tabs.main-tab-style .cfb-tab.active {
-  background: white;
-  color: #6366F1;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(99, 102, 241, 0.1);
+  background: #EBF3FF !important;
+  color: #2F80ED !important;
+  box-shadow: none;
 }
 /* 2026-06-11 — tab Ưu tiên có tin chưa đọc: in ĐẬM hơn + đậm màu + chấm báo nhỏ.
    Không hiện con số (theo yêu cầu). Đọc hết → class này biến mất → trở lại thường. */

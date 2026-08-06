@@ -52,14 +52,14 @@ export const r2Driver: StorageDriver = {
     return `${config.s3PublicUrl}/${key}`;
   },
 
-  async uploadBuffer(buffer: Buffer, mimeType: string, originalName?: string): Promise<UploadResult> {
+  async uploadBuffer(buffer: Buffer, mimeType: string, originalName?: string, options = {}): Promise<UploadResult> {
     if (!buffer || buffer.length === 0) throw new Error('uploadBuffer: empty buffer (refusing 0-byte object)');
-    const ext = originalName ? extname(originalName) : mimeToExt(mimeType);
+    const ext = mimeToExt(mimeType) || (originalName ? extname(originalName) : '');
     const contentHash = createHash('sha256').update(buffer).digest('hex');
     const key = `media/${contentHash}${ext}`;
     const url = this.publicUrl(key);
 
-    if (await objectExists(key)) {
+    if (!options.skipExistsCheck && await objectExists(key)) {
       return { key, url, size: buffer.length, mimeType, contentHash, deduped: true };
     }
 
@@ -99,6 +99,20 @@ export const r2Driver: StorageDriver = {
     } catch {
       return null;
     }
+  },
+
+  async materializeForSend(key, options) {
+    const data = await this.getObjectBuffer(key);
+    if (!data) return null;
+    return {
+      data,
+      filename: options.filename,
+      metadata: {
+        totalSize: data.length,
+        ...(options.width ? { width: options.width } : {}),
+        ...(options.height ? { height: options.height } : {}),
+      },
+    };
   },
 
   async ensureBucket(): Promise<void> {

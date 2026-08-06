@@ -52,13 +52,10 @@ export interface SavedFilterPreset {
 }
 
 export type QuickPillKey = 'unread' | 'unanswered' | 'stuck' | 'ready';
-/** 4 tabs single-active (mutually exclusive):
- *   personal = chỉ user-user (threadType=user)
- *   group    = chỉ nhóm (threadType=group)
- *   main     = Hộp thư chính (cả user lẫn nhóm)
- *   other    = Move qua Khác
- */
-export type ActiveTab = 'personal' | 'group' | 'main' | 'other';
+// MVP phân loại hội thoại (2026-07-19) — nhãn ngày im. Emoji ngược trực giác:
+// 🔥 hot=mới im (đuổi gấp) → ❄️ cold=im lâu (gần mất). Mirror silence-classification.ts.
+export type SilenceLabelKey = 'hot' | 'warm' | 'cool' | 'cold';
+export type ActiveTab = 'all' | 'personal' | 'group' | 'main' | 'other';
 export type SortMode = 'recent' | 'unread-first';
 export type TimeAxis =
   | 'last-interaction'
@@ -73,7 +70,6 @@ export type TimeAxis =
 export type AutoTagKey =
   | 'active' | 'cooling' | 'cold' | 'frozen' | 'rewarmed'
   | 'stuck' | 'ready' | 'atrisk' | 'has-appointment';
-export type EngagementPatternKey = 'hot' | 'champion' | 'stable' | 'cooling' | 'cold';
 export type ScoreTier = 'cold' | 'warm' | 'hot' | 'champion' | null;
 export type StuckDuration = '>3d' | '>7d' | '>14d' | '>30d' | null;
 export type LastMessageWithin = '24h' | '7d' | '30d' | '>30d' | 'custom' | null;
@@ -90,6 +86,8 @@ export interface FilterState {
   /** Tab single-active (1 trong 4: personal/group/main/other). Default = main. */
   activeTab: ActiveTab;
   quickPills: Set<QuickPillKey>;
+  /** MVP phân loại hội thoại (2026-07-19) — nhãn ngày im đang lọc (rỗng = không lọc). */
+  silenceLabels: Set<SilenceLabelKey>;
   tagsZalo: string[];
   tagsCrm: string[];
   sortMode: SortMode;
@@ -111,8 +109,6 @@ export interface FilterState {
   birthdayWithin7d: boolean;
   appointmentWithin24h: boolean;
   appointmentOverdue: boolean;
-  // Phase 8 — Engagement heatmap patterns
-  engagementPatterns: EngagementPatternKey[];
   // 2026-06-09 — Nhóm lọc "Tin nhắn" (user vs bot), radio 1-of-3
   messageReplyState: MessageReplyState;
 }
@@ -123,11 +119,12 @@ export function defaultFilterState(): FilterState {
   return {
     folderId: null,
     saleAssigneeId: null,
-    activeTab: 'personal', // Default: Cá nhân (user-user 1-1)
+    activeTab: 'all', // Mặc định chọn bộ lọc Tất cả
     quickPills: new Set(),
+    silenceLabels: new Set(),
     tagsZalo: [],
     tagsCrm: [],
-    sortMode: 'recent',
+    sortMode: 'unread-first', // Mặc định đưa tin chưa đọc lên trên
     timeAxis: 'last-interaction',
     timeRangePreset: '7d',
     timeFrom: null,
@@ -146,7 +143,6 @@ export function defaultFilterState(): FilterState {
     birthdayWithin7d: false,
     appointmentWithin24h: false,
     appointmentOverdue: false,
-    engagementPatterns: [],
     messageReplyState: null,
   };
 }
@@ -272,6 +268,12 @@ export function useInboxFilters() {
     activePresetId.value = null;
   }
 
+  function toggleSilenceLabel(key: SilenceLabelKey) {
+    if (state.silenceLabels.has(key)) state.silenceLabels.delete(key);
+    else state.silenceLabels.add(key);
+    activePresetId.value = null;
+  }
+
   function setSortMode(mode: SortMode) {
     state.sortMode = mode;
   }
@@ -293,6 +295,8 @@ export function useInboxFilters() {
     if (state.searchQuery) params.search = state.searchQuery;
     // 4 tabs single-active → translate sang threadType + tab Zalo box
     switch (state.activeTab) {
+      case 'all':
+        break;
       case 'personal':
         params.threadType = 'user';
         break;
@@ -313,6 +317,11 @@ export function useInboxFilters() {
     if (state.quickPills.has('unanswered')) params.unreplied = 'true';
     if (state.quickPills.has('stuck')) params.stuck = 'true';
     if (state.quickPills.has('ready')) params.ready = 'true';
+
+    // MVP phân loại hội thoại (2026-07-19) — nhãn ngày im (CSV)
+    if (state.silenceLabels.size > 0) {
+      params.silenceLabels = Array.from(state.silenceLabels).join(',');
+    }
 
     // Sale
     if (state.saleAssigneeId === 'all') {
@@ -346,10 +355,6 @@ export function useInboxFilters() {
     if (state.appointmentWithin24h) params.appointmentWithin24h = 'true';
     if (state.appointmentOverdue) params.appointmentOverdue = 'true';
     if (state.saleAssigneeId === 'unassigned') params.assignedUserId = 'unassigned';
-    // Phase 8 — Engagement pattern filter
-    if (state.engagementPatterns.length > 0) {
-      params.engagementPattern = state.engagementPatterns.join(',');
-    }
     // 2026-06-09 — Nhóm lọc "Tin nhắn" (user vs bot)
     if (state.messageReplyState) params.messageReplyState = state.messageReplyState;
 
@@ -362,6 +367,7 @@ export function useInboxFilters() {
       state.folderId !== null ||
       state.saleAssigneeId !== null ||
       state.quickPills.size > 0 ||
+      state.silenceLabels.size > 0 ||
       state.tagsZalo.length > 0 ||
       state.tagsCrm.length > 0 ||
       state.sortMode !== 'recent' ||
@@ -380,7 +386,6 @@ export function useInboxFilters() {
       state.birthdayWithin7d ||
       state.appointmentWithin24h ||
       state.appointmentOverdue ||
-      state.engagementPatterns.length > 0 ||
       state.messageReplyState !== null
     );
   });
@@ -388,6 +393,19 @@ export function useInboxFilters() {
   /** Chip list cho footer "Active filter" — mỗi chip có label + removeFn */
   const activeFilterChips = computed<Array<{ key: string; label: string; remove: () => void }>>(() => {
     const chips: Array<{ key: string; label: string; remove: () => void }> = [];
+    const SILENCE_CHIP: Record<SilenceLabelKey, string> = {
+      hot: '🔥 Im 4–6n', warm: '☀️ Im 7–14n', cool: '🌤 Im 15–29n', cold: '❄️ Im 30n+',
+    };
+    for (const s of state.silenceLabels) {
+      chips.push({
+        key: `silence:${s}`,
+        label: SILENCE_CHIP[s],
+        remove: () => {
+          state.silenceLabels.delete(s);
+          activePresetId.value = null;
+        },
+      });
+    }
     for (const t of state.tagsCrm) {
       chips.push({
         key: `crm:${t}`,
@@ -499,24 +517,6 @@ export function useInboxFilters() {
     } else if (state.saleAssigneeId === 'unassigned') {
       chips.push({ key: 'sale-none', label: '🆕 Chưa giao', remove: () => { state.saleAssigneeId = null; activePresetId.value = null; } });
     }
-    // Phase 8 — Engagement patterns
-    const PATTERN_CHIP_LABELS: Record<EngagementPatternKey, string> = {
-      hot: '🔥 Đang nóng',
-      champion: '💎 Champion',
-      stable: '📈 Ổn định',
-      cooling: '⚠ Đang nguội',
-      cold: '😴 Lạnh',
-    };
-    for (const p of state.engagementPatterns) {
-      chips.push({
-        key: `eng:${p}`,
-        label: PATTERN_CHIP_LABELS[p],
-        remove: () => {
-          state.engagementPatterns = state.engagementPatterns.filter((x) => x !== p);
-          activePresetId.value = null;
-        },
-      });
-    }
     // 2026-06-09 — Nhóm "Tin nhắn" (user vs bot)
     if (state.messageReplyState) {
       const MSG_REPLY_LABELS: Record<NonNullable<MessageReplyState>, string> = {
@@ -558,6 +558,7 @@ export function useInboxFilters() {
     // Mutators
     setFolder,
     toggleQuickPill,
+    toggleSilenceLabel,
     setSortMode,
     setActiveTab,
     clearAll,

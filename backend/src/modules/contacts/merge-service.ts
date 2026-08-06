@@ -89,8 +89,8 @@ export async function mergeContacts(
     await tx.note.updateMany({ where: { contactId: { in: secondaryIds } }, data: { contactId: primaryId } });
     await tx.friendRequestOutbox.updateMany({ where: { contactId: { in: secondaryIds } }, data: { contactId: primaryId } });
     await tx.customerListEntry.updateMany({ where: { contactId: { in: secondaryIds } }, data: { contactId: primaryId } });
-    // DEFER (unique-trên-contactId → cần dedup-on-conflict, không phải symptom): ContactEngagementDaily,
-    // ContactTag, ContactAccess. + history ít quan trọng: FriendshipAttempt/AiSuggestionApplied/LeadRequest/LeadPoolDistribution.
+    // DEFER (unique-trên-contactId → cần dedup-on-conflict, không phải symptom): ContactTag,
+    // ContactAccess. + history ít quan trọng: FriendshipAttempt/AiSuggestionApplied/LeadRequest/LeadPoolDistribution.
 
     // FIX 2026-06-20 (dedup): đánh dấu secondary mergedInto + clear phone_normalized TRƯỚC khi
     // update primary. partial unique `contacts_org_phone_normalized_alive_unique`

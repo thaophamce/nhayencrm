@@ -74,6 +74,11 @@
 import { ref } from 'vue';
 import { api } from '@/api/index';
 import { Smile as SmileIcon } from 'lucide-vue-next';
+import stickerCamOn   from '@/assets/stickers/cam-on.jpg';
+import stickerThaTim  from '@/assets/stickers/tha-tim.jpg';
+import stickerXinChao from '@/assets/stickers/xin-chao.jpg';
+import stickerDaA     from '@/assets/stickers/da-a.jpg';
+import stickerXinLoi  from '@/assets/stickers/xin-loi.jpg';
 
 interface StickerItem {
   id: number;
@@ -83,7 +88,17 @@ interface StickerItem {
   spriteUrl: string | null;
   totalFrames: number;
   duration: number;
+  localUrl?: string;
 }
+
+const NHA_YEN_KW = 'Nhà Yến';
+const NHA_YEN_STICKERS: StickerItem[] = [
+  { id: 99901, catId: 9999, type: 1, staticUrl: stickerCamOn,   localUrl: stickerCamOn,   spriteUrl: null, totalFrames: 0, duration: 0 },
+  { id: 99902, catId: 9999, type: 1, staticUrl: stickerThaTim,  localUrl: stickerThaTim,  spriteUrl: null, totalFrames: 0, duration: 0 },
+  { id: 99903, catId: 9999, type: 1, staticUrl: stickerXinChao, localUrl: stickerXinChao, spriteUrl: null, totalFrames: 0, duration: 0 },
+  { id: 99904, catId: 9999, type: 1, staticUrl: stickerDaA,     localUrl: stickerDaA,     spriteUrl: null, totalFrames: 0, duration: 0 },
+  { id: 99905, catId: 9999, type: 1, staticUrl: stickerXinLoi,  localUrl: stickerXinLoi,  spriteUrl: null, totalFrames: 0, duration: 0 },
+];
 
 const emit = defineEmits<{
   select: [sticker: StickerItem];
@@ -91,15 +106,19 @@ const emit = defineEmits<{
 
 const open = ref(false);
 const searchInput = ref('');
-const currentKeyword = ref('vui');
+const currentKeyword = ref(NHA_YEN_KW);
 const loading = ref(false);
 const stickers = ref<StickerItem[]>([]);
 
-const quickKeywords = ['vui', 'yêu', 'buồn', 'haha', 'ok', 'cảm ơn', 'chào'];
+const quickKeywords = [NHA_YEN_KW, 'vui', 'yêu', 'buồn', 'haha', 'ok', 'cảm ơn', 'chào'];
 
 async function loadStickers(keyword: string) {
-  loading.value = true;
   currentKeyword.value = keyword;
+  if (keyword === NHA_YEN_KW) {
+    stickers.value = NHA_YEN_STICKERS;
+    return;
+  }
+  loading.value = true;
   try {
     // _t bypass browser cache — Cache-Control max-age=600 đã từng cache empty response
     const res = await api.get('/zalo-sticker-list', { params: { keyword, _t: Date.now() } });
@@ -128,7 +147,7 @@ function onSelect(sticker: StickerItem) {
 // Pre-load default khi mở lần đầu
 function watchOpen() {
   if (open.value && stickers.value.length === 0) {
-    void loadStickers('vui');
+    void loadStickers(NHA_YEN_KW);
   }
 }
 // Watch via simple effect — Vue's watch import overhead avoided since we toggle ourselves

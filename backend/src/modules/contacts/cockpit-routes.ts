@@ -62,13 +62,9 @@ export async function cockpitRoutes(app: FastifyInstance): Promise<void> {
           tags: true,
           autoTags: true,
           parentContactId: true,
-          // Phase 8 score
+          // Priority score
           priorityScore: true,
           priorityUpdatedAt: true,
-          engagementPattern: true,
-          engagementTrend: true,
-          engagementScore: true,
-          engagementUpdatedAt: true,
           // Aggregate timeline
           lastInboundAt: true,
           lastInboundPreview: true,
@@ -128,13 +124,8 @@ export async function cockpitRoutes(app: FastifyInstance): Promise<void> {
         autoTags: contact.autoTags,
         assignedUser: contact.assignedUser,
         getflyLink: readGetflyLink(contact.metadata),
-        // Phase 8 — 3 score system
         priorityScore: contact.priorityScore,
         priorityUpdatedAt: contact.priorityUpdatedAt,
-        engagementPattern: contact.engagementPattern,
-        engagementTrend: contact.engagementTrend,
-        engagementScore: contact.engagementScore,
-        engagementUpdatedAt: contact.engagementUpdatedAt,
         leadScore: contact.leadScore,
         // Timeline
         lastInboundAt: contact.lastInboundAt,

@@ -30,6 +30,12 @@ vi.mock('../src/shared/utils/logger.js', () => ({
 vi.mock('../src/modules/auth/auth-middleware.js', () => ({
   authMiddleware: async (req: any) => { req.user = mockUser(); },
 }));
+vi.mock('../src/modules/rbac/rbac-middleware.js', () => ({
+  requireGrant: () => async () => {},
+}));
+vi.mock('../src/modules/zalo/friend-event-handler.js', () => ({
+  markFriendRequestSent: vi.fn().mockResolvedValue(undefined),
+}));
 vi.mock('../src/modules/zalo/zalo-route-helpers.js', () => ({
   resolveAccount: vi.fn().mockResolvedValue({ id: 'za-1', orgId: 'org-1' }),
   checkAccess: vi.fn().mockResolvedValue(true),
@@ -96,12 +102,26 @@ describe('Friend Queries', () => {
     const res = await buildApp().inject({ method: 'GET', url: `${BASE}/aliases` });
     expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.body)).toMatchObject({ data: [{ alias: 'Bob' }] });
-    expect(zaloOpsMock.getAliasList).toHaveBeenCalledWith('za-1');
+    expect(zaloOpsMock.getAliasList).toHaveBeenCalledWith('za-1', 100, 1);
   });
 });
 
 // ── Friend Requests ────────────────────────────────────────────────────────────
 describe('Friend Requests', () => {
+  it('GET /friends/requests/received — returns only incoming requests', async () => {
+    zaloOpsMock.getFriendRecommendations.mockResolvedValue({
+      recommItems: [
+        { dataInfo: { userId: 'incoming-1', displayName: 'Khách A', avatar: 'a.jpg', phoneNumber: '0901', recommType: 2, recommTime: 1710000000000, recommInfo: { message: 'Kết bạn nhé' } } },
+        { dataInfo: { userId: 'suggestion-1', displayName: 'Gợi ý B', recommType: 1 } },
+      ],
+    });
+    const res = await buildApp().inject({ method: 'GET', url: `${BASE}/requests/received` });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body).data).toEqual([
+      expect.objectContaining({ userId: 'incoming-1', displayName: 'Khách A', message: 'Kết bạn nhé' }),
+    ]);
+    expect(zaloOpsMock.getFriendRecommendations).toHaveBeenCalledWith('za-1');
+  });
   it('GET /friends/requests/sent — returns sent requests', async () => {
     zaloOpsMock.getSentFriendRequests.mockResolvedValue([{ userId: 'u6' }]);
     const res = await buildApp().inject({ method: 'GET', url: `${BASE}/requests/sent` });

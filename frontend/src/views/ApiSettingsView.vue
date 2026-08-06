@@ -73,7 +73,7 @@
     <v-card>
       <v-card-title class="text-body-1">API Documentation</v-card-title>
       <v-card-text>
-        <div class="mb-3">Document xem tại đây: <a href="https://docs.locnguyendata.com/" target="_blank" rel="noopener">https://docs.locnguyendata.com/</a></div>
+        <div class="mb-3">Tài liệu API: <a href="https://github.com/thaophamce/nhayencrm/tree/main/docs/zalocrm-api" target="_blank" rel="noopener">github.com/thaophamce/nhayencrm/tree/main/docs/zalocrm-api</a></div>
         <pre style="font-size: 12px; overflow-x: auto; white-space: pre-wrap;">Header: X-API-Key: your-key
 
 GET  /api/public/contacts

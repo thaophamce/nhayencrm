@@ -21,7 +21,7 @@ export async function configRoutes(app: FastifyInstance): Promise<void> {
     return {
       upload: {
         maxFileSizeGlobal: 524288000, // 500MB — app.ts multipart fileSize limit
-        maxFilesPerRequest: 10, // app.ts multipart files limit
+        maxFilesPerRequest: 1000, // app.ts multipart files limit
         image: { mimeTypes: ALLOWED_IMAGE, maxSize: IMAGE_MAX },
         video: { mimeTypes: ALLOWED_VIDEO, maxSize: VIDEO_MAX },
         file: { mimeTypes: ALLOWED_FILE, maxSize: FILE_MAX },

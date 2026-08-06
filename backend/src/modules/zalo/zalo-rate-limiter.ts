@@ -59,7 +59,13 @@ class ZaloRateLimiter {
     const now = Date.now();
     const recent = (this.recentSends.get(key) || []).filter(t => now - t < limits.burstWindowMs);
     if (recent.length >= limits.burst) {
-      return { allowed: false, reason: `Quá nhanh (>${limits.burst} ${category}/${Math.round(limits.burstWindowMs / 1000)}s)` };
+      const waitSeconds = Math.max(1, Math.ceil((limits.burstWindowMs - (now - recent[0])) / 1000));
+      return {
+        allowed: false,
+        reason: category === 'message'
+          ? `Gửi quá nhanh: tối đa ${limits.burst} tin trong ${Math.round(limits.burstWindowMs / 1000)} giây. Vui lòng đợi ${waitSeconds} giây rồi gửi tiếp.`
+          : `Quá nhanh (>${limits.burst} ${category}/${Math.round(limits.burstWindowMs / 1000)}s)`,
+      };
     }
     return { allowed: true };
   }
@@ -80,7 +86,15 @@ class ZaloRateLimiter {
     const burstCount = await r.zcard(burstKey);
 
     if (burstCount >= limits.burst) {
-      return { allowed: false, reason: `Quá nhanh (>${limits.burst} ${category}/${Math.round(limits.burstWindowMs / 1000)}s)` };
+      const oldest = await r.zrange(burstKey, 0, 0, 'WITHSCORES');
+      const oldestAt = oldest.length >= 2 ? Number(oldest[1]) : now;
+      const waitSeconds = Math.max(1, Math.ceil((limits.burstWindowMs - (now - oldestAt)) / 1000));
+      return {
+        allowed: false,
+        reason: category === 'message'
+          ? `Gửi quá nhanh: tối đa ${limits.burst} tin trong ${Math.round(limits.burstWindowMs / 1000)} giây. Vui lòng đợi ${waitSeconds} giây rồi gửi tiếp.`
+          : `Quá nhanh (>${limits.burst} ${category}/${Math.round(limits.burstWindowMs / 1000)}s)`,
+      };
     }
     return { allowed: true };
   }

@@ -421,6 +421,48 @@ export async function userRoutes(app: FastifyInstance) {
     return { success: true, affected: validIds.length, depCount, grpCount };
   });
 
+  // GET /api/v1/users/:id/zalo-access — liệt kê TẤT CẢ nick của org + quyền hiện tại của user này
+  // trên từng nick (null = chưa cấp). Dùng cho màn hình "Cấp quyền hàng loạt" 2026-07-14
+  // (anh chốt task C): admin chọn 1 nhân viên → thấy full list nick + tick chọn quyền.
+  app.get('/api/v1/users/:id/zalo-access', async (request: FastifyRequest, reply: FastifyReply) => {
+    const currentUser = request.user!;
+    if (!['owner', 'admin'].includes(currentUser.role)) {
+      return reply.status(403).send({ error: 'Chỉ owner/admin xem được màn hình cấp quyền hàng loạt' });
+    }
+    const { id: targetUserId } = request.params as { id: string };
+
+    const targetUser = await prisma.user.findFirst({
+      where: { id: targetUserId, orgId: currentUser.orgId },
+      select: { id: true, fullName: true, email: true },
+    });
+    if (!targetUser) return reply.status(404).send({ error: 'Không tìm thấy nhân viên trong org' });
+
+    const accounts = await prisma.zaloAccount.findMany({
+      where: { orgId: currentUser.orgId, archivedAt: null },
+      select: {
+        id: true, displayName: true, avatarUrl: true, phone: true, status: true, ownerUserId: true,
+        owner: { select: { id: true, fullName: true } },
+        access: { where: { userId: targetUserId }, select: { id: true, permission: true } },
+      },
+      orderBy: { displayName: 'asc' },
+    });
+
+    return {
+      user: targetUser,
+      accounts: accounts.map((a) => ({
+        id: a.id,
+        displayName: a.displayName,
+        avatarUrl: a.avatarUrl,
+        phone: a.phone,
+        status: a.status,
+        isOwner: a.ownerUserId === targetUserId,
+        ownerName: a.owner?.fullName ?? null,
+        accessId: a.access[0]?.id ?? null,
+        permission: a.ownerUserId === targetUserId ? 'admin' : (a.access[0]?.permission ?? null),
+      })),
+    };
+  });
+
   // GET /api/v1/audit-logs — nhật ký hành động admin (owner/admin). 2026-06-09.
   // Đọc từ ActivityLog category='admin'. Hỗ trợ filter ?action= &actorId= &limit= &offset=.
   // RBAC 2026-06-20: chuyển từ check role cũ (owner/admin) sang grant audit_log.access

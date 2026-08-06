@@ -1,8 +1,8 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 <!-- Copyright (C) 2026 Nguyễn Tiến Lộc -->
 <template>
-  <!-- 2026-06-09 (anh chốt): login 2 cột — banner thương hiệu HS Holding + form.
-       Banner teal-navy: logo HS + ZaloCRM + slogan "Bền vững · Trường tồn".
+  <!-- 2026-06-09 (anh chốt): login 2 cột — banner thương hiệu Nhà Yến CRM + form.
+       Banner teal-navy: logo + tên thương hiệu + slogan.
        HD-first 1366×768; ≤900px xếp dọc (banner gọn trên, form dưới). -->
   <div class="login-card">
     <!-- ══ Cột trái: banner thương hiệu (component dùng chung với preview) ══ -->
@@ -28,8 +28,6 @@
             prepend-inner-icon="mdi-account-outline"
             required
             autocomplete="username"
-            :placeholder="emailPlaceholder"
-            persistent-placeholder
             class="mb-4"
           />
           <v-text-field
@@ -42,8 +40,6 @@
             @click:append-inner="showPassword = !showPassword"
             required
             autocomplete="current-password"
-            placeholder="Nhập mật khẩu"
-            persistent-placeholder
             class="mb-5"
           />
           <v-btn type="submit" color="primary" block size="large" :loading="loading" rounded="lg" class="login-btn">
@@ -59,17 +55,11 @@
           {{ error }}
         </v-alert>
 
-        <!--
-          AGPL-3.0 §13: cung cấp mã nguồn cho người dùng tương tác qua mạng.
-          TẠM ẨN 2026-06-23 (chưa chốt giấy phép sau khi tách khỏi repo locphamnguyen/ZaloCRM).
-          Bỏ comment khối <p> bên dưới để hiển thị lại; nhớ đổi link sang repo PUBLIC đúng trước khi bật.
         <p class="agpl-source text-center text-caption mt-6">
-          ZaloCRM — phần mềm tự do
-          <a href="https://github.com/locphamnguyen/ZaloCRM" target="_blank" rel="noopener noreferrer">AGPL-3.0</a>
-          · <a href="https://github.com/locphamnguyen/ZaloCRM" target="_blank" rel="noopener noreferrer">Mã nguồn</a>
+          Nhà Yến CRM ·
+          <a href="https://www.gnu.org/licenses/agpl-3.0.html" target="_blank" rel="noopener noreferrer">AGPL-3.0</a>
+          · <a href="https://github.com/thaophamce/nhayencrm" target="_blank" rel="noopener noreferrer">Mã nguồn</a>
         </p>
-        -->
-        <!-- AGPL notice tạm ẩn — xem khối comment phía trên -->
       </div>
     </section>
   </div>
@@ -94,15 +84,15 @@ const router = useRouter();
 const route = useRoute();
 const authStore = useAuthStore();
 
-// ── Branding hiển thị (mặc định = giá trị hardcode HS Holding) ────────────────
+// ── Branding hiển thị (mặc định = giá trị hardcode Nhà Yến CRM) ──────────────
 // Login chạy pre-auth: render mặc định NGAY, fetch org-branding xong mới thay vào
 // (D4-A). Nếu endpoint lỗi/chậm/chưa có org → giữ mặc định, login không bị chặn.
-const DEFAULT_LOGO = '/brand/hs-monogram.png';
+const DEFAULT_LOGO = '/brand/brand-mark.png';
 const DEFAULT_PLACEHOLDER = `admin@hs.com hoặc ${SAMPLE_PHONE}`;
 const brandLogo = ref(DEFAULT_LOGO);
-const brandName = ref('HS Holding');
-const brandSlogan = ref('Bền vững · Trường tồn');
-const brandCopyright = ref(`© ${new Date().getFullYear()} HS Holding`);
+const brandName = ref('Nhà Yến CRM');
+const brandSlogan = ref('Lan tỏa hạnh phúc · Kết nối yêu thương');
+const brandCopyright = ref(`© ${new Date().getFullYear()} Thiệp Cưới Nhà Yến`);
 const emailPlaceholder = ref(DEFAULT_PLACEHOLDER);
 
 // Phase Onboarding v1 — sau khi force change password thành công, redirect về /login?password-changed=1
@@ -123,7 +113,7 @@ onMounted(() => {
       // Org tồn tại → hiển thị ĐÚNG cấu hình: trường trống thì ẩn (banner v-if),
       // KHÔNG giữ chữ mặc định (fix slogan vẫn ra "Bền vững · Trường tồn").
       brandLogo.value = b.logoUrl || DEFAULT_LOGO;
-      brandName.value = b.name || 'HS Holding';
+      brandName.value = 'Nhà Yến CRM';
       brandSlogan.value = b.slogan || '';
       brandCopyright.value = b.copyright || '';
       emailPlaceholder.value = b.emailDomain
@@ -138,7 +128,7 @@ async function handleLogin() {
   error.value = '';
   try {
     await authStore.login(identifier.value, password.value);
-    router.push('/');
+    router.push('/select-account');
   } catch (err: any) {
     // 2026-06-09 (anh báo lỗi "Unauthorized"): server trả {error:'Unauthorized', message:'...'}
     // cho lỗi 401 — field `error` là tên HTTP status (xấu), `message` mới là câu tiếng Việt.
@@ -178,14 +168,16 @@ async function handleLogin() {
 }
 .form-inner { width: 100%; max-width: 340px; }
 .form-title {
-  font-size: 24px; font-weight: 700; color: #0e445a;
+  font-size: 24px; font-weight: 700; color: #1E202C;
   margin: 0 0 4px;
+  font-family: 'Quicksand', sans-serif !important;
 }
 .form-sub {
-  font-size: 13.5px; color: #6b7884;
+  font-size: 13.5px; color: #5F6173;
   margin: 0 0 26px;
+  font-family: 'Quicksand', sans-serif !important;
 }
-.login-btn { font-weight: 600; letter-spacing: 0.3px; margin-top: 2px; }
+.login-btn { font-weight: 600; letter-spacing: 0.3px; margin-top: 2px; background-color: #2F80ED !important; color: #fff !important; }
 
 /* ══ Responsive: ≤900px xếp dọc (banner tự thu gọn trong component) ══ */
 @media (max-width: 900px) {

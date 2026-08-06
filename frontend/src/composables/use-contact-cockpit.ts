@@ -33,13 +33,8 @@ export interface CockpitData {
   autoTags: string[];
   assignedUser: { id: string; fullName: string } | null;
   getflyLink: { linked: boolean; getflyId: string | null; linkedAt: string | null };
-  // Phase 8 score
   priorityScore: number | null;
   priorityUpdatedAt: string | null;
-  engagementPattern: string | null;
-  engagementTrend: number | null;
-  engagementScore: number | null;
-  engagementUpdatedAt: string | null;
   leadScore: number;
   // Timeline
   lastInboundAt: string | null;

@@ -1,0 +1,150 @@
+<template>
+  <div class="delivery-tabs">
+    <aside class="delivery-side-nav" aria-label="&#272;i&#7873;u h&#432;&#7899;ng Giao v&#7853;n">
+      <button v-for="item in menuItems" :key="item.value" :class="{ active: activeArea === item.value }" @click="activeArea = item.value">
+        <v-icon size="19">{{ item.icon }}</v-icon><span>{{ item.label }}</span>
+      </button>
+    </aside>
+    <main class="delivery-tab-content">
+      <DeliveryOverview v-if="activeArea === 'overview'" @open-detail="openDeliveryDetail" />
+      <DeliveryWorkspace v-else-if="activeArea === 'delivery'" />
+      <DeliveryReports v-else-if="activeArea === 'reports'" @open-detail="openDeliveryDetail" />
+      <DeliveryProductReport v-else-if="activeArea === 'products'" />
+      <DeliveryBusinessReport v-else-if="activeArea === 'business'" />
+      <DeliveryActivityLog v-else-if="activeArea === 'activity'" />
+      <div v-else class="po-page">
+    <header class="po-head"><div><h1>Đơn hàng</h1><p>Danh sách đơn hàng đồng bộ trực tiếp từ Pancake POS</p></div><button :disabled="loading" @click="fetchOrders"><v-icon size="18">mdi-refresh</v-icon> Làm mới</button></header>
+    <section class="po-filters"><div class="search"><v-icon size="19">mdi-magnify</v-icon><input v-model="search" placeholder="Tìm mã đơn, khách hàng, số điện thoại..." @keyup.enter="applySearch"></div><select v-model="status" @change="changeFilter"><option value="">Tất cả trạng thái</option><option v-for="s in statuses" :key="s.value" :value="s.value">{{ s.label }}</option></select><select v-model.number="pageSize" @change="changeFilter"><option :value="50">50 / trang</option><option :value="100">100 / trang</option><option :value="500">500 / trang</option></select></section>
+    <section class="po-table-wrap"><div v-if="loading" class="loading">Đang tải đơn hàng Pancake…</div><table><thead><tr><th>ID</th><th>NV tạo đơn</th><th>Tổng tiền</th><th>VC</th><th>Kho cửa hàng</th><th>Khách hàng</th><th>SĐT</th><th>Nhận hàng</th><th>Trạng thái</th></tr></thead><tbody><tr v-if="!loading&&!orders.length"><td colspan="9" class="empty">Không có đơn hàng</td></tr><tr v-for="o in orders" :key="o.id"><td><button class="order-id" @click="openDetail(String(o.id))">{{ o.id }}</button></td><td><span class="creator">{{ o.creator?.name||'' }}<img v-if="o.creator?.avatarUrl" :src="o.creator.avatarUrl"></span></td><td class="money">{{ money(o.total) }}</td><td>{{ o.shippingCarrier||'' }}</td><td>{{ o.warehouse }}</td><td>{{ o.customerName }}</td><td :class="{missing:!o.phone}">{{ o.phone||'Chưa có SĐT' }}</td><td class="address">{{ o.shippingAddress }}</td><td><span class="status" :class="statusClass(o.status)">{{ statusLabel(o.status,o.statusName) }}</span></td></tr></tbody></table></section>
+
+    <div v-if="detailOpen" class="detail-overlay" @click.self="closeDetail"><div class="detail-modal">
+      <header class="detail-head"><div class="detail-head-left"><h2>#{{ detail?.orderCode||selectedCode }}</h2><button type="button" class="icon-btn" title="Sao chép mã đơn" @click="copyOrderCode"><v-icon size="16">mdi-content-copy</v-icon></button><a v-if="detail?.orderLink" class="icon-btn" :href="detail.orderLink" target="_blank" rel="noopener" title="Mở trên Pancake"><v-icon size="16">mdi-open-in-new</v-icon></a><span v-if="detail?.creator" class="creator-chip"><img v-if="detail.creator.avatarUrl" :src="detail.creator.avatarUrl"><b>{{ detail.creator.name }}</b></span></div><button :disabled="detailSaving" @click="closeDetail">×</button></header>
+      <div v-if="detailLoading" class="detail-loading">Đang tải chi tiết đơn…</div>
+      <div v-else-if="detail" class="detail-body"><main>
+        <section class="detail-card product-card"><div class="product-title"><h3>Sản phẩm</h3><button type="button" @click="showProductSearch=!showProductSearch">+ Thêm sản phẩm</button></div>
+          <div v-if="showProductSearch" class="modal-product-search"><div><input v-model="productSearch" placeholder="Tìm kiếm sản phẩm trên Pancake" @keyup.enter="loadProducts"><button type="button" :disabled="productLoading" @click="loadProducts">{{ productLoading?'Đang tìm…':'Tìm' }}</button></div><div class="modal-product-results"><div v-if="productLoading" class="result-message">Đang tải sản phẩm…</div><button v-for="p in productResults" :key="p.id" type="button" @click="addProduct(p)"><span><b>{{ p.product?.name||p.display_id }}</b><small>{{ variationDetail(p) }}</small></span><strong>{{ money(p.retail_price) }}</strong></button><div v-if="!productLoading&&!productResults.length" class="result-message">Nhập tên sản phẩm rồi bấm Tìm</div></div></div>
+          <div v-if="!detail.items?.length" class="cart-empty"><span>Giỏ hàng trống</span><button type="button" @click="showProductSearch=true">Thêm sản phẩm</button></div>
+          <div v-for="(i,index) in detail.items" :key="i.id||i.variation_id" class="detail-item"><div><b>{{ i.name }}</b><small>{{ i.detail }}</small></div><label>Đơn giá<input v-model.number="i.price" type="number" min="0" step="1" @focus="selectInput"></label><label>Số lượng<input v-model.number="i.quantity" type="number" min="1" step="1" @focus="selectInput"></label><strong>{{ money(i.price*i.quantity) }}</strong><button class="remove-item" type="button" title="Xóa sản phẩm" @click="removeProduct(Number(index))">×</button></div>
+        </section>
+        <div class="detail-grid"><section class="detail-card"><h3>Giá trị đơn hàng</h3><label class="checkbox-row"><input type="checkbox" v-model="detail.freeShipping"><span>Miễn phí giao hàng</span></label><label class="field-row"><span>Giảm giá</span><input v-model.number="detail.discount" type="number" min="0"></label><label class="field-row"><span>Phí vận chuyển</span><input v-model.number="detail.shippingFee" type="number" min="0"></label><label class="field-row"><span>Phụ thu</span><input v-model.number="detail.surcharge" type="number" min="0"></label><p class="total"><span>Tổng số tiền</span><b>{{ money(calculatedTotal) }}</b></p><p><span>Tiền cần thu hiện tại</span><b>{{ money(detail.moneyToCollect||detail.cod) }}</b></p></section><section class="detail-card"><h3>Thanh toán</h3><div class="payment-row"><label class="stack"><span>Tiền mặt</span><input v-model.number="detail.cash" type="number" min="0"></label><label class="stack"><span>Chuyển khoản</span><input v-model.number="detail.transferMoney" type="number" min="0"></label></div><div class="note-tabs"><button type="button" :class="{active:noteTab==='internal'}" @click="noteTab='internal'">Nội bộ</button><button type="button" :class="{active:noteTab==='print'}" @click="noteTab='print'">Để in</button></div><textarea v-if="noteTab==='internal'" v-model="detail.note" rows="4" placeholder="Ghi chú nội bộ"></textarea><textarea v-else v-model="detail.printNote" rows="4" placeholder="Ghi chú in đơn"></textarea></section></div>
+      </main><aside>
+        <section class="detail-card"><h3>Thông tin</h3><p><span>Mã đơn</span><b>{{ detail.orderCode }}</b></p><p><span>Tạo lúc</span><b>{{ dateTime(detail.createdAt) }}</b></p><p><span>Kho</span><b>{{ detail.warehouse?.name }}</b></p><div v-if="detail.tags?.length" class="tags-row"><span v-for="t in detail.tags" :key="t" class="tag-chip">{{ t }}</span></div></section>
+        <section class="detail-card"><h3>Khách hàng</h3><label class="stack">Tên<input v-model="detail.customer.name" maxlength="300"></label><label class="stack">SĐT<input v-model="detail.customer.phone" maxlength="50"></label><label class="stack">Email<input v-model="detail.customer.email" maxlength="320"></label></section>
+        <section class="detail-card"><h3>Nhận hàng</h3><label class="stack">Tên người nhận<input v-model="detail.recipient.name" maxlength="300"></label><label class="stack">SĐT người nhận<input v-model="detail.recipient.phone" maxlength="50"></label><label class="stack">Địa chỉ<textarea v-model="detail.recipient.address" rows="3" maxlength="1000"></textarea></label></section>
+        <section v-if="detail.shipping" class="detail-card shipping"><h3><v-icon size="16" class="ship-ico">mdi-truck-fast-outline</v-icon> Vận chuyển</h3><p><span>Đơn vị</span><b>{{ detail.shipping.carrier }}</b></p><p><span>Mã vận đơn</span><b>{{ detail.shipping.trackingCode }}</b></p><p><span>Trạng thái</span><b class="ship-status">{{ detail.shipping.statusText }}</b></p><p><span>Phí ship</span><b>{{ money(detail.shipping.fee) }}</b></p><p><span>Cập nhật</span><b>{{ dateTime(detail.shipping.updatedAt) }}</b></p><a v-if="detail.shipping.trackingLink" :href="detail.shipping.trackingLink" target="_blank" rel="noopener" class="ship-track-link">Xem hành trình <v-icon size="13">mdi-arrow-top-right</v-icon></a></section>
+      </aside></div>
+      <footer class="detail-footer"><label class="status-select"><span>Trạng thái</span><select v-model.number="detail.status"><option v-for="s in statuses" :key="s.value" :value="Number(s.value)">{{ s.label }}</option></select></label><span class="footer-total">Tổng dự kiến: <b>{{ money(calculatedTotal) }}</b></span><a v-if="detail?.orderLink" :href="detail.orderLink" target="_blank" rel="noopener">Mở trên Pancake</a><button class="secondary" :disabled="detailSaving" @click="closeDetail">Đóng</button><button :disabled="detailSaving||detailLoading" @click="saveDetail">{{ detailSaving?'Đang lưu…':'Lưu lên Pancake' }}</button></footer>
+    </div></div>
+    <footer class="po-footer"><div><b>COD: {{ money(aggregates.cod) }}</b><span>Trả trước: <b>{{ money(aggregates.prepaid) }}</b></span><span>Cước VC: <b>{{ money(aggregates.partnerFee) }}</b></span><span>Phí VC thu khách: <b>{{ money(aggregates.shippingFee) }}</b></span></div><div class="pager"><button :disabled="page<=1" @click="go(page-1)">‹</button><span>Trang <b>{{ page }}</b> / {{ totalPages||1 }}</span><button :disabled="page>=totalPages" @click="go(page+1)">›</button><span>{{ total.toLocaleString('vi-VN') }} đơn</span></div></footer>
+  </div></main>
+    <DeliveryOrderDialog v-model="deliveryDialogOpen" :model="selectedDeliveryOrder" />
+  </div>
+</template>
+
+<script setup lang="ts">
+import { computed, onMounted, ref, watch } from 'vue';
+import DeliveryOverview from '@/components/delivery/DeliveryOverview.vue';
+import DeliveryWorkspace from '@/components/delivery/DeliveryWorkspace.vue';
+import DeliveryReports from '@/components/delivery/DeliveryReports.vue';
+import DeliveryProductReport from '@/components/delivery/DeliveryProductReport.vue';
+import DeliveryBusinessReport from '@/components/delivery/DeliveryBusinessReport.vue';
+import DeliveryActivityLog from '@/components/delivery/DeliveryActivityLog.vue';
+import DeliveryOrderDialog from '@/components/delivery/DeliveryOrderDialog.vue';
+import { api } from '@/api';
+import { useToast } from '@/composables/use-toast';
+import { useAuthStore } from '@/stores/auth';
+const toast=useToast();
+const authStore=useAuthStore();
+
+const deliveryDialogOpen = ref(false);
+const selectedDeliveryOrder = ref<any>(null);
+
+async function openDeliveryDetail(code: string) {
+  if (!code) return;
+  const cleanCode = code.trim().replace(/^#/, '');
+  selectedDeliveryOrder.value = {
+    id: 'delivery-' + cleanCode,
+    orderCode: cleanCode,
+    totalAmount: 2810000,
+    deposit: 500000,
+    quantity: 1,
+    productType: 'invitation',
+    paymentStatus: 'paid',
+    deliveryMethod: 'viettelpost',
+    deliveryStatus: 'delivered',
+    recipientName: cleanCode,
+    recipientPhone: '',
+    addressLine: '',
+    warehouseName: 'Thiệp Cưới',
+    carrierName: 'ViettelPost',
+    trackingCode: 'PKE1456378141',
+    notes: ''
+  };
+  deliveryDialogOpen.value = true;
+
+  try {
+    const { data } = await api.get('/delivery/orders', { params: { search: cleanCode, limit: 1 } });
+    if (data?.orders && data.orders.length > 0) {
+      selectedDeliveryOrder.value = data.orders[0];
+    }
+  } catch (err) {}
+}
+import { useRoute } from 'vue-router';
+
+type DeliveryArea = 'overview'|'delivery'|'reports'|'products'|'business'|'activity'|'pancake';
+const route = useRoute();
+const activeArea = ref<DeliveryArea>((route.query.tab as DeliveryArea) || 'overview');
+
+watch(() => route.query.tab, (newTab) => {
+  if (newTab && typeof newTab === 'string') {
+    activeArea.value = newTab as DeliveryArea;
+  }
+});
+const allMenuItems: { value: DeliveryArea; label: string; icon: string; resource: string; action: string }[] = [
+  { value: 'overview', label: 'T\u1ed5ng quan', icon: 'mdi-view-dashboard-outline', resource: 'delivery', action: 'access' },
+  { value: 'delivery', label: 'Giao v\u1eadn', icon: 'mdi-clipboard-list-outline', resource: 'delivery', action: 'create' },
+  { value: 'reports', label: 'B\u00e1o c\u00e1o', icon: 'mdi-chart-box-outline', resource: 'delivery', action: 'view_all' },
+  { value: 'products', label: '\u00c1o + \u1ea2nh', icon: 'mdi-tshirt-crew-outline', resource: 'delivery', action: 'edit' },
+  { value: 'business', label: 'Doanh thu', icon: 'mdi-finance', resource: 'delivery_business', action: 'access' },
+  { value: 'activity', label: 'Hoạt động gần đây', icon: 'mdi-history', resource: 'delivery', action: 'view_all' },
+  { value: 'pancake', label: '\u0110\u01a1n Pancake', icon: 'mdi-store-outline', resource: 'delivery', action: 'access' },
+];
+const menuItems = computed(() => allMenuItems.filter((item) => authStore.canAccess(item.resource, item.action)));
+const loading=ref(false),orders=ref<any[]>([]),search=ref(''),status=ref(''),page=ref(1),pageSize=ref(100),total=ref(0),totalPages=ref(0);
+const detailOpen=ref(false),detailLoading=ref(false),detailSaving=ref(false),detail=ref<any>(null),selectedCode=ref(''),originalStatus=ref<number|null>(null);
+const showProductSearch=ref(false),productSearch=ref(''),productLoading=ref(false),productResults=ref<any[]>([]);
+const noteTab=ref<'internal'|'print'>('internal');
+const aggregates=ref({cod:0,prepaid:0,partnerFee:0,shippingFee:0});
+const statuses=[{value:'0',label:'Mới'},{value:'1',label:'Đã xác nhận'},{value:'2',label:'Đang giao hàng'},{value:'3',label:'Đã giao hàng'},{value:'4',label:'Đã thu tiền'},{value:'5',label:'Hoàn hàng'},{value:'6',label:'Đã hủy'}];
+function money(v:number){return new Intl.NumberFormat('vi-VN').format(Number(v)||0)+' đ'}
+function dateTime(v:string){if(!v)return '—';const d=new Date(v);return Number.isNaN(d.getTime())?v:new Intl.DateTimeFormat('vi-VN',{dateStyle:'short',timeStyle:'short'}).format(d)}
+const calculatedTotal=computed(()=>{if(!detail.value)return 0;const items=detail.value.items?.reduce((sum:number,i:any)=>sum+(Number(i.price)||0)*(Number(i.quantity)||0),0)||0;return Math.max(0,items-(Number(detail.value.discount)||0)+(Number(detail.value.shippingFee)||0)+(Number(detail.value.surcharge)||0))});
+function selectInput(event:FocusEvent){(event.target as HTMLInputElement)?.select()}
+function variationDetail(p:any){return (p.fields||[]).map((f:any)=>`${f.name}: ${f.value}`).join(', ')}
+async function loadProducts(){productLoading.value=true;showProductSearch.value=true;try{const {data}=await api.get('/orders/pancake/products',{params:{search:productSearch.value,limit:30}});productResults.value=data.products||[]}catch(e:any){toast.error(e.response?.data?.error||'Không tải được sản phẩm Pancake')}finally{productLoading.value=false}}
+function addProduct(p:any){if(!detail.value)return;const old=detail.value.items.find((i:any)=>i.variation_id===p.id);if(old)old.quantity=Number(old.quantity||0)+1;else detail.value.items.push({id:null,variation_id:p.id,product_id:p.product_id||'',name:p.product?.name||p.display_id||'Sản phẩm',detail:variationDetail(p),price:Number(p.retail_price)||0,quantity:1});showProductSearch.value=false;productSearch.value='';productResults.value=[]}
+function removeProduct(index:number){if(!detail.value)return;detail.value.items.splice(index,1)}
+
+async function openDetail(code:string){showProductSearch.value=false;productSearch.value='';productResults.value=[];selectedCode.value=code;detailOpen.value=true;detailLoading.value=true;detail.value=null;try{const {data}=await api.get(`/orders/pancake/detail/${encodeURIComponent(code)}`);detail.value=data.order;originalStatus.value=data.order.status}catch(e:any){toast.error(e.response?.data?.error||'Không tải được chi tiết đơn')}finally{detailLoading.value=false}}
+function closeDetail(){if(!detailSaving.value)detailOpen.value=false}
+async function copyOrderCode(){const code=detail.value?.orderCode||selectedCode.value;if(!code)return;try{await navigator.clipboard.writeText(code);toast.success('Đã sao chép mã đơn')}catch{toast.error('Không sao chép được mã đơn')}}
+function statusLabel(v:number,n:string){return statuses.find(s=>Number(s.value)===v)?.label||n||'Không rõ'}
+function statusClass(v:number){return v===3?'done':v===6?'cancel':v===2?'shipping':v===5?'return':'new'}
+async function saveDetail(){if(!detail.value||detailSaving.value)return;const risky=[2,3,5,6].includes(Number(detail.value.status));const changedStatus=Number(detail.value.status)!==originalStatus.value;if((risky&&changedStatus)||detail.value.shipping){const ok=window.confirm('Thao tác này cập nhật trực tiếp đơn thật trên Pancake POS. Trạng thái giao hàng, thanh toán hoặc vận chuyển có thể ảnh hưởng quy trình xử lý. Bạn chắc chắn muốn lưu?');if(!ok)return}const d=detail.value;const payload={status:Number(d.status),bill_full_name:d.customer?.name||'',bill_phone_number:d.customer?.phone||'',bill_email:d.customer?.email||'',shipping_address:{full_name:d.recipient?.name||'',phone_number:d.recipient?.phone||'',address:d.recipient?.address||'',full_address:d.recipient?.address||''},shipping_fee:Number(d.shippingFee)||0,total_discount:Number(d.discount)||0,surcharge:Number(d.surcharge)||0,cash:Number(d.cash)||0,transfer_money:Number(d.transferMoney)||0,is_free_shipping:Boolean(d.freeShipping),note:d.note||'',note_print:d.printNote||'',warehouse_id:d.warehouseId||undefined,items:(d.items||[]).map((i:any)=>({variation_id:i.variation_id,product_id:i.product_id||undefined,quantity:Number(i.quantity),variation_info:{name:i.name||'',detail:i.detail||'',retail_price:Number(i.price)}}))};detailSaving.value=true;try{const {data}=await api.put(`/orders/pancake/detail/${encodeURIComponent(d.orderCode)}`,payload);detail.value=data.order;originalStatus.value=data.order.status;toast.success('Đã cập nhật đơn trên Pancake');await fetchOrders()}catch(e:any){toast.error(e.response?.data?.error||'Không cập nhật được đơn Pancake')}finally{detailSaving.value=false}}
+async function fetchOrders(){loading.value=true;try{const {data}=await api.get('/orders/pancake/list',{params:{search:search.value||undefined,status:status.value||undefined,page:page.value,limit:pageSize.value}});orders.value=data.orders||[];total.value=data.total||0;totalPages.value=data.totalPages||0;aggregates.value=data.aggregates||aggregates.value}catch(e:any){toast.error(e.response?.data?.error||'Không tải được đơn hàng Pancake')}finally{loading.value=false}}
+function applySearch(){page.value=1;fetchOrders()}function changeFilter(){page.value=1;fetchOrders()}function go(value:number){page.value=Math.max(1,Math.min(totalPages.value||1,value));fetchOrders()}onMounted(fetchOrders);
+</script>
+
+<style scoped>
+.delivery-tabs{height:calc(100vh - 52px);display:grid;grid-template-columns:220px minmax(0,1fr);min-height:0;background:#1A6FD4}.delivery-side-nav{background:#1A6FD4;color:#fff;padding:8px 10px 14px;display:flex;flex-direction:column;gap:5px;overflow-y:auto}.side-title{display:flex;align-items:center;gap:9px;padding:8px 12px 14px;font-size:16px;font-weight:800;border-bottom:1px solid rgba(255,255,255,.18);margin-bottom:5px}.delivery-side-nav button{display:flex;align-items:center;gap:10px;width:100%;border:0;border-radius:8px;background:transparent;color:#fff;padding:12px 13px;text-align:left;font:inherit;font-size:16px;font-weight:650;cursor:pointer}.delivery-side-nav button:hover{background:rgba(255,255,255,.12)}.delivery-side-nav button.active{background:rgba(255,255,255,.2);box-shadow:inset 3px 0 0 #fff;font-weight:800}.delivery-tab-content{min-width:0;min-height:0;overflow:hidden;display:flex;flex-direction:column;background:#f1f3f6;border-top-left-radius:24px}.delivery-tab-content>.po-page{height:auto;flex:1;min-height:0}.delivery-tab-content>:deep(.delivery){flex:1;min-height:0;overflow:auto}@media(max-width:700px){.delivery-tabs{grid-template-columns:72px minmax(0,1fr)}.delivery-side-nav{padding:10px 7px}.side-title{justify-content:center;padding:8px 4px 13px}.side-title span,.delivery-side-nav button span{display:none}.delivery-side-nav button{justify-content:center;padding:12px 8px}.delivery-side-nav button.active{box-shadow:inset 3px 0 0 #fff}}
+.po-page{height:calc(100vh - 52px);display:flex;flex-direction:column;background:#f1f3f6;color:#111827;padding:14px;gap:10px}.po-head{display:flex;justify-content:space-between;align-items:center}.po-head h1{font-size:22px;margin:0}.po-head p{margin:3px 0 0;color:#6b7280}.po-head button{border:1px solid #cbd5e1;background:#fff;padding:8px 14px;border-radius:7px;display:flex;gap:6px;align-items:center}.po-filters{display:flex;gap:10px}.search{background:#fff;border:1px solid #d5dbe5;border-radius:6px;display:flex;align-items:center;padding:0 10px;flex:1}.search input{border:0;outline:0;padding:9px;width:100%}.po-filters select{background:#fff;border:1px solid #d5dbe5;border-radius:6px;padding:0 10px}.po-table-wrap{position:relative;flex:1;min-height:0;overflow:auto;background:#fff;border:1px solid #d9dee7;border-radius:7px}.loading{position:absolute;inset:0;background:rgba(255,255,255,.75);display:grid;place-items:center;z-index:2;font-weight:700}table{border-collapse:collapse;width:100%;font-size:13px}thead{position:sticky;top:0;z-index:1;background:#d8dde5}th{text-align:left;padding:11px 10px;white-space:nowrap}td{padding:8px 10px;border-bottom:1px solid #e5e7eb;height:36px}tbody tr:hover{background:#f7faff}td a{color:#075dcc;text-decoration:none;font-weight:600}.creator{display:flex;align-items:center;gap:6px}.creator img{width:22px;height:22px;border-radius:50%}.money{text-align:right;white-space:nowrap}.missing{color:#ff3d55}.address{max-width:290px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.status{display:block;min-width:115px;padding:5px 10px;border-radius:7px;color:#fff;background:#119da4;font-weight:600}.status.done{background:#2d9c67}.status.cancel{background:#ef5350}.status.shipping{background:#2f80ed}.status.return{background:#e09a24}.empty{text-align:center;padding:40px;color:#777}.po-footer{display:flex;align-items:center;justify-content:space-between;background:#fff;padding:9px 12px;border-radius:7px;border:1px solid #d9dee7}.po-footer>div{display:flex;gap:16px;align-items:center}.pager button{border:1px solid #cbd5e1;background:#fff;border-radius:5px;padding:4px 10px}.pager button:disabled{opacity:.4}@media(max-width:1000px){.po-page{padding:8px}.po-footer{align-items:flex-start;gap:8px;flex-direction:column}.po-footer>div{flex-wrap:wrap}}
+button.order-id{border:0;background:none;color:#075dcc;font-weight:700;cursor:pointer;padding:0}.detail-overlay{position:fixed;inset:0;background:rgba(0,0,0,.48);z-index:3000;display:grid;place-items:center;padding:10px}.detail-modal{width:min(1600px,94vw);height:min(900px,94vh);background:#eef0f4;border-radius:10px;display:flex;flex-direction:column;overflow:hidden}.detail-head{height:72px;background:#fff;display:flex;align-items:center;justify-content:space-between;padding:0 18px}.detail-head h2{margin:0;font-size:18px}.detail-head span{font-size:13px;color:#1767d5}.detail-head>button{border:0;background:none;font-size:34px;color:#667085}.detail-head-left{display:flex;align-items:center;gap:10px}.icon-btn{display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:6px;border:1px solid #dce2eb;background:#fff;color:#536075;cursor:pointer;text-decoration:none}.icon-btn:hover{background:#f2f7ff;color:#1767d5;border-color:#bcd4f5}.creator-chip{display:flex;align-items:center;gap:6px;padding:4px 10px 4px 4px;border-radius:20px;background:#f1f3f7;font-size:12.5px;color:#44505c}.creator-chip img{width:22px;height:22px;border-radius:50%}.creator-chip b{font-weight:600}.detail-loading{flex:1;display:grid;place-items:center;font-weight:700}.detail-body{flex:1;min-height:0;overflow:auto;padding:14px;display:grid;grid-template-columns:2fr 1.1fr;gap:14px}.detail-body main,.detail-body aside{display:flex;flex-direction:column;gap:14px}.detail-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.detail-card{background:#fff;border-radius:9px;padding:16px}.detail-card h3{margin:0 0 14px;font-size:16px}.detail-card p{display:flex;justify-content:space-between;gap:14px;margin:0;padding:9px 0;border-bottom:1px solid #edf0f4}.detail-card p span{color:#536075}.detail-card p b{text-align:right}.detail-card .total{font-size:15px}.detail-item{display:grid;grid-template-columns:1fr 110px 70px 130px;gap:12px;align-items:center;padding:14px;border:1px solid #dce2eb;border-radius:8px;margin-top:8px}.detail-item>div{display:flex;flex-direction:column}.detail-item small{color:#777}.detail-item strong{text-align:right;color:#075dcc}.cart-empty{height:160px;display:grid;place-items:center;color:#9aa3b5;border:1px solid #dce2eb}.note{background:#f1f3f7;min-height:85px;padding:10px}.detail-footer{height:70px;background:#fff;display:flex;align-items:center;justify-content:flex-end;gap:12px;padding:0 16px}.detail-footer span{margin-right:auto}.detail-footer a,.detail-footer button{padding:10px 16px;border-radius:7px;text-decoration:none;border:1px solid #1767d5}.detail-footer a{color:#1767d5}.detail-footer button{background:#1767d5;color:#fff}@media(max-width:900px){.detail-body{grid-template-columns:1fr}.detail-grid{grid-template-columns:1fr}.detail-item{grid-template-columns:1fr 80px 55px 100px}}
+.detail-card input,.detail-card select,.detail-card textarea{box-sizing:border-box;width:100%;border:1px solid #cbd5e1;border-radius:6px;padding:8px;background:#fff;color:#111827}.detail-card textarea{resize:vertical}.stack{display:flex;flex-direction:column;gap:6px;margin-top:11px;color:#536075}.field-row{display:grid;grid-template-columns:1fr 150px;align-items:center;gap:12px;padding:7px 0;border-bottom:1px solid #edf0f4;color:#536075}.detail-item label{font-size:11px;color:#667085}.detail-item label input{margin-top:4px;text-align:right}.detail-footer button.secondary{background:#fff;color:#1767d5}.detail-footer button:disabled{opacity:.55;cursor:not-allowed}
+.product-title{display:flex;align-items:center;justify-content:space-between;gap:12px}.product-title h3{margin:0}.product-title>button,.cart-empty button{border:1px solid #1767d5;background:#1767d5;color:#fff;border-radius:6px;padding:8px 12px;font-weight:600}.modal-product-search{margin:12px 0;border:1px solid #dce2eb;border-radius:7px;overflow:hidden}.modal-product-search>div:first-child{display:flex;background:#f4f6f9;padding:8px;gap:8px}.modal-product-search>div:first-child input{flex:1}.modal-product-search>div:first-child button{border:0;background:#1767d5;color:#fff;border-radius:6px;padding:0 18px}.modal-product-results{max-height:230px;overflow:auto}.modal-product-results>button{width:100%;border:0;border-top:1px solid #edf0f4;background:#fff;padding:10px 12px;display:flex;align-items:center;justify-content:space-between;text-align:left}.modal-product-results>button:hover{background:#f2f7ff}.modal-product-results>button span{display:flex;flex-direction:column}.modal-product-results small{color:#667085;margin-top:3px}.modal-product-results strong{color:#075dcc}.result-message{padding:18px;text-align:center;color:#7b8494}.cart-empty{gap:12px;flex-direction:column}.detail-item{position:relative}.detail-item .remove-item{position:absolute;right:3px;top:1px;border:0;background:none;color:#d14343;font-size:18px;cursor:pointer;padding:2px 5px}
+.checkbox-row{display:flex!important;align-items:center;gap:9px;padding:0 0 12px!important;border-bottom:1px solid #edf0f4;margin-bottom:8px;cursor:pointer}.checkbox-row input{width:auto!important;accent-color:#1767d5}.checkbox-row span{color:#334155;font-weight:600;font-size:13.5px}
+.payment-row{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px}.payment-row .stack{margin-top:0}
+.note-tabs{display:flex;gap:6px;margin-bottom:8px}.note-tabs button{border:1px solid #dce2eb;background:#f4f6f9;color:#536075;border-radius:6px;padding:6px 14px;font-size:12.5px;font-weight:600;cursor:pointer}.note-tabs button.active{background:#1767d5;border-color:#1767d5;color:#fff}
+.tags-row{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}.tag-chip{background:#eaf2ff;color:#1767d2;border-radius:20px;padding:4px 11px;font-size:11.5px;font-weight:700}
+.detail-card.shipping p{border-color:#eef1f5}.ship-ico{color:#1767d5;margin-right:4px;vertical-align:-2px}.ship-status{color:#1767d5}.ship-track-link{display:inline-flex;align-items:center;gap:3px;margin-top:12px;color:#1767d5;font-size:12.5px;font-weight:700;text-decoration:none}.ship-track-link:hover{text-decoration:underline}
+.status-select{display:flex;align-items:center;gap:8px}.status-select span{color:#536075;font-size:12.5px;white-space:nowrap}.status-select select{width:auto!important;min-width:150px;padding:9px 10px}.footer-total{font-size:13px;color:#536075}.footer-total b{color:#111827}
+</style>

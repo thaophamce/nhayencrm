@@ -131,9 +131,12 @@ export async function login(identifier: string, password: string): Promise<JwtPa
       let u = normalized
         ? await prisma.user.findUnique({ where: { phone: normalized } })
         : null;
-      // Fallback: chuỗi nguyên gốc dạng email không '@' (vd 'admin') — tìm theo email
+      // Fallback: username không '@' — exact email match trước, rồi prefix username@*
       if (!u) {
         u = await prisma.user.findUnique({ where: { email: trimmed.toLowerCase() } });
+      }
+      if (!u) {
+        u = await prisma.user.findFirst({ where: { email: { startsWith: `${trimmed.toLowerCase()}@` } } });
       }
       return u;
     },

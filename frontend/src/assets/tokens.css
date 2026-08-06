@@ -1,49 +1,47 @@
-/* ════════════════════════════════════════════════════════════
-   Smax design tokens — mirrors frontend/public/chat-smax-v3.html
-   Used by DefaultLayout (top nav), ChatView, ContactsView, FriendsView.
-   ════════════════════════════════════════════════════════════ */
+@import url('https://fonts.googleapis.com/css2?family=Quicksand:wght@300;400;500;600;700;800&display=swap');
+
 :root {
-  /* Brand palette — HS Holding xanh ngọc (đổi từ #2962ff, /plan-design-review 2026-06-06) */
-  --smax-primary: #1786be;
-  --smax-primary-hover: #0f6fa0;
-  --smax-primary-soft: #e4f1f8;
-  --smax-primary-700: #0b5880;
-  --smax-success: #00c853;
-  --smax-warning: #ff9100;
-  --smax-info: #2196f3;
-  --smax-error: #ff3d00;
+  /* Brand palette — Thiệp Cưới Nhà Yến style */
+  --smax-primary: #1A6FD4;
+  --smax-primary-hover: #1a6fd4;
+  --smax-primary-soft: #EBF3FF;
+  --smax-primary-700: #1565c0;
+  --smax-success: #2EC4B6;
+  --smax-warning: #FF9F1C;
+  --smax-info: #4DA3FF;
+  --smax-error: #FF5A5F;
 
   /* Grey scale */
-  --smax-grey-50: #fafbfc;
-  --smax-grey-100: #f5f6fa;
-  --smax-grey-200: #ebedf0;
+  --smax-grey-50: #F7F8FC;
+  --smax-grey-100: #F7F8FC;
+  --smax-grey-200: #EAECEF;
   --smax-grey-300: #d4d8de;
-  --smax-grey-700: #5a6478;
-  --smax-text: #212121;
+  --smax-grey-700: #5F6173;
+  --smax-text: #1E202C;
 
   /* Surfaces */
   --smax-bg: #ffffff;
-  --smax-header-bg: #1f2330;
-  --smax-bubble-self: #d7ecf7;
+  --smax-header-bg: #1E202C;
+  --smax-bubble-self: #EBF3FF;
   --smax-group-bg: #ffeae3;
 
   /* Gender */
-  --smax-female: #e91e63;
-  --smax-male: #1e88e5;
+  --smax-female: #FF5A5F;
+  --smax-male: #4DA3FF;
 
   /* CRM label chip colors */
-  --smax-chip-red: #ef5350;            --smax-chip-red-text: #c62828;
-  --smax-chip-red-active: #ef5350;
-  --smax-chip-purple: #ab47bc;         --smax-chip-purple-text: #6a1b9a;
-  --smax-chip-purple-active: #6a1b9a;
-  --smax-chip-orange: #ffa726;         --smax-chip-orange-text: #ef6c00;
-  --smax-chip-orange-active: #ff9800;
-  --smax-chip-green: #66bb6a;          --smax-chip-green-text: #2e7d32;
-  --smax-chip-green-active: #43a047;
-  --smax-chip-blue: #42a5f5;           --smax-chip-blue-text: #1565c0;
-  --smax-chip-blue-active: #1976d2;
-  --smax-chip-yellow: #fbc02d;         --smax-chip-yellow-text: #f57f17;
-  --smax-chip-yellow-active: #f9a825;
+  --smax-chip-red: #FF5A5F;            --smax-chip-red-text: #FF5A5F;
+  --smax-chip-red-active: #FF5A5F;
+  --smax-chip-purple: #2F80ED;         --smax-chip-purple-text: #2F80ED;
+  --smax-chip-purple-active: #2F80ED;
+  --smax-chip-orange: #FFB84D;         --smax-chip-orange-text: #FFB84D;
+  --smax-chip-orange-active: #FFB84D;
+  --smax-chip-green: #2EC4B6;          --smax-chip-green-text: #2EC4B6;
+  --smax-chip-green-active: #2EC4B6;
+  --smax-chip-blue: #4DA3FF;           --smax-chip-blue-text: #4DA3FF;
+  --smax-chip-blue-active: #4DA3FF;
+  --smax-chip-yellow: #FFB84D;         --smax-chip-yellow-text: #FFB84D;
+  --smax-chip-yellow-active: #FFB84D;
 
   /* Typography (mockup uses 14.3px base — +10% from 13px) */
   --smax-font-base: 14.3px;
@@ -52,10 +50,10 @@
   --smax-line-height: 1.45;
 
   /* Spacing & radii (mockup-derived) */
-  --smax-radius-sm: 4px;
-  --smax-radius-md: 7px;
-  --smax-radius-lg: 9px;
-  --smax-radius-xl: 13px;
+  --smax-radius-sm: 10px;
+  --smax-radius-md: 18px;
+  --smax-radius-lg: 28px;
+  --smax-radius-xl: 28px;
   --smax-topnav-h: 48px; /* khớp chiều cao thật .smax-topnav (DefaultLayout) — fix cuộn dư 2px 2026-06-14 */
 }
 
@@ -141,5 +139,5 @@
 
 /* Body sets light scrollbar that matches Smax */
 .smax-app, .smax-app * {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-family: 'Quicksand', -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
 }

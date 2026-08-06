@@ -102,43 +102,55 @@
       class="profile-card"
       :class="{ 'is-suggest': type === 'user_suggest' }"
     >
-      <div v-if="type === 'user_suggest'" class="profile-suggest-chip">
-        <v-icon size="11">mdi-account-plus</v-icon> Gợi ý kết bạn
-      </div>
-      <div class="profile-body">
+      <!-- Header: avatar + thông tin + QR — click mở popup thông tin Zalo đầy đủ -->
+      <div class="profile-body" role="button" tabindex="0" @click.stop="onOpenProfile" @keydown.enter="onOpenProfile">
         <div class="profile-avatar">
           <img v-if="profileAvatar" :src="profileAvatar" alt="avatar" class="profile-avatar-img" />
-          <v-icon v-else size="32" color="primary">mdi-account</v-icon>
+          <span v-else class="profile-avatar-initials">{{ profileInitials(profileName || '?') }}</span>
         </div>
         <div class="profile-info">
           <div class="profile-name">{{ profileName || 'Người liên hệ' }}</div>
           <div v-if="profilePhone" class="profile-phone">
-            <v-icon size="12">mdi-phone</v-icon> {{ profilePhone }}
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M6.6 10.8c1.4 2.8 3.8 5.1 6.6 6.6l2.2-2.2c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.6.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1-9.4 0-17-7.6-17-17 0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.3.2 2.5.6 3.6.1.3 0 .7-.2 1L6.6 10.8z"/></svg>
+            {{ profilePhone }}
           </div>
           <div v-else-if="profileSubtitle" class="profile-phone">{{ profileSubtitle }}</div>
+          <div class="profile-label">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14H9V8h2v8zm4 0h-2V8h2v8z"/></svg>
+            {{ type === 'user_suggest' ? 'Gợi ý kết bạn' : 'Danh thiếp Zalo' }}
+          </div>
+        </div>
+        <div v-if="profileQrUrl" class="profile-qr">
+          <img :src="profileQrUrl" alt="QR" width="60" height="60" />
         </div>
       </div>
-      <div class="profile-actions">
-        <button
-          type="button"
-          class="profile-btn primary"
-          :title="type === 'user_suggest' ? 'Kết bạn (chưa hỗ trợ qua CRM)' : 'Mở chat với người này'"
-          @click="onOpenProfile"
-        >
-          <v-icon size="13">{{ type === 'user_suggest' ? 'mdi-account-plus-outline' : 'mdi-message-outline' }}</v-icon>
-          {{ type === 'user_suggest' ? 'Xem thông tin' : 'Mở chat' }}
-        </button>
-        <button
-          v-if="profilePhone"
-          type="button"
-          class="profile-btn"
-          title="Copy SĐT"
-          @click="copyAccount(profilePhone)"
-        >
-          <v-icon size="13">mdi-content-copy</v-icon>
-          Copy SĐT
-        </button>
-      </div>
+
+      <!-- Divider -->
+      <div class="profile-divider" />
+
+      <!-- Nút Nhắn tin (xanh nổi bật) -->
+      <button
+        type="button"
+        class="profile-btn-primary"
+        :disabled="openChatLoading || !profileUid"
+        :title="profileUid ? 'Mở hội thoại với người này' : 'Không có UID'"
+        @click="onOpenChatWithUid"
+      >
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"/></svg>
+        {{ openChatLoading ? 'Đang mở…' : 'Nhắn tin' }}
+      </button>
+
+      <!-- Nút Kết bạn (outline) -->
+      <button
+        type="button"
+        class="profile-btn-outline"
+        :disabled="friendRequestSent || friendRequestLoading || !profileUid"
+        :title="!profileUid ? 'Không có UID' : friendRequestSent ? 'Đã gửi lời mời' : 'Gửi lời mời kết bạn Zalo'"
+        @click="onSendFriendRequest"
+      >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M15 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm-9-2V7H4v3H1v2h3v3h2v-3h3v-2H6zm9 4c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
+        {{ friendRequestLoading ? 'Đang gửi…' : friendRequestSent ? 'Đã gửi lời mời' : 'Kết bạn' }}
+      </button>
     </div>
 
     <!-- E27 QR Code — anh chốt 2026-05-21: ảnh QR + 2 action button -->
@@ -299,15 +311,20 @@ const props = defineProps<{
   type: string;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   content: any;
+  /** Nick CRM đang xem hội thoại — cần để gọi API kết bạn / mở chat */
+  activeZaloAccountId?: string | null;
 }>();
 
 // Emit "callback" cho cuộc gọi nhỡ (E17/E18) / "open-profile" cho danh thiếp E21/E22.
 // "open-phone" (2026-06-22) — click SĐT trong tin rich (vd thông báo "Khách vừa phản hồi")
 // → cha (MessageThread) tra Zalo qua nick hội thoại rồi mở dialog user info.
+// "send-friend-request" / "open-chat-with-uid" (2026-07-13) — từ card danh thiếp
 const emit = defineEmits<{
   (e: 'callback'): void;
   (e: 'open-profile', uid: string): void;
   (e: 'open-phone', phone: string): void;
+  (e: 'send-friend-request', uid: string): void;
+  (e: 'open-chat-with-uid', payload: { uid: string; name?: string; avatarUrl?: string }): void;
 }>();
 function onCallback() { emit('callback'); }
 function onOpenProfile() {
@@ -381,8 +398,18 @@ const title = computed<string>(() => props.content?.title || props.content?.name
 
 // ── E21/E22 Profile card (action='show.profile' hoặc 'recommened.user') ──
 // Zalo lưu danh thiếp dưới contact_card với params chứa userInfo. Best-effort extract.
+// 2026-07-13: Zalo cũng gửi dưới qr_code + action=recommened.user — shape khác:
+//   content.params = UID string thẳng (không phải JSON object)
+//   content.thumb  = avatar URL
+//   content.title  = tên hiển thị
+//   content.description = JSON string { qrCodeUrl, gUid }
 const profileUid = computed<string>(() => {
   const p = paramsObj.value;
+  // Trường hợp params là string UID trực tiếp (qr_code shape)
+  const rawParams = props.content?.params;
+  if (typeof rawParams === 'string' && /^\d{8,}$/.test(rawParams.trim())) {
+    return rawParams.trim();
+  }
   return String(
     p?.uid || p?.userId || props.content?.uid || props.content?.userId || '',
   );
@@ -404,8 +431,56 @@ const profilePhone = computed<string>(() => {
 });
 const profileSubtitle = computed<string>(() => {
   const desc = props.content?.description;
-  return typeof desc === 'string' ? desc.trim() : '';
+  if (typeof desc !== 'string') return '';
+  const trimmed = desc.trim();
+  // qr_code shape lưu JSON { qrCodeUrl, gUid } trong description — không phải text hiển thị được.
+  if (trimmed.startsWith('{')) return '';
+  return trimmed;
 });
+
+// QR — ưu tiên ảnh QR thật từ Zalo (description.qrCodeUrl), fallback Google Chart từ UID
+const profileQrUrl = computed<string>(() => {
+  // Zalo qr_code shape: description là JSON string { qrCodeUrl, gUid }
+  const desc = props.content?.description;
+  if (typeof desc === 'string' && desc.trim().startsWith('{')) {
+    try {
+      const d = JSON.parse(desc);
+      if (typeof d.qrCodeUrl === 'string' && d.qrCodeUrl.startsWith('http')) return d.qrCodeUrl;
+    } catch { /* fallthrough */ }
+  }
+  // Fallback: generate QR từ UID/SĐT qua Google Chart API
+  const val = profileUid.value || profilePhone.value;
+  if (!val) return '';
+  return `https://chart.googleapis.com/chart?chs=100x100&cht=qr&chl=${encodeURIComponent(val)}&choe=UTF-8`;
+});
+
+// State loading cho nút kết bạn / nhắn tin trong card
+const friendRequestSent = ref(false);
+const friendRequestLoading = ref(false);
+const openChatLoading = ref(false);
+
+function onSendFriendRequest() {
+  const uid = profileUid.value;
+  if (!uid || friendRequestSent.value || friendRequestLoading.value) return;
+  friendRequestLoading.value = true;
+  emit('send-friend-request', uid);
+  // Parent sẽ gọi API; set sent optimistic sau 800ms để UX không bị treo
+  setTimeout(() => { friendRequestLoading.value = false; friendRequestSent.value = true; }, 800);
+}
+
+function onOpenChatWithUid() {
+  const uid = profileUid.value;
+  if (!uid || openChatLoading.value) return;
+  openChatLoading.value = true;
+  emit('open-chat-with-uid', { uid, name: profileName.value || undefined, avatarUrl: profileAvatar.value || undefined });
+  setTimeout(() => { openChatLoading.value = false; }, 1200);
+}
+
+// Initials fallback khi không có avatar
+function profileInitials(name: string): string {
+  const w = name.trim().split(/\s+/);
+  return (w[0]?.[0] || '?') + (w.length > 1 ? w.at(-1)?.[0] || '' : '');
+}
 
 // ── E28 Reminder body — Zalo lưu phần mô tả ở description hoặc params.description ──
 const reminderBody = computed<string>(() => {
@@ -826,60 +901,89 @@ const linkDescription = computed<string>(() => {
 }
 .poll-options li { padding: 2px 0; }
 
-/* ════════ E21/E22 Profile / Suggest user card ════════ */
+/* ════════ E21/E22 Profile / Suggest user card — redesign 2026-07-13 ════════ */
 .profile-card {
   display: block;
-  padding: 12px;
-  border-radius: 10px;
-  background: var(--smax-grey-50, #fafbfc);
-  border: 1px solid var(--smax-grey-200, #e5e7eb);
-  max-width: 320px;
-  position: relative;
+  border-radius: 12px;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  width: 260px;
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0,0,0,.07);
 }
-.profile-card.is-suggest { border-color: rgba(33, 150, 243, 0.35); background: rgba(33, 150, 243, 0.04); }
-.profile-suggest-chip {
-  display: inline-flex; align-items: center; gap: 3px;
-  font-size: 10px; font-weight: 700; text-transform: uppercase;
-  color: #1976d2; background: rgba(33, 150, 243, 0.12);
-  padding: 2px 7px; border-radius: 4px;
-  margin-bottom: 8px;
+.profile-body {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 14px 14px 10px;
+  cursor: pointer;
 }
-.profile-body { display: flex; align-items: center; gap: 12px; }
+.profile-body:hover { background: #fafbfc; }
 .profile-avatar {
-  width: 48px; height: 48px; border-radius: 50%;
-  background: var(--smax-grey-100, #f1f3f5);
-  display: flex; align-items: center; justify-content: center;
+  width: 46px; height: 46px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #ded8ff, #9a85f8);
   overflow: hidden; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
 }
 .profile-avatar-img { width: 100%; height: 100%; object-fit: cover; }
-.profile-info { flex: 1; min-width: 0; }
+.profile-avatar-initials {
+  color: #fff; font-size: 14px; font-weight: 700;
+}
+.profile-info {
+  flex: 1; min-width: 0;
+  display: flex; flex-direction: column; gap: 3px;
+}
 .profile-name {
-  font-weight: 600; font-size: 14px; color: var(--smax-text);
+  font-weight: 700; font-size: 14px;
+  color: #111827;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .profile-phone {
-  font-size: 12px; color: var(--smax-grey-700);
+  font-size: 12px; color: #4b5563;
+  display: flex; align-items: center; gap: 4px;
+}
+.profile-label {
+  font-size: 11px; color: #9ca3af;
   display: flex; align-items: center; gap: 3px;
   margin-top: 2px;
 }
-.profile-actions {
-  display: flex; gap: 6px; margin-top: 10px;
+.profile-qr {
+  flex-shrink: 0;
+  width: 60px; height: 60px;
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid #e5e7eb;
+  background: #fff;
 }
-.profile-btn {
-  display: inline-flex; align-items: center; gap: 4px;
-  padding: 5px 10px; border-radius: 6px;
-  border: 1px solid var(--smax-grey-300, #d1d5db);
-  background: white; color: var(--smax-text);
-  font-size: 12px; font-weight: 500; cursor: pointer;
-  transition: background 0.15s ease;
+.profile-qr img { display: block; width: 100%; height: 100%; }
+.profile-divider {
+  height: 1px; background: #f3f4f6; margin: 0;
 }
-.profile-btn:hover { background: var(--smax-grey-100, #f3f4f6); }
-.profile-btn.primary {
-  border-color: var(--smax-primary, #2962ff);
-  background: var(--smax-primary, #2962ff);
-  color: white;
+.profile-btn-primary {
+  display: flex; align-items: center; justify-content: center; gap: 7px;
+  width: calc(100% - 24px); margin: 10px 12px 0;
+  padding: 9px 0;
+  background: #1a73e8; color: #fff;
+  border: 0; border-radius: 8px;
+  font: 600 13px/1 inherit; cursor: pointer;
+  transition: background .15s, transform .1s;
 }
-.profile-btn.primary:hover { filter: brightness(0.95); }
+.profile-btn-primary:hover:not(:disabled) { background: #1557b0; }
+.profile-btn-primary:active:not(:disabled) { transform: translateY(1px); }
+.profile-btn-primary:disabled { background: #a8c4f0; cursor: not-allowed; }
+.profile-btn-outline {
+  display: flex; align-items: center; justify-content: center; gap: 7px;
+  width: calc(100% - 24px); margin: 8px 12px 12px;
+  padding: 9px 0;
+  background: #fff; color: #374151;
+  border: 1.5px dashed #d1d5db; border-radius: 8px;
+  font: 600 13px/1 inherit; cursor: pointer;
+  transition: background .15s, border-color .15s, color .15s;
+}
+.profile-btn-outline:hover:not(:disabled) { background: #f9fafb; border-color: #9ca3af; color: #111827; }
+.profile-btn-outline:active:not(:disabled) { background: #f3f4f6; }
+.profile-btn-outline:disabled { color: #9ca3af; border-color: #e5e7eb; cursor: not-allowed; }
 
 /* ════════ E27 QR Code v2 ════════ */
 .qr-card-v2 {
