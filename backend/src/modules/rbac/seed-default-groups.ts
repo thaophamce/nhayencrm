@@ -50,6 +50,31 @@ export async function seedDefaultPermissionGroups(orgId: string): Promise<SeedRe
 }
 
 /**
+ * Sync grants của 2 system groups (Admin + Sale) với DEFAULT_PERMISSION_GROUPS.
+ * Idempotent — chạy lại không ảnh hưởng nếu grants đã đúng.
+ */
+export async function syncDefaultPermissionGroups(orgId: string): Promise<{
+  synced: number;
+  names: string[];
+}> {
+  let synced = 0;
+  const names: string[] = [];
+
+  for (const tmpl of DEFAULT_PERMISSION_GROUPS) {
+    const result = await prisma.permissionGroup.updateMany({
+      where: { orgId, name: tmpl.name, isSystem: true },
+      data: { grants: tmpl.grants as object },
+    });
+    if (result.count > 0) {
+      synced += result.count;
+      names.push(tmpl.name);
+    }
+  }
+
+  return { synced, names };
+}
+
+/**
  * Map legacy `users.role` → permission_group_id mới.
  * Dual-read window: code mới đọc cả 2, sau 2 tuần drop legacy role.
  */

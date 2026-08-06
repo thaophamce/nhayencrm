@@ -137,6 +137,7 @@ async function fetchInvoicePdfs(range: WeekRange, user: string, pass: string): P
   const lock = await client.getMailboxLock('INBOX');
   try {
     const uids = await client.search({ since: range.start, before: range.end }, { uid: true });
+    if (!uids || uids.length === 0) return invoices;
     for await (const message of client.fetch(uids, { uid: true, envelope: true, source: true }, { uid: true })) {
       if (!message.source) continue;
       const parsed = await simpleParser(message.source);

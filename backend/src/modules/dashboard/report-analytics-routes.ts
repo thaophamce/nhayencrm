@@ -721,7 +721,7 @@ export async function reportAnalyticsRoutes(app: FastifyInstance): Promise<void>
 
       const [changesToday, nickDisconnect24h, totalEvents24h, failedEvents24h] = await Promise.all([
         prisma.activityLog.count({ where: { orgId, createdAt: { gte: todayStart } } }),
-        prisma.zaloAccountStatusLog.count({ where: { orgId, status: 'disconnected', startedAt: { gte: last24h } } }),
+        prisma.zaloAccountStatusLog.count({ where: { orgId, status: 'disconnected', reason: { not: 'checkpoint' }, startedAt: { gte: last24h } } }),
         prisma.automationEventLog.count({ where: { orgId, createdAt: { gte: last24h } } }),
         prisma.automationEventLog.count({ where: { orgId, createdAt: { gte: last24h }, eventType: { contains: 'failed', mode: 'insensitive' } } }),
       ]);
@@ -768,7 +768,7 @@ export async function reportAnalyticsRoutes(app: FastifyInstance): Promise<void>
 
       // disconnects — ZaloAccountStatusLog disconnect events 24h
       const disconnectRows = await prisma.zaloAccountStatusLog.findMany({
-        where: { orgId, status: 'disconnected', startedAt: { gte: last24h } },
+        where: { orgId, status: 'disconnected', reason: { not: 'checkpoint' }, startedAt: { gte: last24h } },
         orderBy: { startedAt: 'desc' },
         take: 50,
         select: {

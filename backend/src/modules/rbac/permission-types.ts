@@ -263,7 +263,7 @@ export const DEFAULT_PERMISSION_GROUPS = [
     grants: {
       // Sale CR KH của mình, không Xóa Conversation
       dashboard: { access: true },
-      orders: { access: true },
+      orders: { access: true, edit: true },
       delivery: { access: true, create: true, edit: true, delete: true },
       delivery_business: { access: true },
       conversation: { access: true, edit: true },

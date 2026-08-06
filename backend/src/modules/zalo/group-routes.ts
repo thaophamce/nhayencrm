@@ -193,7 +193,7 @@ export async function groupRoutes(app: FastifyInstance) {
     if (!name) return reply.status(400).send({ error: 'name is required' });
     try {
       await resolveAccount(accountId, request.user!.orgId);
-      if (!(await checkAccess(request, reply, accountId, 'admin'))) return;
+      if (!(await checkAccess(request, reply, accountId, 'chat'))) return;
       return { result: await zaloOps.renameGroup(accountId, name, groupId) };
     } catch (err) { return handleError(reply, err, 'renameGroup'); }
   });
@@ -215,7 +215,7 @@ export async function groupRoutes(app: FastifyInstance) {
     if (!Array.isArray(userIds) || userIds.length === 0) return reply.status(400).send({ error: 'userIds array is required' });
     try {
       await resolveAccount(accountId, request.user!.orgId);
-      if (!(await checkAccess(request, reply, accountId, 'admin'))) return;
+      if (!(await checkAccess(request, reply, accountId, 'chat'))) return;
       return { result: await zaloOps.addUserToGroup(accountId, userIds, groupId) };
     } catch (err) { return handleError(reply, err, 'addUserToGroup'); }
   });

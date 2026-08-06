@@ -269,6 +269,7 @@ model User {
   // null = chưa từng login (phối hợp với passwordChangedAt=null để hiện "Chưa kích hoạt").
   lastLoginAt                  DateTime?            @map("last_login_at")
   isActive                     Boolean              @default(true) @map("is_active")
+  payrollOrder                 Int                  @default(999) @map("payroll_order")
   createdAt                    DateTime             @default(now()) @map("created_at")
   updatedAt                    DateTime             @updatedAt @map("updated_at")
 

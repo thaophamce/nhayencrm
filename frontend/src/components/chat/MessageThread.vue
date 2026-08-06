@@ -792,6 +792,14 @@
             </div>
           </v-menu>
 
+          <!-- Paste-image queue preview strip -->
+          <div v-if="pendingImageFiles.length > 0" class="paste-img-queue">
+            <div v-for="(entry, idx) in pendingImageFiles" :key="idx" class="paste-img-thumb">
+              <img :src="entry.url" />
+              <button class="paste-img-remove" type="button" @click="removePendingImageFile(idx)" title="Xóa ảnh">×</button>
+            </div>
+          </div>
+
           <div ref="editorWrapRef" class="editor-wrap" :class="{ 'editor-locked': !privacyVisibility.canSendInConv(conversation) || isArchivedNick || isNickOffline || rateLimitSeconds > 0 }">
             <QuickTemplatePopup
               ref="templatePopupRef"
@@ -863,14 +871,14 @@
             <v-icon size="20">mdi-folder-image</v-icon>
           </v-btn>
 
-          <!-- Emoji picker (hover) — sát nút Gửi -->
-          <EmojiPicker @pick="onPickEmoji" />
+          <!-- Sticker Nhà Yến nhanh — sát nút Gửi -->
+          <NhaYenStickerQuick @select="onSendSticker" />
 
           <!-- M53 2026-05-30: virtual conv → nút "Lưu nội bộ" màu cam thay vì "Gửi" xanh -->
           <button
             class="send-btn"
             :class="{ 'send-btn-virtual': isVirtualConv }"
-            :disabled="(!inputText.trim() && pendingMediaAssets.length === 0) || sending || isArchivedNick || isNickOffline || rateLimitSeconds > 0"
+            :disabled="(!inputText.trim() && pendingMediaAssets.length === 0 && pendingImageFiles.length === 0) || sending || isArchivedNick || isNickOffline || rateLimitSeconds > 0"
             @click="handleSend"
             :title="isArchivedNick ? 'Nick đã xóa — không gửi được.' : isNickOffline ? 'Nick mất kết nối — không gửi được.' : isVirtualConv ? 'Lưu nội bộ (Enter) — KHÔNG gửi đi Zalo' : 'Gửi (Enter)'"
           >
@@ -1130,7 +1138,7 @@ import AiFollowUpComposerCard from '@/components/chat/AiFollowUpComposerCard.vue
 // `Contact.status` khiến lazy gate KHÔNG kích hoạt. CareStatusBadge giữ ở ChatContactPanel.vue
 // nếu sale vẫn cần thao tác care-status legacy 9 giá trị.
 import Avatar from '@/components/ui/Avatar.vue';
-import EmojiPicker from '@/components/chat/EmojiPicker.vue';
+import NhaYenStickerQuick from '@/components/chat/NhaYenStickerQuick.vue';
 import QuickTemplatePopup from '@/components/chat/quick-template-popup.vue';
 import BlockPreviewDialog from '@/components/blocks/BlockPreviewDialog.vue';
 // M14 (2026-06-02) — Popup chọn "Khối tin nhắn" từ Automation Blocks
@@ -1622,7 +1630,12 @@ function pinnedPreview(m: PinnedMessageEntry['message']): string {
 function _isUsableName(s: string | null | undefined): s is string {
   return !!s && s.trim().length > 0 && s.trim().toLowerCase() !== 'unknown';
 }
+// Local name override — takes priority after save to prevent prop-mutation revert on socket refresh
+const localNameOverride = ref<string | null>(null);
+watch(() => props.conversation?.id, () => { localNameOverride.value = null; clearPendingImageFiles(); });
+
 const headerName = computed(() => {
+  if (localNameOverride.value) return localNameOverride.value;
   if (props.conversation?.threadType === 'group') {
     const groupName = (props.conversation as { groupName?: string }).groupName;
     if (_isUsableName(groupName)) return groupName!;
@@ -1673,15 +1686,14 @@ async function saveHeaderName() {
       const groupId = conv.externalThreadId;
       if (!accountId || !groupId) { toast.error('Thiếu thông tin nhóm'); return; }
       await api.patch(`/zalo-accounts/${accountId}/groups/${groupId}/name`, { name: trimmed });
-      // Cập nhật reactive ngay (không chờ socket)
-      (conv as any).groupName = trimmed;
+      localNameOverride.value = trimmed;
       toast.success(`Đã đổi tên nhóm → "${trimmed}"`);
     } else {
       // Hội thoại cá nhân: lưu alias gợi nhớ
       const friendId = conv.friendship?.id;
       if (!friendId) { toast.error('Không tìm thấy friendship'); return; }
       await api.patch(`/friends/${friendId}`, { aliasInNick: trimmed });
-      (conv as any).friendship = { ...(conv.friendship || {}), aliasInNick: trimmed };
+      localNameOverride.value = trimmed;
       toast.success(`Đã đổi tên gợi nhớ → "${trimmed}"`);
     }
   } catch (err: any) {
@@ -2707,13 +2719,44 @@ async function fireWebhook() {
 }
 
 
-function onPickEmoji(emoji: string) {
-  editorRef.value?.insertText(emoji);
+
+// Compress blob xuống max 400×400, JPEG 60% — tránh lag khi gửi sticker lớn
+function compressStickerBlob(blob: Blob): Promise<Blob> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    const url = URL.createObjectURL(blob);
+    img.onload = () => {
+      const MAX = 400;
+      const scale = Math.min(1, MAX / Math.max(img.width, img.height));
+      const w = Math.round(img.width * scale);
+      const h = Math.round(img.height * scale);
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      canvas.getContext('2d')!.drawImage(img, 0, 0, w, h);
+      URL.revokeObjectURL(url);
+      canvas.toBlob((b) => resolve(b ?? blob), 'image/jpeg', 0.6);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); resolve(blob); };
+    img.src = url;
+  });
 }
 
 // Send sticker từ picker — POST /sticker với {id, catId, type}
-async function onSendSticker(sticker: { id: number; catId: number; type: number }) {
+async function onSendSticker(sticker: { id: number; catId: number; type: number; localUrl?: string }) {
   if (!props.conversation?.id) return;
+  if (sticker.localUrl) {
+    try {
+      const res = await fetch(sticker.localUrl);
+      const raw = await res.blob();
+      const compressed = await compressStickerBlob(raw);
+      const file = new File([compressed], `sticker-${sticker.id}.jpg`, { type: 'image/jpeg' });
+      await handleImageFiles([file]);
+    } catch (err) {
+      console.error('[sticker] local send error:', err);
+      toast.push('Không gửi được sticker', 'error');
+    }
+    return;
+  }
   try {
     await api.post(`/conversations/${props.conversation.id}/sticker`, {
       stickerId: sticker.id,
@@ -2721,7 +2764,6 @@ async function onSendSticker(sticker: { id: number; catId: number; type: number 
       type: sticker.type,
     });
     emit('refresh-thread');
-    // Scroll xuống ngay (retry x3 trong scrollToBottom xử lý img async load)
     await nextTick();
     scrollToBottom();
   } catch (err) {
@@ -2750,6 +2792,19 @@ function onMediaPickerConfirm(assets: MediaAssetItem[]) {
 function removePendingMedia(idx: number) {
   pendingMediaAssets.value.splice(idx, 1);
 }
+
+// Paste-image queue — images pasted into editor are staged here, not sent immediately
+type PendingImageEntry = { file: File; url: string };
+const pendingImageFiles = ref<PendingImageEntry[]>([]);
+function removePendingImageFile(idx: number) {
+  const entry = pendingImageFiles.value.splice(idx, 1)[0];
+  if (entry) URL.revokeObjectURL(entry.url);
+}
+function clearPendingImageFiles() {
+  for (const e of pendingImageFiles.value) URL.revokeObjectURL(e.url);
+  pendingImageFiles.value = [];
+}
+
 // 2026-06-12: showMediaPicker + MediaPickerPopover đã GỠ — nút "Chèn từ kho" giờ mở
 // tab Media ở cột 4 (emit 'open-media-tab'). Logic kho dời sang MediaTabPanel.
 // 2026-06-20: GỠ "Gợi ý ảnh dự án" (mediaSuggestions/loadMediaSuggestions/sendSuggestion) — anh chốt bỏ.
@@ -2780,8 +2835,9 @@ function copyToClipboard(text: string, message: string = 'Đã copy vào bộ nh
 }
 
 function onPasteImage(files: File[]) {
-  // Bắt được khi user Ctrl+V image vào editor
-  handleImageFiles(files);
+  for (const f of files) {
+    pendingImageFiles.value.push({ file: f, url: URL.createObjectURL(f) });
+  }
 }
 
 function hasDraggedFiles(event: DragEvent): boolean {
@@ -3450,7 +3506,8 @@ async function handleSend() {
   if (isArchivedNick.value) return;
   const hasText = !!inputText.value.trim();
   const hasPending = pendingMediaAssets.value.length > 0;
-  if (!hasText && !hasPending) return;
+  const hasPasteImages = pendingImageFiles.value.length > 0;
+  if (!hasText && !hasPending && !hasPasteImages) return;
 
   // Gửi ảnh pending trước (từng ảnh gọi sendMediaToConversation)
   if (hasPending && props.conversation?.id) {
@@ -3502,6 +3559,12 @@ async function handleSend() {
         toast.error(err?.response?.data?.error || 'Gửi ảnh thất bại');
       }
     })();
+  }
+
+  if (hasPasteImages) {
+    const files = pendingImageFiles.value.map(e => e.file);
+    clearPendingImageFiles();
+    void handleImageFiles(files);
   }
 
   // Gửi text ngay trong cùng lượt xử lý Enter để optimistic bubble render ở microtask kế tiếp.
@@ -3646,6 +3709,33 @@ watch(() => props.editingMessage?.id, async (id) => {
   opacity: 0; transition: opacity 140ms;
 }
 .pmb-thumb:hover .pmb-remove { opacity: 1; }
+
+/* Paste-image queue strip */
+.paste-img-queue {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 12px 6px;
+  background: #f0fdf4; border-top: 1px solid #bbf7d0;
+  flex-shrink: 0; overflow-x: auto;
+  scrollbar-width: thin; scrollbar-color: #86efac transparent;
+}
+.paste-img-queue::-webkit-scrollbar { height: 4px; }
+.paste-img-queue::-webkit-scrollbar-thumb { background: #86efac; border-radius: 9999px; }
+.paste-img-thumb {
+  position: relative; flex-shrink: 0;
+  width: 52px; height: 52px; border-radius: 8px; overflow: hidden;
+  border: 2px solid #22c55e;
+}
+.paste-img-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.paste-img-remove {
+  position: absolute; top: 2px; right: 2px;
+  width: 16px; height: 16px; border-radius: 50%;
+  background: rgba(0,0,0,.6); color: #fff;
+  border: none; cursor: pointer; padding: 0;
+  display: flex; align-items: center; justify-content: center;
+  opacity: 0; transition: opacity 140ms; font-size: 12px; line-height: 1;
+}
+.paste-img-thumb:hover .paste-img-remove { opacity: 1; }
+
 .pmb-clear {
   flex-shrink: 0; border: none; background: none; cursor: pointer;
   font-size: 11px; color: #7c3aed; font-weight: 600; padding: 4px 6px;

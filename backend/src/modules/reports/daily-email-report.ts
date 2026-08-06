@@ -8,7 +8,7 @@ const TIME_ZONE = 'Asia/Ho_Chi_Minh';
 const DEFAULT_RECIPIENT = 'thaophamce@gmail.com';
 const PER_FILE = 20_000;
 const APPROVED_BONUS = 10_000;
-const DESIGN_FEE = 100_000;a muo
+const DESIGN_FEE = 100_000;
 
 export interface DailyReport {
   orgName: string;

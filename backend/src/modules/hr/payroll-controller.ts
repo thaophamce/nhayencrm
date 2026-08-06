@@ -143,13 +143,15 @@ export async function listPayroll(request: FastifyRequest, reply: FastifyReply):
 
     const config = await loadHrConfig(user.orgId);
 
-    // Mọi user active trong org = danh sách nhân viên.
+    // Mọi user active trong org, sort theo payrollOrder (admin set) rồi fullName.
     const users = await prisma.user.findMany({
       where: { orgId: user.orgId, isActive: true },
       select: { id: true, fullName: true, email: true },
-      orderBy: { fullName: 'asc' },
+      orderBy: [{ payrollOrder: 'asc' }, { fullName: 'asc' }],
     });
-    const saved = await prisma.salaryRecord.findMany({ where: { orgId: user.orgId, period } });
+    const saved = await prisma.salaryRecord.findMany({
+      where: { orgId: user.orgId, period },
+    });
     const savedByUser = new Map(saved.map((r) => [r.userId, r]));
 
     const rows = [];
@@ -209,7 +211,13 @@ export async function upsertPayroll(request: FastifyRequest, reply: FastifyReply
     if (!target) return reply.status(404).send({ error: 'user_not_found' });
 
     const config = await loadHrConfig(user.orgId);
-    const body = (request.body ?? {}) as Partial<SalaryInput> & { isManualOverride?: boolean };
+    const body = (request.body ?? {}) as Partial<SalaryInput> & {
+      isManualOverride?: boolean;
+      thanhTien?: number;
+      overtimeAmount?: number;
+      totalSalary?: number;
+      netSalary?: number;
+    };
 
     // Nền: bản ghi cũ nếu có, ngược lại auto từ chấm công.
     const existing = await prisma.salaryRecord.findFirst({ where: { orgId: user.orgId, userId, period } });
@@ -253,6 +261,7 @@ export async function upsertPayroll(request: FastifyRequest, reply: FastifyReply
     };
 
     const computed = computeSalary(input, config);
+    const isManual = body.isManualOverride !== false;
 
     const data = {
       orgId: user.orgId,
@@ -268,11 +277,11 @@ export async function upsertPayroll(request: FastifyRequest, reply: FastifyReply
       advanceAmount: input.advanceAmount,
       fillOrderAmount: input.fillOrderAmount,
       hasInsurance: input.hasInsurance,
-      overtimeAmount: computed.overtimeAmount,
-      thanhTien: computed.thanhTien,
-      totalSalary: computed.totalSalary,
-      netSalary: computed.netSalary,
-      isManualOverride: body.isManualOverride !== false,
+      overtimeAmount: isManual && body.overtimeAmount !== undefined ? Math.round(body.overtimeAmount) : computed.overtimeAmount,
+      thanhTien: isManual && body.thanhTien !== undefined ? Math.round(body.thanhTien) : computed.thanhTien,
+      totalSalary: isManual && body.totalSalary !== undefined ? Math.round(body.totalSalary) : computed.totalSalary,
+      netSalary: isManual && body.netSalary !== undefined ? Math.round(body.netSalary) : computed.netSalary,
+      isManualOverride: isManual,
     };
 
     const record = existing
