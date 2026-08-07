@@ -70,7 +70,31 @@
             <div class="dop-card-left">
               <span class="dop-order-code">{{ order.orderCode }}</span>
             </div>
-            <span class="dop-status-pill" :class="order.status">{{ getStatusLabel(order.status) }}</span>
+            <v-menu v-if="canEditOrders" location="bottom end" :close-on-content-click="true">
+              <template #activator="{ props: menuProps }">
+                <span
+                  class="dop-status-pill"
+                  :class="order.status"
+                  v-bind="menuProps"
+                  @click.stop
+                  style="cursor: pointer; user-select: none;"
+                >
+                  {{ getStatusLabel(order.status) }}
+                  <v-icon size="10" style="vertical-align: middle; margin-left: 2px;">mdi-chevron-down</v-icon>
+                </span>
+              </template>
+              <v-list density="compact" min-width="140" rounded="lg" elevation="4">
+                <v-list-item
+                  v-for="s in STATUS_OPTIONS"
+                  :key="s.value"
+                  :disabled="order.status === s.value || updatingId === order.id"
+                  @click="changeStatus(order, s.value)"
+                >
+                  <span class="dop-status-pill" :class="s.value" style="font-size: 12px;">{{ s.label }}</span>
+                </v-list-item>
+              </v-list>
+            </v-menu>
+            <span v-else class="dop-status-pill" :class="order.status">{{ getStatusLabel(order.status) }}</span>
           </div>
           <div class="dop-card-bottom">
             <span class="dop-designer">{{ order.designer?.fullName || 'Chưa gán' }}</span>
@@ -111,6 +135,31 @@ interface Order {
 
 const auth = useAuthStore();
 const isAdminOrManager = computed(() => ['admin', 'manager'].includes(auth.user?.role ?? ''));
+const canEditOrders = computed(() => auth.canAccess('orders', 'edit'));
+
+const STATUS_OPTIONS = [
+  { value: 'demo', label: 'Chưa demo' },
+  { value: 'designing', label: 'Đang thiết kế' },
+  { value: 'approved', label: 'Chốt in' },
+  { value: 'cancelled', label: 'Huỷ' },
+];
+
+const updatingId = ref<string | null>(null);
+
+async function changeStatus(order: Order, newStatus: string) {
+  if (updatingId.value) return;
+  updatingId.value = order.id;
+  const old = order.status;
+  order.status = newStatus; // optimistic
+  try {
+    await api.patch(`/orders/${order.id}`, { status: newStatus });
+  } catch (err) {
+    order.status = old; // revert on error
+    console.error('[DesignOrderTabPanel] changeStatus error', err);
+  } finally {
+    updatingId.value = null;
+  }
+}
 
 const LIMIT = 20;
 const orders = ref<Order[]>([]);

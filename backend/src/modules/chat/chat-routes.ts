@@ -928,24 +928,35 @@ export async function chatRoutes(app: FastifyInstance) {
     }
 
     // Sort mode — Phase 6+ "Chưa đọc lên trên" vs "Mới nhất lên trên"
-    // unread-first: composite [unreadCount > 0 DESC, lastMessageAt DESC]
     // Recent (default): [lastMessageAt DESC]
+    // unread-first: bucket "có tin chưa đọc" lên trước, TRONG mỗi bucket lastMessageAt DESC.
     // 2026-05-28: nulls: 'last' để conv chưa có message thật KHÔNG pin top
     // (ensure-conversation từ Lead Pool / Friend click tạo conv với lastMessageAt=null).
-    const orderByClause: any =
-      sortMode === 'unread-first'
-        ? [{ unreadCount: 'desc' }, { lastMessageAt: { sort: 'desc', nulls: 'last' } }]
-        : { lastMessageAt: { sort: 'desc', nulls: 'last' } };
+    //
+    // 2026-08-07 FIX (anh báo: "Chưa đọc lên trên" xếp lộn xộn 5 phút → 08:59 → 20 giờ
+    // → 7 phút): orderBy cũ [{ unreadCount: 'desc' }, { lastMessageAt: 'desc' }] sort theo
+    // SỐ tin chưa đọc, không phải bucket boolean như comment nói. Conv 12 tin chưa đọc
+    // luôn nằm trên conv 3 tin bất kể mới/cũ; lastMessageAt chỉ tie-break trong nhóm CÙNG
+    // số tin → nhìn như không sort theo thời gian. Prisma orderBy không nhận biểu thức
+    // boolean (unread_count > 0) → tách 2 query bucket rồi nối, pagination cắt qua 2 bucket.
+    const recentOrder = { lastMessageAt: { sort: 'desc' as const, nulls: 'last' as const } };
+    const pageSize = Math.min(parseInt(limit), 300);
+    const pageOffset = (parseInt(page) - 1) * pageSize;
 
-    const [conversations, total] = await Promise.all([
+    // queryConvBucket — include nằm inline trong closure để Prisma 7 Exact<> infer đúng
+    // literal types ('asc'/'desc'). Tách ra const ngoài thì TypeScript widen string → lỗi.
+    // M-tier (2026-05-21): narrow contact select — chỉ field LIST view cần.
+    // Detail fields (gender/totals/birthDate/lastOutboundAt/autoTags/priorityScore...)
+    // sẽ được preserve qua FE merge logic (use-chat.ts mergeConversation):
+    // existing.contact deep-merge với incoming.contact để KHÔNG mất detail
+    // đã load từ /conversations/:id. Trước fix: ~50 field/row × 100 rows = payload bloat.
+    const queryConvBucket = (bucketWhere: any, skip: number, take: number) =>
       prisma.conversation.findMany({
-        where,
+        where: bucketWhere,
+        orderBy: recentOrder,
+        skip,
+        take,
         include: {
-          // M-tier (2026-05-21): narrow contact select — chỉ field LIST view cần.
-          // Detail fields (gender/totals/birthDate/lastOutboundAt/autoTags/priorityScore...)
-          // sẽ được preserve qua FE merge logic (use-chat.ts mergeConversation):
-          // existing.contact deep-merge với incoming.contact để KHÔNG mất detail
-          // đã load từ /conversations/:id. Trước fix: ~50 field/row × 100 rows = payload bloat.
           contact: {
             select: {
               id: true,
@@ -967,7 +978,7 @@ export async function chatRoutes(app: FastifyInstance) {
                   role: true,
                   user: { select: { id: true, fullName: true, email: true } },
                 },
-                orderBy: { createdAt: 'asc' },
+                orderBy: { createdAt: 'asc' as const },
                 take: 5,
               },
               // 2026-06-20 (anh báo: badge "Cùng chăm" hiện 5 cache ≠ số thật khi click):
@@ -981,16 +992,49 @@ export async function chatRoutes(app: FastifyInstance) {
             take: 1,
             // Primary sort by Zalo Snowflake numeric (match 100% Zalo Web), sentAt fallback
             // cho CRM-sent in-flight messages chưa nhận echo zaloMsgId.
-            orderBy: [{ zaloMsgIdNum: { sort: 'desc', nulls: 'last' } }, { sentAt: 'desc' }],
+            orderBy: [
+              { zaloMsgIdNum: { sort: 'desc' as const, nulls: 'last' as const } },
+              { sentAt: 'desc' as const },
+            ],
             select: { id: true, zaloMsgId: true, senderUid: true, senderName: true, content: true, contentType: true, senderType: true, sentAt: true, isDeleted: true, editedAt: true, reactions: { select: { emoji: true, reactorId: true, reactorName: true, reactorSource: true } } },
           },
         },
-        orderBy: orderByClause,
-        skip: (parseInt(page) - 1) * Math.min(parseInt(limit), 300),
-        take: Math.min(parseInt(limit), 300),
-      }),
-      prisma.conversation.count({ where }),
-    ]);
+      });
+
+    let conversations: any[];
+    let total: number;
+
+    if (sortMode === 'unread-first') {
+      // Bucket A: conv còn tin chưa đọc (unreadCount > 0), sắp xếp lastMessageAt DESC
+      // Bucket B: conv đã đọc hết (unreadCount = 0), sắp xếp lastMessageAt DESC
+      // Kết quả = A ++ B; pagination cắt xuyên qua ranh giới 2 bucket.
+      const whereUnread = { ...where, unreadCount: { gt: 0 } };
+      const whereRead   = { ...where, unreadCount: 0 };
+      const [unreadTotal, readTotal] = await Promise.all([
+        prisma.conversation.count({ where: whereUnread }),
+        prisma.conversation.count({ where: whereRead }),
+      ]);
+      total = unreadTotal + readTotal;
+
+      // Tính skip/take cho mỗi bucket theo vị trí trang trong tổng 2 bucket
+      const skipUnread = Math.min(pageOffset, unreadTotal);
+      const takeUnread = Math.min(pageSize, unreadTotal - skipUnread);
+      const skipRead   = Math.max(0, pageOffset - unreadTotal);
+      const takeRead   = pageSize - takeUnread;
+
+      const [unreadRows, readRows] = await Promise.all([
+        takeUnread > 0 ? queryConvBucket(whereUnread, skipUnread, takeUnread) : [],
+        takeRead > 0   ? queryConvBucket(whereRead,   skipRead,   takeRead)   : [],
+      ]);
+      conversations = [...unreadRows, ...readRows];
+    } else {
+      const [rows, cnt] = await Promise.all([
+        queryConvBucket(where, pageOffset, pageSize),
+        prisma.conversation.count({ where }),
+      ]);
+      conversations = rows;
+      total = cnt;
+    }
 
     // Batch fetch Friend records cho user threads để FE biết friendship state.
     // QUAN TRỌNG: lookup theo (zaloAccountId × zaloUidInNick = conv.externalThreadId)

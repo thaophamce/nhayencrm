@@ -192,9 +192,15 @@ export async function groupRoutes(app: FastifyInstance) {
     const { name } = request.body ?? {};
     if (!name) return reply.status(400).send({ error: 'name is required' });
     try {
-      await resolveAccount(accountId, request.user!.orgId);
+      const account = await resolveAccount(accountId, request.user!.orgId);
       if (!(await checkAccess(request, reply, accountId, 'chat'))) return;
-      return { result: await zaloOps.renameGroup(accountId, name, groupId) };
+      const result = await zaloOps.renameGroup(accountId, name, groupId);
+      // Cập nhật DB để frontend refetch thấy tên mới (2026-08-06 fix dialog đổi tên nhóm)
+      await prisma.conversation.updateMany({
+        where: { orgId: account.orgId, zaloAccountId: accountId, externalThreadId: groupId },
+        data: { groupName: name.trim() },
+      });
+      return { result };
     } catch (err) { return handleError(reply, err, 'renameGroup'); }
   });
 

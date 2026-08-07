@@ -386,6 +386,7 @@ export function useChat() {
   function currentUserIdForPrivacy(): string | null { return authStore.user?.id ?? null; }
   function privacyUnlockedRef(): boolean { return !!privacyStore.isUnlocked; }
   const conversations = ref<Conversation[]>([]);
+  const totalConversations = ref<number>(0); // tổng thật từ server (khác conversations.length bị cap 300)
   const selectedConvId = ref<string | null>(null);
   const messages = ref<Message[]>([]);
   // Track conv mà messages.value đang chứa — để fetchMessages biết switch conv thì
@@ -605,6 +606,7 @@ export function useChat() {
       // Apply pending optimistic mutations (tag assigns chưa được BE confirm) trước khi
       // replace state — tránh fetchConversations chạy giữa lúc BE đang sync wipe UI optimistic.
       const fresh = applyPendingTags(res.data.conversations as Conversation[]);
+      if (typeof res.data.total === 'number') totalConversations.value = res.data.total;
       conversationsCache.set(cacheKey, { data: fresh, fetchedAt: Date.now() });
       logCacheEvent('set', cacheKey);
       evictOldConvCacheIfNeeded();
@@ -1540,6 +1542,7 @@ export function useChat() {
 
   return {
     conversations,
+    totalConversations,
     markUnreadLocal,
     selectedConvId,
     selectedConv,

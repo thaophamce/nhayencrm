@@ -84,10 +84,32 @@
               {{ order.conversation?.contact?.fullName || 'Nhóm Zalo' }}
             </span>
           </div>
-          <span
-            class="cl-status-pill"
-            :class="order.status"
-          >
+          <!-- Status pill — click để đổi trạng thái nếu có quyền edit -->
+          <v-menu v-if="canEditOrders" location="bottom end" :close-on-content-click="true">
+            <template #activator="{ props: menuProps }">
+              <span
+                class="cl-status-pill"
+                :class="order.status"
+                v-bind="menuProps"
+                @click.stop
+                style="cursor: pointer; user-select: none;"
+              >
+                {{ getStatusText(order.status) }}
+                <v-icon size="10" class="ml-1" style="vertical-align: middle;">mdi-chevron-down</v-icon>
+              </span>
+            </template>
+            <v-list density="compact" min-width="150" rounded="lg" elevation="4">
+              <v-list-item
+                v-for="s in STATUS_OPTIONS"
+                :key="s.value"
+                :disabled="order.status === s.value || updatingId === order.id"
+                @click="changeStatus(order, s.value)"
+              >
+                <span class="cl-status-pill" :class="s.value" style="font-size: 11px;">{{ s.label }}</span>
+              </v-list-item>
+            </v-list>
+          </v-menu>
+          <span v-else class="cl-status-pill" :class="order.status">
             {{ getStatusText(order.status) }}
           </span>
         </div>
@@ -134,10 +156,30 @@
             <div class="text-h6 font-weight-bold text-slate-900">{{ selectedOrder.orderCode }}</div>
             <div class="text-caption text-slate-500">Ngày tạo: {{ formatDate(selectedOrder.createdAt) }}</div>
           </div>
-          <span
-            class="cl-status-pill"
-            :class="selectedOrder.status"
-          >
+          <v-menu v-if="canEditOrders" location="bottom end" :close-on-content-click="true">
+            <template #activator="{ props: menuProps }">
+              <span
+                class="cl-status-pill"
+                :class="selectedOrder.status"
+                v-bind="menuProps"
+                style="cursor: pointer; user-select: none;"
+              >
+                {{ getStatusText(selectedOrder.status) }}
+                <v-icon size="10" class="ml-1" style="vertical-align: middle;">mdi-chevron-down</v-icon>
+              </span>
+            </template>
+            <v-list density="compact" min-width="150" rounded="lg" elevation="4">
+              <v-list-item
+                v-for="s in STATUS_OPTIONS"
+                :key="s.value"
+                :disabled="selectedOrder.status === s.value || updatingId === selectedOrder.id"
+                @click="changeStatus(selectedOrder, s.value)"
+              >
+                <span class="cl-status-pill" :class="s.value" style="font-size: 11px;">{{ s.label }}</span>
+              </v-list-item>
+            </v-list>
+          </v-menu>
+          <span v-else class="cl-status-pill" :class="selectedOrder.status">
             {{ getStatusText(selectedOrder.status) }}
           </span>
         </div>
@@ -227,6 +269,36 @@ import { api } from '@/api';
 import { useAuthStore } from '@/stores/auth';
 
 const authStore = useAuthStore();
+
+const canEditOrders = computed(() => authStore.canAccess('orders', 'edit'));
+
+const STATUS_OPTIONS = [
+  { value: 'demo', label: 'Chưa demo' },
+  { value: 'designing', label: 'Đang thiết kế' },
+  { value: 'approved', label: 'Chốt in' },
+  { value: 'cancelled', label: 'Khách huỷ' },
+];
+
+const updatingId = ref<string | null>(null);
+
+async function changeStatus(order: any, newStatus: string) {
+  if (updatingId.value) return;
+  updatingId.value = order.id;
+  const oldStatus = order.status;
+  // Optimistic update
+  order.status = newStatus;
+  if (selectedOrder.value?.id === order.id) selectedOrder.value.status = newStatus;
+  try {
+    await api.patch(`/orders/${order.id}`, { status: newStatus });
+  } catch (err) {
+    // Revert on error
+    order.status = oldStatus;
+    if (selectedOrder.value?.id === order.id) selectedOrder.value.status = oldStatus;
+    console.error('Update status error:', err);
+  } finally {
+    updatingId.value = null;
+  }
+}
 
 const orders = ref<any[]>([]);
 const loading = ref(false);

@@ -16,9 +16,13 @@ import { getOrgParts } from './use-org-timezone';
 /**
  * formatConvTime — định dạng thời gian tương đối cho danh sách hội thoại (cột 2).
  * Tách từ ConversationList.formatTime để dùng chung với component ConvTime.
- *   < 1 phút → "Now" · < 60p → "Xp" · < 24h → "HH:mm" · 1 ngày → "Hôm qua" ·
+ *   < 1 phút → "Mới đây" · < 60p → "Xp" · hôm nay → "HH:mm" · hôm qua → "Hôm qua" ·
  *   < 7 ngày → "Xd" · ≥7 ngày cùng năm → "DD/MM" · năm cũ → "MM/YYYY".
  * tickMs: timestamp hiện tại (từ ticker chung) để tính delta — đổi mỗi 30s.
+ *
+ * 2026-08-07 FIX: code cũ trả "X giờ" cho hôm qua (isYesterday branch) → danh sách
+ * hiện 3 style cùng lúc: "X phút", "HH:mm", "X giờ". Đồng nhất thành 4 bucket rõ ràng:
+ * tương đối (< 60 phút) → giờ tuyệt đối hôm nay → "Hôm qua" → ngày/tháng.
  */
 export function formatConvTime(dateStr: string | null, tickMs: number): string {
   if (!dateStr) return '';
@@ -31,29 +35,30 @@ export function formatConvTime(dateStr: string | null, tickMs: number): string {
 
   const diffMs = nowDate.getTime() - date.getTime();
   const diffMins = Math.floor(diffMs / 60000);
+
+  // < 1 phút: cực mới
   if (diffMins < 1) return 'Mới đây';
+  // < 60 phút: tương đối "X phút"
   if (diffMins < 60) return `${diffMins} phút`;
 
-  const diffHours = Math.floor(diffMins / 60);
-
-  // Cùng ngày (Hôm nay): Hiển thị chính xác giờ
+  // Cùng ngày calendar (Hôm nay): giờ tuyệt đối "HH:mm"
   if (p.day === nowP.day && p.month === nowP.month && p.year === nowP.year) {
     return `${String(p.hour).padStart(2, '0')}:${String(p.minute).padStart(2, '0')}`;
   }
 
-  // Hôm qua (chênh lệch ngày bằng 1 hoặc trong vòng 24-48 giờ nếu khác ngày)
-  const isYesterday = (nowP.day - p.day === 1 && p.month === nowP.month && p.year === nowP.year) ||
-                      (diffHours >= 12 && diffHours < 48 && p.day !== nowP.day);
-  if (isYesterday) {
-    return `${diffHours} giờ`;
+  // Hôm qua: khác ngày calendar nhưng chưa quá 48 giờ
+  const diffHours = Math.floor(diffMins / 60);
+  if (diffHours < 48) {
+    return 'Hôm qua';
   }
 
-  // 2 ngày trở lên
-  const diffDays = Math.max(2, Math.floor(diffHours / 24));
-  if (diffDays < 30) {
+  // 2 ngày đến < 7 ngày: "X ngày"
+  const diffDays = Math.floor(diffMs / 86400000);
+  if (diffDays < 7) {
     return `${diffDays} ngày`;
   }
 
+  // ≥ 7 ngày: DD/MM (cùng năm) hoặc MM/YYYY (năm cũ)
   const dd = String(p.day).padStart(2, '0');
   const mm = String(p.month).padStart(2, '0');
   if (p.year === nowP.year) return `${dd}/${mm}`;

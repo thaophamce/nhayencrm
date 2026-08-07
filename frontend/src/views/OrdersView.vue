@@ -120,7 +120,7 @@
                     <th class="font-weight-bold" v-if="isAdminOrManager">Designer phụ trách</th>
                     <th class="font-weight-bold">Hạn chót (Deadline)</th>
                     <th class="font-weight-bold">Số mẫu thiết kế</th>
-                    <th class="font-weight-bold" v-if="isAdminOrManager">Hành động</th>
+                    <th class="font-weight-bold" v-if="canEditOrders || canDeleteOrders">Hành động</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -150,9 +150,10 @@
                     </td>
                     <td>{{ formatDeadline(order.deadline) }}</td>
                     <td class="font-weight-medium">{{ order.fileCount }} files</td>
-                    <td v-if="isAdminOrManager">
+                    <td v-if="canEditOrders || canDeleteOrders">
                       <div class="d-flex align-center gap-1">
                         <v-btn
+                          v-if="canEditOrders"
                           icon
                           variant="text"
                           size="small"
@@ -162,6 +163,7 @@
                           <v-icon size="18">mdi-pencil</v-icon>
                         </v-btn>
                         <v-btn
+                          v-if="canDeleteOrders"
                           icon
                           variant="text"
                           size="small"
@@ -281,6 +283,9 @@ const isAdminOrManager = computed(() => {
   const user = authStore.user;
   return user?.role === 'owner' || user?.role === 'admin' || authStore.canAccess('orders', 'edit');
 });
+
+const canEditOrders = computed(() => authStore.canAccess('orders', 'edit'));
+const canDeleteOrders = computed(() => authStore.canAccess('orders', 'delete'));
 
 const totalPages = computed(() => Math.ceil(totalCount.value / limit));
 
