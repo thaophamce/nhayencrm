@@ -19,7 +19,7 @@
         />
         <div class="ip-name-wrapper">
           <div class="ip-name-line-zalo" :title="headerFullName">{{ headerFullName }}</div>
-          <button class="ip-edit-btn" title="Đổi tên gợi nhớ" @click="toggleInfoExpand">
+          <button class="ip-edit-btn" :title="props.threadType === 'group' ? 'Đổi tên nhóm' : 'Đổi tên gợi nhớ'" @click="toggleInfoExpand">
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
           </button>
         </div>
@@ -89,13 +89,13 @@
       <!-- Zalo-style Accordions List -->
       <div class="ip-tab-content-zalo">
 
-      <!-- Edit Nickname inline (khi bấm vào nút bút chì) -->
+      <!-- Edit Nickname / Group name inline (khi bấm vào nút bút chì) -->
       <div v-if="infoExpanded" class="zalo-alias-edit-box">
-        <div class="alias-title">Đổi tên gợi nhớ</div>
+        <div class="alias-title">{{ props.threadType === 'group' ? 'Đổi tên nhóm' : 'Đổi tên gợi nhớ' }}</div>
         <div class="alias-input-row">
           <input
             :value="aliasDraft"
-            placeholder="Tên gợi nhớ mới..."
+            :placeholder="props.threadType === 'group' ? 'Tên nhóm mới...' : 'Tên gợi nhớ mới...'"
             @input="aliasDraft = ($event.target as HTMLInputElement).value"
             @keydown.enter.prevent="saveAlias"
           />
@@ -929,20 +929,46 @@ const {
 
 
 
-// ════════ Tên gợi nhớ Zalo (per-pair, sync 2-way với Zalo Real) ════════
-// Bound to Friend.aliasInNick — PATCH /friends/:id sẽ:
-//   1. Update DB
-//   2. Fire-and-forget call api.changeFriendAlias / removeFriendAlias → push Zalo Real
+// ════════ Tên gợi nhớ (DM) / Đổi tên nhóm (group) ════════
+// DM: Bound to Friend.aliasInNick — PATCH /friends/:id → sync 2-way với Zalo Real
+// Group: PATCH /zalo-accounts/:accountId/groups/:groupId/name → Zalo rename
 const aliasDraft = ref('');
-watch(() => props.friendship?.aliasInNick, (v) => {
-  aliasDraft.value = v || '';
-}, { immediate: true });
+watch(
+  [() => props.threadType, () => props.groupName, () => props.friendship?.aliasInNick],
+  () => {
+    if (props.threadType === 'group') {
+      aliasDraft.value = props.groupName || '';
+    } else {
+      aliasDraft.value = props.friendship?.aliasInNick || '';
+    }
+  },
+  { immediate: true },
+);
 
 const aliasToast = useToast();
 async function saveAlias() {
+  const trimmed = aliasDraft.value.trim();
+
+  // ── Group rename ──────────────────────────────────────────────────────
+  if (props.threadType === 'group') {
+    if (!trimmed) return;
+    if (trimmed === (props.groupName || '')) return; // no-op
+    try {
+      await api.patch(
+        `/zalo-accounts/${props.activeZaloAccountId}/groups/${props.externalThreadId}/name`,
+        { name: trimmed },
+      );
+      aliasToast.success(`Đã đổi tên nhóm → "${trimmed}"`);
+      emit('saved');
+    } catch (err) {
+      aliasToast.error('Đổi tên nhóm thất bại');
+    }
+    return;
+  }
+
+  // ── Friend alias ──────────────────────────────────────────────────────
   const friendId = props.friendship?.id;
   if (!friendId) return;
-  const trimmed = aliasDraft.value.trim();
   const newAlias = trimmed.length ? trimmed : null;
   if (newAlias === (props.friendship?.aliasInNick || null)) return;  // no-op
   try {

@@ -60,7 +60,7 @@
           <ConversationFilterBar
             :filters="inboxFilters"
             :expanded="expanded"
-            :total-count="conversations.length"
+            :total-count="totalConversations"
             :counts="conversationCounts"
             :priority-has-unread="priorityHasUnread"
             @reselect-tab="onReselectActiveTab"
@@ -197,7 +197,7 @@ const route = useRoute();
 const router = useRouter();
 
 const {
-  conversations, selectedConvId, selectedConv, messages,
+  conversations, totalConversations, selectedConvId, selectedConv, messages,
   loadingConvs, loadingMsgs, sendingMsg, rateLimitSeconds, rateLimitTotalSeconds, searchQuery, accountFilter, extraFilters,
   aiSuggestion, aiSuggestionLoading, aiSuggestionError,
   aiSummary, aiSummaryLoading, aiSentiment, aiSentimentLoading,
