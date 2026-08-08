@@ -132,7 +132,7 @@ const SILENCE_LABELS: Array<{
 }> = [
   { key: 'hot',  emoji: '🔥', label: '4–6n',  tooltip: 'Im 4–6 ngày — đuổi gấp kẻo nguội' },
   { key: 'warm', emoji: '☀️', label: '7–14n', tooltip: 'Im 7–14 ngày' },
-  { key: 'cool', emoji: '🌤', label: '15–29n', tooltip: 'Im 15–29 ngày' },
+  { key: 'cool', emoji: '🌤️', label: '15–29n', tooltip: 'Im 15–29 ngày' },
   { key: 'cold', emoji: '❄️', label: '30n+',  tooltip: 'Im từ 30 ngày — gần mất, cần cứu' },
 ];
 

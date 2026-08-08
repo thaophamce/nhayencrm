@@ -846,7 +846,7 @@ function isFollowingConv(conv: Conversation): boolean {
 const SILENCE_BADGE: Record<string, { emoji: string; tip: string }> = {
   hot: { emoji: '🔥', tip: 'Im 4–6 ngày — đuổi gấp kẻo nguội' },
   warm: { emoji: '☀️', tip: 'Im 7–14 ngày' },
-  cool: { emoji: '🌤', tip: 'Im 15–29 ngày' },
+  cool: { emoji: '🌤️', tip: 'Im 15–29 ngày' },
   cold: { emoji: '❄️', tip: 'Im từ 30 ngày — gần mất, cần cứu' },
 };
 function silenceBadge(conv: Conversation): { emoji: string; tip: string } | null {

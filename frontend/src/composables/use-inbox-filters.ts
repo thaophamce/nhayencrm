@@ -394,7 +394,7 @@ export function useInboxFilters() {
   const activeFilterChips = computed<Array<{ key: string; label: string; remove: () => void }>>(() => {
     const chips: Array<{ key: string; label: string; remove: () => void }> = [];
     const SILENCE_CHIP: Record<SilenceLabelKey, string> = {
-      hot: '🔥 Im 4–6n', warm: '☀️ Im 7–14n', cool: '🌤 Im 15–29n', cold: '❄️ Im 30n+',
+      hot: '🔥 Im 4–6n', warm: '☀️ Im 7–14n', cool: '🌤️ Im 15–29n', cold: '❄️ Im 30n+',
     };
     for (const s of state.silenceLabels) {
       chips.push({
