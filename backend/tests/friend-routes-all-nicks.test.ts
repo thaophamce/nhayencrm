@@ -24,6 +24,23 @@ vi.mock('../src/shared/utils/logger.js', () => ({
 vi.mock('../src/modules/auth/auth-middleware.js', () => ({
   authMiddleware: async (req: any) => { req.user = mockUser(); },
 }));
+vi.mock('../src/modules/rbac/rbac-middleware.js', () => ({
+  requireGrant: () => async () => undefined,
+}));
+vi.mock('../src/modules/zalo/zalo-scope.js', () => ({
+  getZaloScope: vi.fn(async () => ({
+    accessibleIds: [
+      ...new Set([
+        ...(await prismaMock.zaloAccountAccess.findMany()).map((row: any) => row.zaloAccountId),
+        ...(await prismaMock.zaloAccount.findMany()).map((row: any) => row.id),
+      ]),
+    ],
+  })),
+}));
+vi.mock('../src/modules/privacy/redact.js', () => ({
+  buildPrivacyContext: vi.fn().mockResolvedValue({}),
+  redactFriend: vi.fn((friend: unknown) => friend),
+}));
 vi.mock('../src/modules/zalo/zalo-route-helpers.js', () => ({
   resolveAccount: vi.fn().mockResolvedValue({ id: 'za-1', orgId: 'org-1' }),
   checkAccess: vi.fn().mockResolvedValue(true),

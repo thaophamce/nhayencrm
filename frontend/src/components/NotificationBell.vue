@@ -48,6 +48,7 @@
 import { ref, onMounted, onUnmounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { api } from '@/api/index';
+import { hasAuthToken } from '@/composables/use-zalo-accounts';
 
 interface Notification {
   id: string;
@@ -60,7 +61,7 @@ interface Notification {
 const notifications = ref<Notification[]>([]);
 const router = useRouter();
 const bellMenu = ref(false); // 2026-06-09 — điều khiển đóng menu chủ động
-let interval: ReturnType<typeof setInterval>;
+let interval: ReturnType<typeof setInterval> | undefined;
 
 async function fetchNotifications() {
   try {
@@ -80,9 +81,12 @@ function handleClick(n: Notification) {
 }
 
 onMounted(() => {
-  fetchNotifications();
+  if (!hasAuthToken()) return;
+  void fetchNotifications();
   interval = setInterval(fetchNotifications, 60000);
 });
 
-onUnmounted(() => clearInterval(interval));
+onUnmounted(() => {
+  if (interval) clearInterval(interval);
+});
 </script>

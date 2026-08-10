@@ -10,8 +10,7 @@ const zaloOpsMock = mockZaloOps();
 
 const prismaMock = {
   contact: {
-    findFirst: vi.fn(),
-    create: vi.fn(),
+    findUnique: vi.fn(),
   },
   friend: {
     findMany: vi.fn(),
@@ -21,6 +20,8 @@ const prismaMock = {
 
 const applyFriendTransitionMock = vi.fn().mockResolvedValue(undefined);
 const logActivityMock = vi.fn().mockResolvedValue(undefined);
+const resolveOrCreateContactMock = vi.fn();
+const safeContactUpdateMock = vi.fn().mockResolvedValue(undefined);
 
 vi.mock('../src/shared/database/prisma-client.js', () => ({ prisma: prismaMock }));
 vi.mock('../src/shared/zalo-operations.js', () => ({ zaloOps: zaloOpsMock }));
@@ -32,6 +33,15 @@ vi.mock('../src/modules/zalo/friend-event-handler.js', () => ({
 }));
 vi.mock('../src/modules/activity/activity-logger.js', () => ({
   logActivity: logActivityMock,
+}));
+vi.mock('../src/shared/tenant/tenant-context.js', () => ({
+  withTenant: (_orgId: string, fn: () => Promise<unknown>) => fn(),
+}));
+vi.mock('../src/modules/contacts/resolve-contact.js', () => ({
+  resolveOrCreateContact: resolveOrCreateContactMock,
+}));
+vi.mock('../src/shared/database/safe-contact-write.js', () => ({
+  safeContactUpdate: safeContactUpdateMock,
 }));
 
 const { syncFriendsForAccount } = await import('../src/modules/zalo/friend-sync-service.js');
@@ -47,11 +57,16 @@ function mockIO() {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  prismaMock.contact.findFirst.mockReset();
-  prismaMock.contact.create.mockReset();
+  prismaMock.contact.findUnique.mockReset().mockResolvedValue({
+    id: 'c1', fullName: 'Existing', gender: null, genderLocked: false,
+    birthDate: null, phone: null, phone2: null, phone3: null, phonesExtra: [], metadata: {},
+  });
   prismaMock.friend.findMany.mockReset();
   prismaMock.friend.update.mockReset();
   applyFriendTransitionMock.mockReset().mockResolvedValue(undefined);
+  resolveOrCreateContactMock.mockReset().mockResolvedValue({ id: 'c1', created: false });
+  safeContactUpdateMock.mockReset().mockResolvedValue(undefined);
+  logActivityMock.mockReset().mockResolvedValue(undefined);
   zaloOpsMock.getAllFriends.mockReset().mockResolvedValue([]);
   zaloOpsMock.getSentFriendRequests.mockReset().mockResolvedValue([]);
 });
@@ -90,7 +105,8 @@ describe('syncFriendsForAccount — SDK fetch errors', () => {
     const r = await syncFriendsForAccount('za-err', 'org-1', { trigger: 'cron' });
     // .catch(() => []) absorbs reject → liveCount 0 but no service-level error
     expect(r.liveCount).toBe(0);
-    expect(r.errors).toBe(0);
+    expect(r.errors).toBe(1);
+    expect(logActivityMock).toHaveBeenCalledOnce();
   });
 });
 
@@ -110,7 +126,7 @@ describe('syncFriendsForAccount — diff-then-emit', () => {
         zaloUsername: 'tuan',
       },
     ]);
-    prismaMock.contact.findFirst.mockResolvedValue({ id: 'c1' });
+    resolveOrCreateContactMock.mockResolvedValue({ id: 'c1', created: false });
     prismaMock.friend.update.mockResolvedValue({
       id: 'f1', contactId: 'c1', zaloAccountId: 'za-d',
     });
@@ -142,7 +158,7 @@ describe('syncFriendsForAccount — diff-then-emit', () => {
         zaloUsername: 'tuan',
       },
     ]);
-    prismaMock.contact.findFirst.mockResolvedValue({ id: 'c1' });
+    resolveOrCreateContactMock.mockResolvedValue({ id: 'c1', created: false });
     const io = mockIO();
     const r = await syncFriendsForAccount('za-noop', 'org-1', { trigger: 'cron', io });
     expect(r.emittedCount).toBe(0);
@@ -157,12 +173,16 @@ describe('syncFriendsForAccount — contact resolution', () => {
       { userId: 'uid-2', zaloName: 'KH Cũ', avatar: '', globalId: '', username: '' },
     ]);
     prismaMock.friend.findMany.mockResolvedValue([]); // no existing friend
-    prismaMock.contact.findFirst.mockResolvedValue({ id: 'c-existing' });
+    resolveOrCreateContactMock.mockResolvedValue({ id: 'c-existing', created: false });
+    prismaMock.contact.findUnique.mockResolvedValue({
+      id: 'c-existing', fullName: 'KH Cũ', gender: null, genderLocked: false,
+      birthDate: null, phone: null, phone2: null, phone3: null, phonesExtra: [], metadata: {},
+    });
     prismaMock.friend.update.mockResolvedValue({
       id: 'f-new', contactId: 'c-existing', zaloAccountId: 'za-x',
     });
     const r = await syncFriendsForAccount('za-x', 'org-1', { trigger: 'cron' });
-    expect(prismaMock.contact.create).not.toHaveBeenCalled();
+    expect(resolveOrCreateContactMock).toHaveBeenCalledWith(expect.objectContaining({ zaloUidInNick: 'uid-2' }));
     expect(r.createdContacts).toBe(0);
     expect(applyFriendTransitionMock).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -177,22 +197,18 @@ describe('syncFriendsForAccount — contact resolution', () => {
       { userId: 'uid-3', zaloName: 'KH Mới Tạo', avatar: 'avatar.png', globalId: '', username: '' },
     ]);
     prismaMock.friend.findMany.mockResolvedValue([]);
-    prismaMock.contact.findFirst.mockResolvedValue(null);
-    prismaMock.contact.create.mockResolvedValue({ id: 'c-new' });
+    resolveOrCreateContactMock.mockResolvedValue({ id: 'c-new', created: true });
+    prismaMock.contact.findUnique.mockResolvedValue(null);
     prismaMock.friend.update.mockResolvedValue({
       id: 'f-new', contactId: 'c-new', zaloAccountId: 'za-y',
     });
     const r = await syncFriendsForAccount('za-y', 'org-1', { trigger: 'cron' });
     expect(r.createdContacts).toBe(1);
-    expect(prismaMock.contact.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        zaloUid: 'uid-3',
-        fullName: 'KH Mới Tạo',
-        avatarUrl: 'avatar.png',
-        hasZalo: true,
-      }),
-      select: { id: true },
-    });
+    expect(resolveOrCreateContactMock).toHaveBeenCalledWith(expect.objectContaining({
+      zaloUidInNick: 'uid-3',
+      fallbackFullName: 'KH Mới Tạo',
+      fallbackAvatarUrl: 'avatar.png',
+    }));
   });
 });
 
@@ -203,7 +219,7 @@ describe('syncFriendsForAccount — pending sent requests', () => {
       { uid: 'uid-p', zaloName: 'KH Pending', avatar: '', globalId: '', username: '' },
     ]);
     prismaMock.friend.findMany.mockResolvedValue([]);
-    prismaMock.contact.findFirst.mockResolvedValue({ id: 'c-p' });
+    resolveOrCreateContactMock.mockResolvedValue({ id: 'c-p', created: false });
     prismaMock.friend.update.mockResolvedValue({
       id: 'f-p', contactId: 'c-p', zaloAccountId: 'za-p',
     });

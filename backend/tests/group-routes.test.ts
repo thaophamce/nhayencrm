@@ -9,13 +9,14 @@ import { mockUser, mockZaloOps } from './test-helpers.js';
 // ── Hoisted mock state ─────────────────────────────────────────────────────────
 const zaloOpsMock = mockZaloOps();
 
-vi.mock('../src/shared/database/prisma-client.js', () => ({
-  prisma: {
-    zaloAccount: { findFirst: vi.fn() },
-    zaloAccountAccess: { findFirst: vi.fn() },
-    groupPoll: { create: vi.fn(), findFirst: vi.fn(), update: vi.fn() },
-  },
-}));
+const prismaMock = {
+  zaloAccount: { findFirst: vi.fn() },
+  zaloAccountAccess: { findFirst: vi.fn() },
+  groupPoll: { create: vi.fn(), findFirst: vi.fn(), update: vi.fn() },
+  conversation: { updateMany: vi.fn() },
+  $transaction: vi.fn(),
+};
+vi.mock('../src/shared/database/prisma-client.js', () => ({ prisma: prismaMock }));
 vi.mock('../src/shared/zalo-operations.js', () => ({
   zaloOps: zaloOpsMock,
   ZaloOpError: class extends Error {
@@ -49,15 +50,25 @@ function buildApp(): FastifyInstance {
   return app;
 }
 
-beforeEach(() => { vi.clearAllMocks(); });
+beforeEach(() => {
+  vi.clearAllMocks();
+  prismaMock.$transaction.mockImplementation(async (fn: (tx: any) => Promise<unknown>) => fn({
+    conversation: { upsert: vi.fn().mockResolvedValue({ id: 'conv-1' }) },
+    groupMember: { createMany: vi.fn().mockResolvedValue({ count: 2 }) },
+  }));
+  prismaMock.conversation.updateMany.mockResolvedValue({ count: 1 });
+});
 
 // ── GET all groups ─────────────────────────────────────────────────────────────
 describe('GET /api/v1/zalo-accounts/:accountId/groups', () => {
   it('happy path — returns groups list', async () => {
-    zaloOpsMock.getAllGroups.mockResolvedValueOnce([{ groupId: 'g1' }]);
+    zaloOpsMock.getAllGroups.mockResolvedValueOnce({
+      gridVerMap: { g1: 1 },
+      gridInfoMap: { g1: { name: 'Group 1', totalMember: 2 } },
+    });
     const res = await buildApp().inject({ method: 'GET', url: BASE });
     expect(res.statusCode).toBe(200);
-    expect(JSON.parse(res.body)).toMatchObject({ groups: [{ groupId: 'g1' }] });
+    expect(JSON.parse(res.body)).toMatchObject({ groups: [{ id: 'g1', name: 'Group 1', totalMember: 2 }] });
     expect(zaloOpsMock.getAllGroups).toHaveBeenCalledWith('za-1');
   });
 });
