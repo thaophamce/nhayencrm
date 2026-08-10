@@ -22,6 +22,16 @@ import { logActivity } from '../activity/activity-logger.js';
 
 const PAGE_SIZE = 200;
 const MAX_PAGES = 20;
+const FETCH_MAX_ATTEMPTS = 3;
+
+function isTransientNetworkError(err: unknown): boolean {
+  const candidate = err as { message?: string; cause?: { message?: string; code?: string }; code?: string } | null;
+  const message = `${candidate?.message ?? ''} ${candidate?.cause?.message ?? ''}`.toLowerCase();
+  const code = String(candidate?.code ?? candidate?.cause?.code ?? '').toLowerCase();
+  return message.includes('fetch failed') || message.includes('socket')
+    || message.includes('timed out') || code === 'etimedout'
+    || code === 'econnreset' || code === 'econnrefused';
+}
 
 /** Pull tất cả aliases từ Zalo SDK, return Map<uidInNick, alias>. */
 export async function pullAliasMap(accountId: string): Promise<Map<string, string>> {
@@ -33,13 +43,28 @@ export async function pullAliasMap(accountId: string): Promise<Map<string, strin
   const map = new Map<string, string>();
   for (let page = 1; page <= MAX_PAGES; page++) {
     let items: Array<{ userId: string; alias: string }> = [];
-    try {
-      const res = await api.getAliasList(PAGE_SIZE, page);
-      items = (res?.items || []) as Array<{ userId: string; alias: string }>;
-    } catch (err) {
-      logger.warn(`[alias-sync] getAliasList page=${page} failed:`, err);
-      break;
+    let pageFailed = false;
+    for (let attempt = 1; attempt <= FETCH_MAX_ATTEMPTS; attempt++) {
+      try {
+        const res = await api.getAliasList(PAGE_SIZE, page);
+        items = (res?.items || []) as Array<{ userId: string; alias: string }>;
+        break;
+      } catch (err) {
+        const canRetry = isTransientNetworkError(err) && attempt < FETCH_MAX_ATTEMPTS;
+        if (!canRetry) {
+          logger.warn(`[alias-sync] getAliasList page=${page} failed:`, err);
+          pageFailed = true;
+          break;
+        }
+        const delayMs = 200 * attempt;
+        logger.info(
+          `[alias-sync] getAliasList page=${page} transient failure `
+          + `(attempt ${attempt}/${FETCH_MAX_ATTEMPTS}); retrying in ${delayMs}ms`,
+        );
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
     }
+    if (pageFailed) break;
     for (const it of items) {
       if (it.userId && it.alias) map.set(String(it.userId), String(it.alias));
     }
