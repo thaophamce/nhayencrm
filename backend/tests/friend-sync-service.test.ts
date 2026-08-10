@@ -108,6 +108,30 @@ describe('syncFriendsForAccount — SDK fetch errors', () => {
     expect(r.errors).toBe(1);
     expect(logActivityMock).toHaveBeenCalledOnce();
   });
+
+  it('continues accepted-friend sync and suppresses daily friend_read retries', async () => {
+    zaloOpsMock.getAllFriends.mockResolvedValue([
+      { userId: 'uid-rate', zaloName: 'KH Accepted', avatar: '', globalId: '', username: '' },
+    ]);
+    zaloOpsMock.getSentFriendRequests.mockRejectedValue({
+      code: 'RATE_LIMITED',
+      statusCode: 429,
+      message: 'Đã đạt giới hạn 500 friend_read/ngày',
+    });
+    prismaMock.friend.findMany.mockResolvedValue([]);
+    prismaMock.friend.update.mockResolvedValue({
+      id: 'f-rate', contactId: 'c1', zaloAccountId: 'za-daily-limit',
+    });
+
+    const first = await syncFriendsForAccount('za-daily-limit', 'org-1', { trigger: 'cron' });
+    const second = await syncFriendsForAccount('za-daily-limit', 'org-1', { trigger: 'cron' });
+
+    expect(first.errors).toBe(0);
+    expect(first.upsertedFriends).toBe(1);
+    expect(second.errors).toBe(0);
+    expect(zaloOpsMock.getSentFriendRequests).toHaveBeenCalledTimes(1);
+    expect(logActivityMock).not.toHaveBeenCalled();
+  });
 });
 
 describe('syncFriendsForAccount — diff-then-emit', () => {

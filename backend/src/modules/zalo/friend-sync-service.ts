@@ -68,6 +68,28 @@ export interface SyncFriendsResult {
 const COOLDOWN_MS = 5_000;
 const lastManualSyncAt = new Map<string, number>();
 
+// getSentFriendRequests uses the separate friend_read quota. Once its daily
+// allowance is exhausted, keep syncing accepted friends but defer pending_sent
+// reads until the rate limiter's UTC counter resets instead of retrying every
+// 15 minutes.
+const sentRequestsDailyLimitedUntil = new Map<string, number>();
+
+function nextUtcDayStart(now = new Date()): number {
+  return Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1);
+}
+
+function isRateLimitedError(err: unknown): boolean {
+  const candidate = err as { code?: string; statusCode?: number } | null;
+  return candidate?.code === 'RATE_LIMITED' || candidate?.statusCode === 429;
+}
+
+function isDailyRateLimitedError(err: unknown): boolean {
+  if (!isRateLimitedError(err)) return false;
+  const message = String((err as { message?: string } | null)?.message ?? err).toLowerCase();
+  return message.includes('/ngày') || message.includes('/ngay')
+    || message.includes('per day') || message.includes('daily');
+}
+
 // ── Diff helper ─────────────────────────────────────────────────────────────
 // Fields có thể đổi từ Zalo Real → cần diff trước khi update + emit.
 // Friendship state (friendshipStatus, relationshipKind) đi qua applyFriendTransition
@@ -183,7 +205,30 @@ async function syncFriendsForAccountImpl(
   // (rate limit, network) bubble lên outer try/catch.
   try {
     const liveRaw: any = await zaloOps.getAllFriends(accountId);
-    const sentRaw: any = await zaloOps.getSentFriendRequests(accountId);
+    let sentRaw: any = [];
+    const limitedUntil = sentRequestsDailyLimitedUntil.get(accountId) ?? 0;
+    if (limitedUntil <= Date.now()) {
+      if (limitedUntil > 0) sentRequestsDailyLimitedUntil.delete(accountId);
+      try {
+        sentRaw = await zaloOps.getSentFriendRequests(accountId);
+      } catch (err) {
+        if (!isRateLimitedError(err)) throw err;
+
+        if (isDailyRateLimitedError(err)) {
+          const retryAt = nextUtcDayStart();
+          sentRequestsDailyLimitedUntil.set(accountId, retryAt);
+          logger.info(
+            `[friend-sync:${accountId}] friend_read daily quota reached; `
+            + `pending sent requests deferred until ${new Date(retryAt).toISOString()}`,
+          );
+        } else {
+          logger.info(
+            `[friend-sync:${accountId}] friend_read temporarily rate-limited; `
+            + 'pending sent requests deferred for this cycle',
+          );
+        }
+      }
+    }
     liveFriends = Array.isArray(liveRaw) ? liveRaw
       : Array.isArray(liveRaw?.data) ? liveRaw.data
       : Array.isArray(liveRaw?.items) ? liveRaw.items
