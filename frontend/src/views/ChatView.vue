@@ -532,6 +532,7 @@ watch(
     inboxFilters.state.tagsZalo.join(','),
     inboxFilters.state.tagsCrm.join(','),
     inboxFilters.state.sortMode,
+    inboxFilters.state.timeOrder,
     inboxFilters.state.timeAxis,
     inboxFilters.state.timeRangePreset,
     // 2026-06-08 — Tier-1 deep CRM filter (cột 1 sidebar). Trước đây các field này

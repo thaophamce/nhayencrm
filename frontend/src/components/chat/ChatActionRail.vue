@@ -87,7 +87,8 @@
 
     <button class="rail-action disabled" title="Lịch trình — chưa gán" type="button"><v-icon size="20">mdi-calendar-month-outline</v-icon></button>
     <button class="rail-action disabled" title="Tài liệu — chưa gán" type="button"><v-icon size="20">mdi-file-document-multiple-outline</v-icon></button>
-    <button class="rail-action disabled" title="Thống kê — chưa gán" type="button"><v-icon size="20">mdi-chart-bar</v-icon></button>
+    <button class="rail-action" :class="{ selected: statisticsOpen }" title="Thống kê hoạt động Zalo" type="button" @click="statisticsOpen = true"><v-icon size="20">mdi-chart-bar</v-icon></button>
+    <ZaloStatisticsDialog v-model="statisticsOpen" :account-ids="accountIds" />
   </aside>
 </template>
 
@@ -97,6 +98,7 @@ import { useRouter } from 'vue-router';
 import { api } from '@/api/index';
 import { useToast } from '@/composables/use-toast';
 import type { ActiveTab } from '@/composables/use-inbox-filters';
+import ZaloStatisticsDialog from './ZaloStatisticsDialog.vue';
 
 type FriendRequest = {
   id: string; zaloAccountId: string; zaloUidInNick: string; updatedAt: string;
@@ -113,7 +115,7 @@ const props = defineProps<{ activeTab: ActiveTab; accountIds: string[]; dateFrom
 const emit = defineEmits<{ 'select-tab': [tab: ActiveTab]; 'apply-date': [value: { from: string; to: string }] }>();
 const router = useRouter();
 const toast = useToast();
-const friendMenu = ref(false), tabMenu = ref(false), dateMenu = ref(false);
+const friendMenu = ref(false), tabMenu = ref(false), dateMenu = ref(false), statisticsOpen = ref(false);
 const friendRequests = ref<FriendRequest[]>([]), friendTotal = ref(0), friendPage = ref(1), friendLoading = ref(false), busyId = ref('');
 const draftFrom = ref(props.dateFrom), draftTo = ref(props.dateTo);
 watch(() => [props.dateFrom, props.dateTo], ([from, to]) => { draftFrom.value = from; draftTo.value = to; });

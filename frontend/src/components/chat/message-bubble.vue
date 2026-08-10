@@ -79,7 +79,21 @@
               <v-icon size="11" class="reply-icon">mdi-reply</v-icon>
               <span class="reply-sender">Trả lời{{ replySenderLabel ? ' ' + replySenderLabel : '' }}</span>
             </div>
-            <div class="reply-text">{{ replyPreviewText }}</div>
+            <!-- 2026-08-10: trích dẫn tin ảnh/video hiện THUMBNAIL tin gốc. Trước đây chỉ
+                 có dòng chữ "📷 Hình ảnh" → sale đọc "mẫu này, 270 thiệp giá sao" mà không
+                 thấy mẫu nào, phải bấm nhảy ngược lên tin gốc. -->
+            <div class="reply-body">
+              <img
+                v-if="replyThumbUrl && !replyThumbFailed"
+                :src="replyThumbUrl"
+                class="reply-thumb"
+                alt=""
+                loading="lazy"
+                decoding="async"
+                @error="replyThumbFailed = true"
+              />
+              <div v-if="replyPreviewText" class="reply-text">{{ replyPreviewText }}</div>
+            </div>
           </div>
 
           <!-- Reminder card — đặt TRƯỚC image branch vì thumb URL của reminder có đuôi .png
@@ -922,11 +936,22 @@ const replySenderLabel = computed(() => {
   return r.senderName ? r.senderName : '';
 });
 
+// 2026-08-10 — thumbnail tin gốc trong khung trích dẫn. use-chat.normalizeMessage
+// đã parse quote.attach và mang url xuống; ảnh Zalo hết hạn → @error ẩn <img>,
+// replyPreviewText vẫn còn nhãn chữ nên khung không bị trống.
+const replyThumbFailed = ref(false);
+const replyThumbUrl = computed(() => props.reply?.thumbUrl || null);
+
 const replyPreviewText = computed(() => {
   const r = props.reply;
   if (!r) return '';
   const text = (r.content || '').trim();
-  if (text) return text.length > 80 ? text.slice(0, 80) + '…' : text;
+  // 2026-08-10: content của tin media là JSON attach, KHÔNG phải caption → không in raw.
+  // Lấy title/description trong đó làm caption nếu có.
+  const caption = text.startsWith('{') ? extractQuoteCaption(text) : text;
+  if (caption) return caption.length > 80 ? caption.slice(0, 80) + '…' : caption;
+  // Đã có thumbnail thì ảnh tự nói, khỏi lặp nhãn "📷 Hình ảnh" bên cạnh.
+  if (replyThumbUrl.value && !replyThumbFailed.value) return '';
   // Fallback theo msgType (zalo msgType khi text rỗng — image/sticker/voice...)
   const t = (r.msgType || '').toLowerCase();
   if (t.includes('image') || t.includes('photo')) return '📷 Hình ảnh';
@@ -939,6 +964,22 @@ const replyPreviewText = computed(() => {
   if (t.includes('location')) return '📍 Vị trí';
   return '(tin nhắn)';
 });
+
+/** Rút caption từ content JSON của tin media (title/description). Bỏ tên file. */
+function extractQuoteCaption(raw: string): string {
+  const p = safeParse(raw);
+  if (!p) return '';
+  for (const key of ['title', 'description', 'text'] as const) {
+    const v = p[key];
+    if (typeof v !== 'string') continue;
+    const s = v.trim();
+    if (!s) continue;
+    // Tên file (ảnh.jpg, hopdong.pdf) không phải caption → bỏ.
+    if (/\.(jpe?g|png|webp|gif|mp4|mov|avi|pdf|docx?|xlsx?|zip|rar)$/i.test(s)) continue;
+    return s.replace(/\s*\n+\s*/g, ' · ');
+  }
+  return '';
+}
 
 function getReminderTitle(msg: Message): string {
   try {
@@ -1354,6 +1395,22 @@ async function openFile(href: string, name?: string) {
   opacity: 0.78;
   line-height: 1.35;
   word-break: break-word;
+}
+/* Trích dẫn tin ảnh: thumbnail bên trái + caption bên phải (như Zalo Web). */
+.reply-body {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+.reply-body .reply-text { flex: 1 1 auto; min-width: 0; }
+.reply-thumb {
+  flex: 0 0 auto;
+  width: 38px;
+  height: 38px;
+  object-fit: cover;
+  border-radius: 5px;
+  background: rgba(0, 0, 0, 0.06);
 }
 .file-card {
   display: flex;

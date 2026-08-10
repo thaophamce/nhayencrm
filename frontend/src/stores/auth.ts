@@ -7,6 +7,7 @@ import { refreshOrgTimezone } from '@/composables/use-org-timezone';
 
 interface User {
   id: string;
+  username?: string | null;
   email: string | null;
   phone?: string | null;
   fullName: string;
@@ -106,6 +107,7 @@ export const useAuthStore = defineStore('auth', () => {
       const tz = data.org?.timezone ?? '+07:00';
       user.value = {
         id: data.id,
+        username: data.username ?? null,
         email: data.email,
         phone: data.phone ?? null,
         fullName: data.fullName,

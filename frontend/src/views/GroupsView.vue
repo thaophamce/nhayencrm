@@ -222,8 +222,16 @@ async function refresh() {
   if (selectedGroupId.value) await onSelectGroup(selectedGroupId.value);
 }
 
+// 2026-08-09: bắt cả lỗi throw (renameGroup giờ throw kèm message thật từ Zalo)
+// để không còn "Thành công" giả hoặc unhandled rejection.
 async function runAction(fn: () => Promise<any>) {
-  const result = await fn();
+  let result: any;
+  try {
+    result = await fn();
+  } catch (err: any) {
+    notify(err?.message || 'Thao tác thất bại', 'error');
+    return;
+  }
   if (result !== null) {
     notify('Thành công');
     if (selectedGroupId.value) await onSelectGroup(selectedGroupId.value);

@@ -57,6 +57,7 @@ export type QuickPillKey = 'unread' | 'unanswered' | 'stuck' | 'ready';
 export type SilenceLabelKey = 'hot' | 'warm' | 'cool' | 'cold';
 export type ActiveTab = 'all' | 'personal' | 'group' | 'main' | 'other';
 export type SortMode = 'recent' | 'unread-first';
+export type TimeOrder = 'newest' | 'oldest';
 export type TimeAxis =
   | 'last-interaction'
   | 'oldest'
@@ -91,6 +92,7 @@ export interface FilterState {
   tagsZalo: string[];
   tagsCrm: string[];
   sortMode: SortMode;
+  timeOrder: TimeOrder;
   timeAxis: TimeAxis;
   timeRangePreset: 'today' | '7d' | '30d' | 'custom';
   timeFrom: string | null;
@@ -125,6 +127,7 @@ export function defaultFilterState(): FilterState {
     tagsZalo: [],
     tagsCrm: [],
     sortMode: 'unread-first', // Mặc định đưa tin chưa đọc lên trên
+    timeOrder: 'newest',
     timeAxis: 'last-interaction',
     timeRangePreset: '7d',
     timeFrom: null,
@@ -226,6 +229,7 @@ export function useInboxFilters() {
       tagsZalo: state.tagsZalo,
       tagsCrm: state.tagsCrm,
       sortMode: state.sortMode,
+      timeOrder: state.timeOrder,
       timeAxis: state.timeAxis,
       timeRangePreset: state.timeRangePreset,
     };
@@ -249,6 +253,7 @@ export function useInboxFilters() {
     if (j.tagsZalo) state.tagsZalo = j.tagsZalo;
     if (j.tagsCrm) state.tagsCrm = j.tagsCrm;
     if (j.sortMode) state.sortMode = j.sortMode;
+    if (j.timeOrder) state.timeOrder = j.timeOrder;
     if (j.timeAxis) state.timeAxis = j.timeAxis;
     if (j.timeRangePreset) state.timeRangePreset = j.timeRangePreset;
     activePresetId.value = preset.id;
@@ -276,6 +281,10 @@ export function useInboxFilters() {
 
   function setSortMode(mode: SortMode) {
     state.sortMode = mode;
+  }
+
+  function setTimeOrder(order: TimeOrder) {
+    state.timeOrder = order;
   }
 
   function setActiveTab(t: ActiveTab) {
@@ -311,6 +320,7 @@ export function useInboxFilters() {
         break;
     }
     if (state.sortMode === 'unread-first') params.sortMode = 'unread-first';
+    params.timeOrder = state.timeOrder;
 
     // Quick pills → individual query params
     if (state.quickPills.has('unread')) params.unread = 'true';
@@ -370,7 +380,8 @@ export function useInboxFilters() {
       state.silenceLabels.size > 0 ||
       state.tagsZalo.length > 0 ||
       state.tagsCrm.length > 0 ||
-      state.sortMode !== 'recent' ||
+      state.sortMode !== 'unread-first' ||
+      state.timeOrder !== 'newest' ||
       state.timeRangePreset !== '7d' ||
       state.searchQuery.length > 0 ||
       // Tier 1 new filters
@@ -560,6 +571,7 @@ export function useInboxFilters() {
     toggleQuickPill,
     toggleSilenceLabel,
     setSortMode,
+    setTimeOrder,
     setActiveTab,
     clearAll,
     // Query

@@ -33,7 +33,7 @@ export async function buildAccessPayload(userId: string): Promise<JwtPayload> {
   const user = await runSystemQuery(() =>
     prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, email: true, phone: true, role: true, orgId: true, jwtTokenVersion: true, isActive: true },
+      select: { id: true, username: true, email: true, phone: true, role: true, orgId: true, jwtTokenVersion: true, isActive: true },
     }),
   );
   if (!user || !user.isActive) {
@@ -43,7 +43,7 @@ export async function buildAccessPayload(userId: string): Promise<JwtPayload> {
   }
   return {
     id: user.id,
-    email: user.email ?? user.phone ?? user.id,
+    email: user.username ?? user.email ?? user.phone ?? user.id,
     role: user.role,
     orgId: user.orgId,
     tv: user.jwtTokenVersion,
@@ -107,7 +107,7 @@ export async function setup(
 }
 
 // Verify credentials, return JWT payload.
-// identifier accept cả email vừa phone — auto-detect:
+// identifier accept username, email hoặc phone.
 //   - Có '@' → email lookup (lowercase)
 //   - Toàn chữ số / + → phone lookup (normalize 84xxx)
 //   - Đảm bảo phone match ≥ 9 chữ số để tránh nhầm số nhà
@@ -126,6 +126,9 @@ export async function login(identifier: string, password: string): Promise<JwtPa
       if (trimmed.includes('@')) {
         return prisma.user.findUnique({ where: { email: trimmed.toLowerCase() } });
       }
+      const username = trimmed.toLowerCase();
+      const byUsername = await prisma.user.findUnique({ where: { username } });
+      if (byUsername) return byUsername;
       // Thử parse phone
       const normalized = normalizePhone(trimmed);
       let u = normalized
@@ -143,14 +146,14 @@ export async function login(identifier: string, password: string): Promise<JwtPa
   );
 
   if (!user || !user.isActive) {
-    const err = new Error('Email/SĐT hoặc mật khẩu không đúng') as Error & { statusCode: number };
+    const err = new Error('Tên đăng nhập hoặc mật khẩu không đúng') as Error & { statusCode: number };
     err.statusCode = 401;
     throw err;
   }
 
   const valid = await bcrypt.compare(password, user.passwordHash);
   if (!valid) {
-    const err = new Error('Email/SĐT hoặc mật khẩu không đúng') as Error & { statusCode: number };
+    const err = new Error('Tên đăng nhập hoặc mật khẩu không đúng') as Error & { statusCode: number };
     err.statusCode = 401;
     throw err;
   }
@@ -179,6 +182,7 @@ export async function getProfile(userId: string) {
     where: { id: userId },
     select: {
       id: true,
+      username: true,
       email: true,
       phone: true,
       fullName: true,

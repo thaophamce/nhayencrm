@@ -36,6 +36,10 @@ import { buildSendFileName } from '../media/media-routes.js';
 import { bumpUsage } from '../media/media-service.js';
 import { getOwnerScope } from '../rbac/owner-scope.js';
 import { blockVisibilityWhere } from '../../shared/ee-registry/automation.js';
+import {
+  buildReplyStateAggregateSql,
+} from './message-reply-state-query.js';
+import { getChatStatistics } from './chat-statistics-service.js';
 
 type QueryParams = Record<string, string>;
 
@@ -96,12 +100,27 @@ function buildReplyQuote(message: {
 }) {
   if (!message.zaloMsgId || !message.senderUid) return null;
   let quoteContent = message.content ?? '';
+  // 2026-08-10: giữ URL ảnh của tin gốc để khung trích dẫn hiện thumbnail
+  // (trước đây content bị ghi đè thành literal '[Hình ảnh]' → mất luôn ảnh, sale
+  // reply tin ảnh xong khung trích dẫn chỉ còn chữ). thumbUrl là field THÊM —
+  // zca-js chỉ đọc content/msgType/uidFrom/msgId/cliMsgId/ts/ttl/propertyExt nên
+  // key lạ không ảnh hưởng payload gửi Zalo.
+  let thumbUrl: string | null = null;
   if (['image', 'video', 'file'].includes(message.contentType) && quoteContent.startsWith('{')) {
     try {
-      const p = JSON.parse(quoteContent);
-      if (message.contentType === 'image') quoteContent = '[Hình ảnh]';
-      else if (message.contentType === 'video') quoteContent = '[Video]';
-      else quoteContent = `[Tệp] ${p.name || ''}`.trim();
+      const p = JSON.parse(quoteContent) as Record<string, unknown>;
+      const pick = (k: string) => (typeof p[k] === 'string' && (p[k] as string).startsWith('http') ? p[k] as string : '');
+      // Caption (title) nếu có → dùng làm text trích dẫn thay nhãn khô khan.
+      const caption = typeof p.title === 'string' ? p.title.trim() : '';
+      if (message.contentType === 'image') {
+        thumbUrl = pick('thumb') || pick('thumbUrl') || pick('normalUrl') || pick('href') || pick('hdUrl') || null;
+        quoteContent = caption || '[Hình ảnh]';
+      } else if (message.contentType === 'video') {
+        thumbUrl = pick('thumb') || pick('thumbUrl') || null;
+        quoteContent = caption || '[Video]';
+      } else {
+        quoteContent = `[Tệp] ${p.name || ''}`.trim();
+      }
     } catch {
       quoteContent = `[${message.contentType}]`;
     }
@@ -115,6 +134,7 @@ function buildReplyQuote(message: {
     cliMsgId: message.zaloMsgId,
     ts: String(message.sentAt.getTime()),
     ttl: 0,
+    ...(thumbUrl ? { thumbUrl } : {}),
   };
 }
 
@@ -125,6 +145,25 @@ const PROFILE_TOUCH_COOLDOWN_MS = 5 * 60_000;
 
 export async function chatRoutes(app: FastifyInstance) {
   app.addHook('preHandler', authMiddleware);
+
+  app.get('/api/v1/chat/statistics', async (request: FastifyRequest, reply: FastifyReply) => {
+    const user = request.user!;
+    const { accountIds = '', from = '', to = '' } = request.query as QueryParams;
+    const fromDate = new Date(from);
+    const toDate = new Date(to);
+    if (!from || !to || Number.isNaN(fromDate.getTime()) || Number.isNaN(toDate.getTime()) || fromDate >= toDate) {
+      return reply.status(400).send({ error: 'Khoảng thời gian không hợp lệ' });
+    }
+    if (toDate.getTime() - fromDate.getTime() > 370 * 24 * 60 * 60 * 1000) {
+      return reply.status(400).send({ error: 'Khoảng thời gian tối đa là 370 ngày' });
+    }
+    return getChatStatistics({
+      user,
+      accountIds: accountIds.split(',').map(value => value.trim()).filter(Boolean),
+      from: fromDate,
+      to: toDate,
+    });
+  });
 
   // ── Conversation filter counts (unread, unreplied, total) ───────────────
   // NOTE: Must be registered BEFORE /api/v1/conversations/:id to avoid route conflict
@@ -242,6 +281,13 @@ export async function chatRoutes(app: FastifyInstance) {
         : effectiveAccountIds.length > 0
           ? Prisma.sql`AND cv.zalo_account_id IN (${Prisma.join(effectiveAccountIds)})`
           : Prisma.sql`AND FALSE`;
+    const replyStateAggregateSql = buildReplyStateAggregateSql(
+      user.orgId,
+      Prisma.sql`
+        ${tab === 'other' ? Prisma.sql`AND cv.tab = 'other'` : Prisma.sql`AND cv.tab = 'main'`}
+        ${nickScopeSql}
+      `,
+    );
 
     const [birthdayRows, apptSoonRows, apptOverdueRows, replyStateRows] = await Promise.all([
       // Sinh nhật 7 ngày tới — so ngày/tháng (bỏ năm, wrap qua năm mới).
@@ -301,21 +347,8 @@ export async function chatRoutes(app: FastifyInstance) {
             WHERE agg.last_self IS NOT NULL AND agg.last_self >= agg.last_inbound
               AND (agg.last_sale IS NULL OR agg.last_sale < agg.last_inbound)
           )::bigint AS bot_no_sale
-        FROM conversations cv
-        JOIN LATERAL (
-          SELECT MAX(m.sent_at) FILTER (WHERE m.sender_type = 'contact') AS last_inbound,
-                 MAX(m.sent_at) FILTER (
-                   WHERE m.sender_type = 'self' AND m.sent_via IN ('user','user_native')
-                 ) AS last_sale,
-                 MAX(m.sent_at) FILTER (WHERE m.sender_type = 'self') AS last_self
-          FROM messages m WHERE m.conversation_id = cv.id
-        ) agg ON TRUE
-        WHERE cv.org_id = ${user.orgId}
-          AND cv."threadType" = 'user'
-          AND cv.deleted_at IS NULL
-          AND agg.last_inbound IS NOT NULL
-          ${tab === 'other' ? Prisma.sql`AND cv.tab = 'other'` : Prisma.sql`AND cv.tab = 'main'`}
-          ${nickScopeSql}
+        FROM (${replyStateAggregateSql}) agg
+        WHERE agg.last_inbound IS NOT NULL
       `,
     ]);
 
@@ -546,6 +579,7 @@ export async function chatRoutes(app: FastifyInstance) {
       // Phase 6+ — Inbox Triage Filter params
       folderId = '',            // AccountFolder ID — translate sang accountIds
       sortMode = '',            // 'unread-first' | 'recent' (default recent)
+      timeOrder = '',           // 'oldest' | 'newest' (default newest)
       autoTagsAny = '',         // CSV: active,stuck,cold,ready,atrisk,rewarmed,frozen
       stuck = '',               // 'true' → friends.some.stuckSince != null
       ready = '',               // 'true' → score >= 80
@@ -823,46 +857,6 @@ export async function chatRoutes(app: FastifyInstance) {
     // Re-apply contactWhere nếu đã modify trên (stuck/ready/tags)
     if (Object.keys(contactWhere).length > 0) where.contact = contactWhere;
 
-    // ── 2026-06-09 (anh chốt) — Nhóm lọc "Tin nhắn" (user vs bot), radio 1-of-3 ──
-    // Xét mốc KHÁCH NHẮN CUỐI CỦA CHÍNH CONVERSATION này (KHÔNG dùng Contact.lastInboundAt
-    // vì đó là aggregate cross-nick — 1 KH nhiều nick thì mốc đó thuộc nick khác → sai).
-    // Mốc = MAX(sent_at WHERE sender_type='contact') trong conv. Sale thật = self +
-    // sentVia user/user_native; Bot = self + automation/ai_assistant/system.
-    //   unanswered  = KHÔNG có tin self nào sau mốc khách cuối (chưa ai trả lời)
-    //   bot_no_sale = có tin self sau mốc, NHƯNG không có tin sale thật nào → chỉ bot
-    //   sale_replied= có tin sale thật sau mốc khách cuối
-    // D8: conv phải có ít nhất 1 tin khách (lastInbound IS NOT NULL).
-    if (messageReplyState === 'unanswered' || messageReplyState === 'bot_no_sale' || messageReplyState === 'sale_replied') {
-      try {
-        const stateRows = await prisma.$queryRaw<Array<{ id: string }>>`
-          SELECT cv.id
-          FROM conversations cv
-          JOIN LATERAL (
-            SELECT MAX(m.sent_at) FILTER (WHERE m.sender_type = 'contact') AS last_inbound,
-                   MAX(m.sent_at) FILTER (
-                     WHERE m.sender_type = 'self' AND m.sent_via IN ('user','user_native')
-                   ) AS last_sale,
-                   MAX(m.sent_at) FILTER (WHERE m.sender_type = 'self') AS last_self
-            FROM messages m WHERE m.conversation_id = cv.id
-          ) agg ON TRUE
-          WHERE cv.org_id = ${user.orgId}
-            AND cv."threadType" = 'user'
-            AND cv.deleted_at IS NULL
-            AND agg.last_inbound IS NOT NULL
-            AND (
-              ${messageReplyState}::text = 'unanswered'  AND (agg.last_self IS NULL OR agg.last_self < agg.last_inbound)
-              OR ${messageReplyState}::text = 'sale_replied' AND agg.last_sale IS NOT NULL AND agg.last_sale >= agg.last_inbound
-              OR ${messageReplyState}::text = 'bot_no_sale' AND agg.last_self IS NOT NULL AND agg.last_self >= agg.last_inbound
-                   AND (agg.last_sale IS NULL OR agg.last_sale < agg.last_inbound)
-            )
-        `;
-        const ids = stateRows.map((r) => r.id);
-        where.id = ids.length > 0 ? { in: ids } : { in: ['__NO_MSG_REPLY_STATE_MATCH__'] };
-      } catch (err) {
-        logger.warn('[conversations] messageReplyState raw query failed, bỏ qua filter:', err);
-      }
-    }
-
     // ── Tin nhắn cuối (lastMessageWithin) → Conversation.lastMessageAt gte mốc ──
     // Ghép cùng where.lastMessageAt với date range bên dưới (cùng field).
     if (lastMessageWithin) {
@@ -927,6 +921,17 @@ export async function chatRoutes(app: FastifyInstance) {
       }
     }
 
+    // ── Nhóm lọc "Tin nhắn" (user vs bot), radio 1-of-3 ──────────────────
+    // P1-03: PostgreSQL duy trì messageReplyState trên Conversation từ ba mốc
+    // MAX(sent_at). Prisma vì vậy ghép trực tiếp state với toàn bộ filter, count,
+    // pagination và unread-first; không còn tải hàng nghìn UUID rồi WHERE id IN (...).
+    if (messageReplyState === 'unanswered' || messageReplyState === 'bot_no_sale' || messageReplyState === 'sale_replied') {
+      // Giữ phép giao với threadType caller đã chọn. Nếu caller gửi group + state,
+      // kết quả phải rỗng như query cũ (không được âm thầm đổi group thành user).
+      where.AND = [...(where.AND || []), { threadType: 'user' }];
+      where.messageReplyState = messageReplyState;
+    }
+
     // Sort mode — Phase 6+ "Chưa đọc lên trên" vs "Mới nhất lên trên"
     // Recent (default): [lastMessageAt DESC]
     // unread-first: bucket "có tin chưa đọc" lên trước, TRONG mỗi bucket lastMessageAt DESC.
@@ -939,7 +944,8 @@ export async function chatRoutes(app: FastifyInstance) {
     // luôn nằm trên conv 3 tin bất kể mới/cũ; lastMessageAt chỉ tie-break trong nhóm CÙNG
     // số tin → nhìn như không sort theo thời gian. Prisma orderBy không nhận biểu thức
     // boolean (unread_count > 0) → tách 2 query bucket rồi nối, pagination cắt qua 2 bucket.
-    const recentOrder = { lastMessageAt: { sort: 'desc' as const, nulls: 'last' as const } };
+    const conversationTimeDirection = timeOrder === 'oldest' ? 'asc' as const : 'desc' as const;
+    const recentOrder = { lastMessageAt: { sort: conversationTimeDirection, nulls: 'last' as const } };
     const pageSize = Math.min(parseInt(limit), 300);
     const pageOffset = (parseInt(page) - 1) * pageSize;
 
@@ -1450,7 +1456,9 @@ export async function chatRoutes(app: FastifyInstance) {
         id: true,
         // 2026-06-20: displayName+avatar của NICK để hiển thị reaction do sale thả qua CRM
         // theo DANH TÍNH NICK ZALO (anh chốt: không hiện email tài khoản sale CRM).
-        zaloAccount: { select: { privacyMode: true, ownerUserId: true, displayName: true, avatarUrl: true } },
+        // zaloUid (2026-08-10): nhận ra tin GỐC trong quote do chính nick này gửi
+        // → khung trích dẫn ghi tên nick, không tra sang danh bạ khách.
+        zaloAccount: { select: { privacyMode: true, ownerUserId: true, displayName: true, avatarUrl: true, zaloUid: true } },
       },
     });
     if (!conversation) return reply.status(404).send({ error: 'Conversation not found' });
@@ -1521,12 +1529,22 @@ export async function chatRoutes(app: FastifyInstance) {
     //   B. Nick có owner trong org (sale khác): hiện "Tuan HS · Sale: Anh Tuấn"
     //   C. senderUid null → senderResolved=null, FE skip render
     // 3 batch query song song (0 N+1). Tên ưu tiên: crmName → aliasInNick → senderName.
+    // 2026-08-10: gom cả uid CHỦ TIN GỐC của quote vào cùng batch. Zalo chỉ kèm
+    // `fromD` (tên Zalo thô) trong quote nên khung "Trả lời X" từng hiện tên khác
+    // với header + bubble của cùng một người (vd "Giàu Ancường" vs "Nguyễn Giàu").
+    function quoteOwnerUid(m: { quote?: unknown }): string | null {
+      const q = m.quote as Record<string, unknown> | null | undefined;
+      if (!q || typeof q !== 'object') return null;
+      const uid = q.uidFrom ?? q.ownerId ?? q.uid_from;
+      return uid ? String(uid) : null;
+    }
     const inboundUids = Array.from(
-      new Set(
-        ordered
+      new Set([
+        ...ordered
           .filter((m) => m.senderType === 'contact' && m.senderUid)
           .map((m) => m.senderUid as string),
-      ),
+        ...ordered.map(quoteOwnerUid).filter((u): u is string => !!u),
+      ]),
     );
     let resolverMaps: {
       internalNicks: Map<string, { displayName: string | null; ownerId: string | null; ownerFullName: string | null; avatarUrl: string | null }>;
@@ -1610,6 +1628,23 @@ export async function chatRoutes(app: FastifyInstance) {
       };
     }
 
+    // 2026-08-10: tên chủ tin GỐC cho khung trích dẫn — cùng thứ tự ưu tiên với
+    // resolveSender (crmName > aliasInNick > tên Zalo) để một người chỉ có MỘT tên
+    // trong cả header, bubble và khung "Trả lời ...". null → FE giữ fromD của Zalo.
+    function resolveQuoteSender(m: typeof ordered[number]): string | null {
+      const uid = quoteOwnerUid(m);
+      if (!uid) return null;
+      // Tin gốc do chính nick này gửi → hiện tên nick, không phải tên khách.
+      if (uid && uid === conversation?.zaloAccount?.zaloUid) {
+        return conversation?.zaloAccount?.displayName || null;
+      }
+      const contact = resolverMaps.contacts.get(uid);
+      const friend = resolverMaps.friends.get(uid);
+      const internal = resolverMaps.internalNicks.get(uid);
+      return contact?.crmName ?? friend?.aliasInNick ?? friend?.zaloDisplayName
+        ?? contact?.fullName ?? internal?.displayName ?? null;
+    }
+
     // 2026-06-20 (anh báo popup cảm xúc chỉ hiện "Người dùng"/email): resolve người thả → tên+avatar.
     //  - reactor 'zalo' → Friend.zaloUidInNick (của nick) → aliasInNick/zaloDisplayName + zaloAvatarUrl
     //    (Zalo event NHÓM không kèm tên → reactor_name rỗng → bắt buộc tra).
@@ -1660,6 +1695,8 @@ export async function chatRoutes(app: FastifyInstance) {
         reactions: enrichedReactions,
         zaloMsgIdNum: (r as any).zaloMsgIdNum?.toString() ?? null,
         senderResolved: isRedacted ? null : resolveSender(m),
+        // Tin redact đã có quote=null → không rò tên chủ tin gốc.
+        quoteSenderResolved: isRedacted ? null : resolveQuoteSender(m),
       };
     });
     return { messages: redacted, total, page: parseInt(page), limit: parseInt(limit) };

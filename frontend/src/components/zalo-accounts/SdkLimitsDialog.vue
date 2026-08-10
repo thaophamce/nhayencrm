@@ -35,7 +35,8 @@
           <div class="grp-h">{{ g.title }}</div>
           <div v-for="cat in g.cats" :key="cat" class="lim">
             <div class="meta"><div class="nm">{{ CAT_LABEL[cat].nm }}</div><div class="ds">{{ cat }} · {{ CAT_LABEL[cat].ds }}</div></div>
-            <div class="inp"><input type="number" min="0" v-model.number="orgForm[cat].daily"><span class="u">/ngày</span></div>
+            <div v-if="isDailyUnlimited(cat)" class="unlimited">Không giới hạn/ngày</div>
+            <div v-else class="inp"><input type="number" min="0" v-model.number="orgForm[cat].daily"><span class="u">/ngày</span></div>
             <div class="inp"><input type="number" min="0" v-model.number="orgForm[cat].burst"><span class="u">/lần</span></div>
           </div>
         </div>
@@ -54,7 +55,8 @@
           <div class="grp-h">{{ g.title }}</div>
           <div v-for="cat in g.cats" :key="cat" class="lim">
             <div class="meta"><div class="nm">{{ CAT_LABEL[cat].nm }}</div><div class="ds">{{ cat }}</div></div>
-            <div class="inp">
+            <div v-if="isDailyUnlimited(cat)" class="unlimited">Không giới hạn/ngày</div>
+            <div v-else class="inp">
               <input type="number" min="0" v-model.number="nickForm[cat]"
                      :placeholder="`mặc định ${orgForm[cat]?.daily ?? '—'}`"
                      :class="{ ovr: nickForm[cat] != null && nickForm[cat] !== '' }">
@@ -122,6 +124,7 @@ const selectedNickId = ref<string>('');
 const nickForm = ref<Record<string, number | '' | null>>({});
 
 const overrideNickCount = computed(() => Object.keys(nickOverridesRaw.value).length);
+const isDailyUnlimited = (cat: Cat) => cat === 'message' || cat === 'chat_action';
 
 async function fetchAll() {
   loading.value = true;
@@ -146,12 +149,14 @@ async function save() {
     if (tab.value === 'org') {
       const limits: Record<string, { daily: number; burst: number }> = {};
       for (const g of GROUPS) for (const cat of g.cats) {
+        if (isDailyUnlimited(cat)) continue;
         const v = orgForm.value[cat]; if (v) limits[cat] = { daily: v.daily, burst: v.burst };
       }
       await api.put('/zalo-accounts/sdk-limits/org', { limits });
     } else {
       const limits: Record<string, { daily: number; burst: number } | null> = {};
       for (const g of GROUPS) for (const cat of g.cats) {
+        if (isDailyUnlimited(cat)) continue;
         const val = nickForm.value[cat];
         if (val === '' || val == null) limits[cat] = null; // xoá override
         else limits[cat] = { daily: Number(val), burst: orgForm.value[cat]?.burst ?? 10 };
@@ -215,6 +220,7 @@ onMounted(fetchAll);
 .inp input:focus { outline: none; border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37,99,235,.12); }
 .inp input.ovr { border-color: #d97706; background: #fffbeb; }
 .inp .u { font-size: 11px; color: #9ca3af; }
+.unlimited { text-align: center; color: #16a34a; font-size: 11px; font-weight: 700; }
 .ovr-bar { display: flex; align-items: center; gap: 10px; background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 9px 12px; margin-bottom: 12px; font-size: 12px; color: #92400e; }
 .ovr-bar select { margin-left: auto; border: 1px solid #fcd34d; border-radius: 6px; padding: 5px 9px; font-size: 12px; background: #fff; }
 .badge-ovr { font-size: 9.5px; font-weight: 700; background: #fffbeb; color: #d97706; border-radius: 4px; padding: 1px 6px; }

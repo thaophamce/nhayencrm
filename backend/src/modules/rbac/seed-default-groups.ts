@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
- * seed-default-groups.ts — Seed 2 default permission groups (system, is_system=true)
- * Gọn từ 7 xuống Admin + Sale (2026-07-14, anh chốt).
+ * seed-default-groups.ts — Seed default permission groups (system, is_system=true).
+ * Admin + Sale + Designer.
  *
  * Idempotent: chạy nhiều lần OK, chỉ tạo nếu group chưa tồn tại trong org.
  * Gọi từ migration script D13 hoặc admin endpoint.
@@ -19,6 +19,11 @@ export interface SeedResult {
 
 export async function seedDefaultPermissionGroups(orgId: string): Promise<SeedResult> {
   const result: SeedResult = { created: 0, existing: 0, groups: [] };
+
+  await prisma.permissionGroup.updateMany({
+    where: { orgId, name: 'Designer Order Full Access' },
+    data: { name: 'Designer', isSystem: true },
+  });
 
   for (const tmpl of DEFAULT_PERMISSION_GROUPS) {
     // Idempotent: check by (orgId, name, isSystem)
@@ -57,6 +62,8 @@ export async function syncDefaultPermissionGroups(orgId: string): Promise<{
   synced: number;
   names: string[];
 }> {
+  await seedDefaultPermissionGroups(orgId);
+  await seedDefaultDepartments(orgId);
   let synced = 0;
   const names: string[] = [];
 
@@ -72,6 +79,21 @@ export async function syncDefaultPermissionGroups(orgId: string): Promise<{
   }
 
   return { synced, names };
+}
+
+/** Bảo đảm hai phòng ban nghiệp vụ chuẩn tồn tại cho popup tạo nhân viên. */
+export async function seedDefaultDepartments(orgId: string): Promise<void> {
+  for (const [displayOrder, name] of ['Sale', 'Designer'].entries()) {
+    const existing = await prisma.department.findFirst({
+      where: { orgId, name, parentId: null, archivedAt: null },
+      select: { id: true },
+    });
+    if (existing) continue;
+    const id = randomUUID();
+    await prisma.department.create({
+      data: { id, orgId, name, parentId: null, path: `/${id}/`, depth: 0, displayOrder },
+    });
+  }
 }
 
 /**

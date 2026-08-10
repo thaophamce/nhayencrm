@@ -301,7 +301,7 @@
       @changed="onChanged"
     />
 
-    <!-- Phase user-create-with-zalo 2026-05-27 — create user gộp Zalo handshake -->
+    <!-- Tạo tài khoản nhân viên nội bộ bằng username/password. -->
     <CreateUserWithZaloModal
       v-model:open="createWithZaloOpen"
       :departments="flatDepts"
@@ -371,8 +371,7 @@ const selectedUser = ref<RbacUser | null>(null);
 const currentUserId = computed(() => authStore.user?.id ?? '');
 const currentUserRole = computed(() => authStore.user?.role ?? 'member');
 
-// Phase user-create-with-zalo 2026-05-27 — DUY NHẤT 1 kênh tạo user (qua Zalo).
-// 2026-06-07 anh chốt: bỏ "Tạo nhanh" (POST /users) — credentials tổng hợp 1 text copy ở bước 3 modal.
+// Kênh tạo nhân viên nội bộ duy nhất: username/password + phòng ban/nhóm quyền.
 const canCreateUser = computed(() => ['owner', 'admin'].includes(currentUserRole.value));
 
 // 2026-06-09 (anh chốt FN4) — chọn nhiều + gán phòng/nhóm hàng loạt (owner/admin).

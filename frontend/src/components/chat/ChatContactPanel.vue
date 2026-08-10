@@ -747,6 +747,9 @@ async function onAddMembers(memberIds: string[]) {
   groupActionLoading.value = true;
   try {
     await addMembers(props.activeZaloAccountId, props.externalThreadId, memberIds);
+    window.dispatchEvent(new CustomEvent('chat:group-members-changed', {
+      detail: { accountId: props.activeZaloAccountId, groupId: props.externalThreadId },
+    }));
     toast.success(`Đã thêm ${memberIds.length} thành viên vào nhóm`);
     showAddMemberDialog.value = false;
   } catch (err) {
@@ -960,8 +963,9 @@ async function saveAlias() {
       );
       aliasToast.success(`Đã đổi tên nhóm → "${trimmed}"`);
       emit('saved');
-    } catch (err) {
-      aliasToast.error('Đổi tên nhóm thất bại');
+    } catch (err: any) {
+      const msg = err?.response?.data?.error || 'Đổi tên nhóm thất bại';
+      aliasToast.error(msg);
     }
     return;
   }
@@ -972,11 +976,18 @@ async function saveAlias() {
   const newAlias = trimmed.length ? trimmed : null;
   if (newAlias === (props.friendship?.aliasInNick || null)) return;  // no-op
   try {
-    await api.patch(`/friends/${friendId}`, { aliasInNick: newAlias });
-    aliasToast.success(newAlias ? `Đã đổi tên gợi nhớ → "${newAlias}"` : 'Đã xoá tên gợi nhớ');
+    // 2026-08-09: BE giờ await push sang Zalo và trả zaloPushed. Nếu push lỗi thì
+    // CRM đã lưu nhưng Zalo Real CHƯA đổi → phải nói rõ, không báo thành công trơn.
+    const { data } = await api.patch(`/friends/${friendId}`, { aliasInNick: newAlias });
+    if (data?.zaloPushed === false) {
+      aliasToast.error(`Đã lưu trong CRM nhưng chưa đổi được trên Zalo: ${data?.zaloPushError || 'lỗi không rõ'}`);
+    } else {
+      aliasToast.success(newAlias ? `Đã đổi tên gợi nhớ → "${newAlias}"` : 'Đã xoá tên gợi nhớ');
+    }
     emit('saved');  // parent refetch để lấy alias mới + reflect lên cột 2 + header
-  } catch (err) {
-    aliasToast.error('Lưu tên gợi nhớ thất bại');
+  } catch (err: any) {
+    const msg = err?.response?.data?.error || 'Lưu tên gợi nhớ thất bại';
+    aliasToast.error(msg);
   }
 }
 

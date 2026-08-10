@@ -233,7 +233,7 @@ export const MENU_TREE: MenuNode[] = [
 ];
 
 
-// 2 group anh chốt 2026-07-14: gọn từ 7 group xuống Admin + Sale.
+// Nhóm hệ thống mặc định: Admin, Sale và Designer.
 // ════════════════════════════════════════════════════════════════════════
 
 function fullCrud(resource: Resource): GrantsJson[Resource] {
@@ -263,7 +263,7 @@ export const DEFAULT_PERMISSION_GROUPS = [
     grants: {
       // Sale CR KH của mình, không Xóa Conversation
       dashboard: { access: true },
-      orders: { access: true, edit: true, delete: true },
+      orders: { access: true, create: true, edit: true, delete: true },
       delivery: { access: true, create: true, edit: true, delete: true },
       delivery_business: { access: true },
       conversation: { access: true, edit: true },
@@ -285,6 +285,15 @@ export const DEFAULT_PERMISSION_GROUPS = [
       attendance: { access: true },
       leave: { access: true },
       payroll: { access: true },
+    } as GrantsJson,
+  },
+  {
+    name: 'Designer',
+    isSystem: true,
+    grants: {
+      // Designer chỉ đọc đơn được phân công cho mình và lương thiết kế của mình.
+      orders: { access: true },
+      orders_salary: { access: true },
     } as GrantsJson,
   },
 ];

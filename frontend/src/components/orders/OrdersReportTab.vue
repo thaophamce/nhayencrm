@@ -163,7 +163,7 @@ async function fetchOrders() {
 
 async function loadDesigners() {
   try {
-    const res = await api.get<{ users?: Array<{ id: string; fullName: string }> }>('/users');
+    const res = await api.get<{ users?: Array<{ id: string; fullName: string }> }>('/users', { params: { role: 'designer' } });
     designers.value = res.data.users || [];
   } catch (err) {
     console.error('Cannot load designers:', err);

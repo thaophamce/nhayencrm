@@ -1853,6 +1853,9 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
         },
       });
 
+      // Kết quả push alias sang Zalo Real (2026-08-09) — undefined = không có push nào.
+      let aliasPush: { ok: boolean; error?: string } | undefined;
+
       // ── ACTIVITY LOG — per-pair mutations log với entityType='contact' để timeline KH thấy
       const entityId = friend.contactId;
       if (entityId) {
@@ -1886,29 +1889,29 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
             details: { old: friend.aliasInNick, new: body.aliasInNick, friendId: friend.id, trigger: 'crm_edit' },
           });
 
-          // CRM → Zalo Real: push alias via SDK. Fire-and-forget — không block PUT
-          // response. Nếu SDK fail (account offline / network), log warn; lần sync
-          // alias periodic sẽ thấy mismatch và reconcile (CRM là source of truth ở
-          // moment user edit, nhưng nếu Zalo Real bị thay đổi parallel → race lần
-          // touch sau resolve).
+          // CRM → Zalo Real: push alias via SDK.
+          // 2026-08-09: TRƯỚC ĐÂY fire-and-forget → route luôn trả 200 dù Zalo từ chối,
+          // FE báo "Đã đổi tên gợi nhớ" nhưng Zalo Real không đổi (success giả). Giờ AWAIT
+          // và trả cờ zaloPushed/zaloPushError để FE cảnh báo. DB vẫn giữ giá trị mới (CRM
+          // là source of truth lúc user edit) nên KHÔNG fail cả request chỉ vì push lỗi.
           const newAlias = body.aliasInNick;
           const uidToTarget = friend.zaloUidInNick;
           const accountIdToCall = friend.zaloAccountId;
           if (uidToTarget && accountIdToCall) {
-            void (async () => {
-              try {
-                const { zaloOps } = await import('../../shared/zalo-operations.js');
-                if (newAlias && newAlias.trim()) {
-                  await zaloOps.changeFriendAlias(accountIdToCall, newAlias.trim(), uidToTarget);
-                  logger.info(`[friends] Pushed alias "${newAlias}" → Zalo for uid=${uidToTarget}`);
-                } else {
-                  await zaloOps.removeFriendAlias(accountIdToCall, uidToTarget);
-                  logger.info(`[friends] Removed alias on Zalo for uid=${uidToTarget}`);
-                }
-              } catch (err) {
-                logger.warn(`[friends] Push alias to Zalo failed (uid=${uidToTarget}):`, err);
+            try {
+              const { zaloOps } = await import('../../shared/zalo-operations.js');
+              if (newAlias && newAlias.trim()) {
+                await zaloOps.changeFriendAlias(accountIdToCall, newAlias.trim(), uidToTarget);
+                logger.info(`[friends] Pushed alias "${newAlias}" → Zalo for uid=${uidToTarget}`);
+              } else {
+                await zaloOps.removeFriendAlias(accountIdToCall, uidToTarget);
+                logger.info(`[friends] Removed alias on Zalo for uid=${uidToTarget}`);
               }
-            })();
+              aliasPush = { ok: true };
+            } catch (err) {
+              logger.warn(`[friends] Push alias to Zalo failed (uid=${uidToTarget}):`, err);
+              aliasPush = { ok: false, error: err instanceof Error ? err.message : String(err) };
+            }
           }
         }
         if (cleanTags !== undefined) {
@@ -1957,7 +1960,11 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
         }
       }
 
-      return reply.send(updated);
+      // Kèm cờ push để FE phân biệt "đã lưu CRM + đã đổi trên Zalo" vs "chỉ lưu CRM".
+      return reply.send({
+        ...updated,
+        ...(aliasPush ? { zaloPushed: aliasPush.ok, zaloPushError: aliasPush.error ?? null } : {}),
+      });
     } catch (err) {
       logger.error('[friends] update error:', err);
       return reply.status(500).send({ error: 'Failed to update friend' });

@@ -140,9 +140,9 @@
                   { cat: 'contact_sync', ic: '🔄', lb: 'Đồng bộ DB' },
                   { cat: 'message', ic: '💌', lb: 'Tin nhắn' },
                 ]" :key="m.cat">
-                <div class="sdk-row" :class="sdkBar(acct, m.cat).cls" :title="`${m.lb}: ${sdkBar(acct, m.cat).used}/${sdkBar(acct, m.cat).cap}`">
+                <div class="sdk-row" :class="sdkBar(acct, m.cat).cls" :title="m.cat === 'message' ? `${m.lb}: ${sdkBar(acct, m.cat).used} (không giới hạn/ngày)` : `${m.lb}: ${sdkBar(acct, m.cat).used}/${sdkBar(acct, m.cat).cap}`">
                   <span class="sk">{{ m.ic }}</span>
-                  <span class="sv">{{ sdkBar(acct, m.cat).used }}<small>/{{ sdkBar(acct, m.cat).cap }}</small></span>
+                  <span class="sv">{{ sdkBar(acct, m.cat).used }}<small>/{{ m.cat === 'message' ? '∞' : sdkBar(acct, m.cat).cap }}</small></span>
                   <div class="sbar"><i :style="{ width: sdkBar(acct, m.cat).pct + '%' }"></i></div>
                 </div>
               </template>

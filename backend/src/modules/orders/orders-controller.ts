@@ -23,6 +23,7 @@ export async function getOrders(request: FastifyRequest, reply: FastifyReply) {
   const { search, designerId, status, dateFrom, dateTo, limit = 20, offset = 0 } = request.query as any;
 
   const where: any = { orgId: user.orgId };
+  const canEdit = await canManageDesignOrders(user.id, 'edit');
   const parsedLimit = Number(limit);
   const parsedOffset = Number(offset);
   const pageLimit = Number.isFinite(parsedLimit) ? Math.min(100, Math.max(1, Math.trunc(parsedLimit))) : 20;
@@ -31,7 +32,10 @@ export async function getOrders(request: FastifyRequest, reply: FastifyReply) {
   if (search) {
     where.orderCode = { contains: search, mode: 'insensitive' };
   }
-  if (designerId) {
+  if (!canEdit) {
+    // Designer: backend-enforced personal scope. Query designerId từ client không thể nới rộng.
+    where.designerId = user.id;
+  } else if (designerId) {
     where.designerId = designerId;
   }
   if (status) {
@@ -85,8 +89,9 @@ export async function getOrderByConversation(request: FastifyRequest, reply: Fas
   const { conversationId } = request.params as any;
 
   try {
+    const canEdit = await canManageDesignOrders(user.id, 'edit');
     const order = await prisma.order.findFirst({
-      where: { conversationId, orgId: user.orgId },
+      where: { conversationId, orgId: user.orgId, ...(!canEdit ? { designerId: user.id } : {}) },
       include: {
         designer: { select: { id: true, fullName: true, role: true } },
         statusHistory: {
@@ -210,40 +215,7 @@ export async function updateOrder(request: FastifyRequest, reply: FastifyReply) 
     const isAdminOrManager = await canManageDesignOrders(user.id, 'edit');
 
     if (!isAdminOrManager) {
-      // Designer chỉ được chuyển trạng thái đơn hàng của chính mình và ghi chú
-      if (existing.designerId !== user.id) {
-        return reply.status(403).send({ error: 'Bạn không có quyền chỉnh sửa đơn hàng này' });
-      }
-
-      const updateData: any = {};
-      if (status && status !== existing.status) {
-        const nowIso = new Date().toISOString();
-        const timestamps = existing.timestamps && typeof existing.timestamps === 'object' && !Array.isArray(existing.timestamps)
-          ? { ...(existing.timestamps as Record<string, unknown>) }
-          : {};
-        const fileCountHistory = Array.isArray(existing.fileCountHistory)
-          ? [...existing.fileCountHistory] as Array<Record<string, unknown>>
-          : [];
-        if ((status === 'designing' || status === 'approved') && !timestamps.designing) {
-          timestamps.designing = nowIso;
-          fileCountHistory.push({ count: existing.fileCount, changedAt: nowIso });
-        }
-        timestamps[status] = nowIso;
-        updateData.status = status;
-        updateData.timestamps = timestamps;
-        updateData.fileCountHistory = fileCountHistory;
-      }
-      if (notes !== undefined) {
-        updateData.notes = notes;
-      }
-
-      const updated = await prisma.$transaction(async tx => {
-        if (status && status !== existing.status) {
-          await tx.orderStatusHistory.create({ data: { orderId: id, status, changedById: user.id } });
-        }
-        return tx.order.update({ where: { id }, data: updateData, include: { designer: true } });
-      });
-      return updated;
+      return reply.status(403).send({ error: 'Tài khoản Designer chỉ có quyền xem đơn thiết kế' });
     }
 
     // Admin/Manager cập nhật thoải mái
@@ -333,14 +305,22 @@ export async function getSalaryReport(request: FastifyRequest, reply: FastifyRep
   const targetMonth = month || new Date().toISOString().slice(0, 7);
 
   try {
+    const canViewAllSalary = user.role === 'owner' || user.role === 'admin' || await canManageDesignOrders(user.id, 'view_all');
     const designers = await prisma.user.findMany({
-      where: { orgId: user.orgId },
+      where: {
+        orgId: user.orgId,
+        permissionGroup: { name: 'Designer', archivedAt: null },
+        ...(!canViewAllSalary ? { id: user.id } : {}),
+      },
       select: { id: true, fullName: true, role: true }
     });
 
     // CRM-native orders: salary derived from OrderStatusHistory rows
     const salaryOrders = await prisma.order.findMany({
-      where: { orgId: user.orgId, designerId: { not: null } },
+      where: {
+        orgId: user.orgId,
+        designerId: canViewAllSalary ? { not: null } : user.id,
+      },
       select: {
         designerId: true, fileCount: true, fileCountHistory: true, timestamps: true,
         status: true, hasDesignFee: true, designFeeTickedAt: true,
@@ -391,7 +371,8 @@ export async function getOrderStats(request: FastifyRequest, reply: FastifyReply
   const endDate = new Date(new Date(startDate).setMonth(startDate.getMonth() + 1));
 
   try {
-    const baseWhere: any = { orgId: user.orgId };
+    const canEdit = await canManageDesignOrders(user.id, 'edit');
+    const baseWhere: any = { orgId: user.orgId, ...(!canEdit ? { designerId: user.id } : {}) };
 
     // Đếm tổng theo trạng thái (toàn bộ, không giới hạn tháng)
     const grouped = await prisma.order.groupBy({

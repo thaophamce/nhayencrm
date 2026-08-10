@@ -22,7 +22,7 @@
         <v-form @submit.prevent="handleLogin">
           <v-text-field
             v-model="identifier"
-            label="Email hoặc số điện thoại"
+            label="Tên đăng nhập, email hoặc số điện thoại"
             type="text"
             variant="outlined"
             prepend-inner-icon="mdi-account-outline"
@@ -128,7 +128,7 @@ async function handleLogin() {
   error.value = '';
   try {
     await authStore.login(identifier.value, password.value);
-    router.push('/select-account');
+    router.push(authStore.user?.permissionGroupName === 'Designer' ? '/orders' : '/select-account');
   } catch (err: any) {
     // 2026-06-09 (anh báo lỗi "Unauthorized"): server trả {error:'Unauthorized', message:'...'}
     // cho lỗi 401 — field `error` là tên HTTP status (xấu), `message` mới là câu tiếng Việt.
@@ -136,7 +136,7 @@ async function handleLogin() {
     const data = err.response?.data;
     const raw = data?.message || data?.error || '';
     const isStatusName = /^(unauthorized|bad request|forbidden|internal server error)$/i.test(raw);
-    error.value = (raw && !isStatusName) ? raw : 'Email/SĐT hoặc mật khẩu không đúng';
+    error.value = (raw && !isStatusName) ? raw : 'Tên đăng nhập hoặc mật khẩu không đúng';
   } finally {
     loading.value = false;
   }

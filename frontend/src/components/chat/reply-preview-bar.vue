@@ -10,6 +10,9 @@
       {{ mode === 'edit' ? 'mdi-pencil-outline' : 'mdi-reply' }}
     </v-icon>
 
+    <!-- 2026-08-10: thumbnail tin đang trả lời — sale thấy đúng ảnh nào trước khi gửi. -->
+    <img v-if="mode === 'reply' && thumbUrl && !thumbFailed" :src="thumbUrl" class="reply-thumb" alt="" @error="thumbFailed = true" />
+
     <div class="reply-body">
       <template v-if="mode === 'reply'">
         <div class="reply-sender">{{ message.senderName || 'Ẩn danh' }}</div>
@@ -28,14 +31,35 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref, watch } from 'vue';
 
 const props = defineProps<{
-  message: { senderName: string | null; content: string | null; msgType?: string | null } | null;
+  message: { senderName: string | null; content: string | null; msgType?: string | null; contentType?: string | null } | null;
   mode: 'reply' | 'edit';
 }>();
 
 const emit = defineEmits<{ cancel: [] }>();
+
+// 2026-08-10 — thumbnail tin đang trả lời. content của tin media là JSON attach
+// (thumb/href/hdUrl); link Zalo hết hạn → @error ẩn <img>, dòng chữ vẫn còn.
+const thumbFailed = ref(false);
+const thumbUrl = computed(() => {
+  const type = (props.message?.contentType || props.message?.msgType || '').toLowerCase();
+  if (!/image|photo|video|gif/.test(type)) return null;
+  const c = props.message?.content?.trim();
+  if (!c) return null;
+  if (c.startsWith('http')) return c;
+  if (!c.startsWith('{')) return null;
+  try {
+    const p = JSON.parse(c) as Record<string, unknown>;
+    for (const k of ['thumb', 'thumbUrl', 'normalUrl', 'href', 'hdUrl', 'oriUrl']) {
+      const v = p[k];
+      if (typeof v === 'string' && v.startsWith('http')) return v;
+    }
+  } catch { /* ignore */ }
+  return null;
+});
+watch(() => props.message?.content, () => { thumbFailed.value = false; });
 
 const contentFull = computed(() => {
   const c = props.message?.content;
@@ -116,6 +140,13 @@ function mediaFallback(msgType?: string | null): string {
   margin-bottom: 7px;
 }
 .bar--reply { border-left-color: var(--smax-primary, #2962ff); }
+.reply-thumb {
+  flex: 0 0 auto;
+  width: 34px; height: 34px;
+  object-fit: cover;
+  border-radius: 5px;
+  background: rgba(0, 0, 0, 0.06);
+}
 .bar--edit  { border-left-color: var(--smax-warning, #ff9100); }
 
 .reply-icon { flex-shrink: 0; }

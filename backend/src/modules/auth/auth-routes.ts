@@ -78,7 +78,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     const { email, identifier, password } = request.body;
     const id = (identifier ?? email ?? '').trim();
     if (!id || !password) {
-      return reply.status(400).send({ error: 'Thiếu email/SĐT hoặc mật khẩu' });
+      return reply.status(400).send({ error: 'Thiếu tên đăng nhập hoặc mật khẩu' });
     }
     const payload = await login(id, password);
     const token = signAccess(app, payload);

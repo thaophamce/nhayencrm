@@ -62,7 +62,7 @@
                 class="status-select-box urgent-select"
                 :menu-props="{ contentClass: 'order-alert-status-menu' }"
                 :loading="updatingId === order.id"
-                :disabled="Boolean(updatingId)"
+                :disabled="readonly || Boolean(updatingId)"
                 @update:model-value="status => updateStatus(order, status)"
               />
             </article>
@@ -108,7 +108,7 @@
                 class="status-select-box demo-select"
                 :menu-props="{ contentClass: 'order-alert-status-menu' }"
                 :loading="updatingId === order.id"
-                :disabled="Boolean(updatingId)"
+                :disabled="readonly || Boolean(updatingId)"
                 @update:model-value="status => updateStatus(order, status)"
               />
             </article>
@@ -139,6 +139,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { api } from '@/api/index';
 import { useToast } from '@/composables/use-toast';
 
+defineProps<{ readonly?: boolean }>();
 const emit = defineEmits<{ (e: 'changed'): void; (e: 'edit', order: any): void }>();
 const toast = useToast();
 

@@ -73,15 +73,15 @@ export async function ordersRoutes(app: FastifyInstance): Promise<void> {
     }
   });
   // Quản lý đơn hàng
-  app.get('/api/v1/orders', getOrders);
-  app.get('/api/v1/orders/by-conversation/:conversationId', getOrderByConversation);
-  app.post('/api/v1/orders', createOrder);
-  app.put('/api/v1/orders/:id', updateOrder);
-  app.delete('/api/v1/orders/:id', deleteOrder);
+  app.get('/api/v1/orders', { preHandler: requireGrant('orders', 'access') }, getOrders);
+  app.get('/api/v1/orders/by-conversation/:conversationId', { preHandler: requireGrant('orders', 'access') }, getOrderByConversation);
+  app.post('/api/v1/orders', { preHandler: requireGrant('orders', 'create') }, createOrder);
+  app.put('/api/v1/orders/:id', { preHandler: requireGrant('orders', 'edit') }, updateOrder);
+  app.delete('/api/v1/orders/:id', { preHandler: requireGrant('orders', 'delete') }, deleteOrder);
 
   // Báo cáo lương thiết kế
   app.get('/api/v1/orders/reports', { preHandler: requireGrant('orders_salary', 'access') }, getSalaryReport);
 
   // Thống kê tổng quan (thẻ số liệu + biểu đồ)
-  app.get('/api/v1/orders/stats', getOrderStats);
+  app.get('/api/v1/orders/stats', { preHandler: requireGrant('orders', 'access') }, getOrderStats);
 }

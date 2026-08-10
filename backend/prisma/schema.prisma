@@ -214,6 +214,8 @@ model User {
   id                           String               @id @default(uuid())
   orgId                        String               @map("org_id")
   teamId                       String?              @map("team_id")
+  // Tên đăng nhập nội bộ, độc lập email/SĐT. Nullable để tương thích user cũ.
+  username                     String?              @unique
   // Phase Onboarding v1 2026-05-24 — email optional (sale VN dùng SĐT là chính, ít/không có email).
   // Unique partial: NULL không vi phạm constraint, 2 user cùng null OK.
   email                        String?              @unique
@@ -789,6 +791,13 @@ model Conversation {
   silenceLabel      String?   @map("silence_label")
   unreadCount       Int       @default(0) @map("unread_count")
   isReplied         Boolean   @default(true) @map("is_replied")
+  // P1-03: denormalized from Message timestamps by PostgreSQL triggers. Keeping
+  // the three maxima makes out-of-order Zalo events deterministic and lets the
+  // list endpoint compose reply state with every Prisma filter/pagination mode.
+  lastInboundMessageAt DateTime? @map("last_inbound_message_at")
+  lastSelfMessageAt    DateTime? @map("last_self_message_at")
+  lastSaleMessageAt    DateTime? @map("last_sale_message_at")
+  messageReplyState    String?   @map("message_reply_state")
   tab               String    @default("main") @map("tab") // main, other
   // M53 (2026-05-30): Virtual conversation cho KH no-Zalo. isVirtual=true → chat-routes skip
   // Zalo SDK send, lưu thẳng Message isLocal=true. externalThreadId synthetic 'virtual:{contactId}:{nickId}'.
@@ -823,6 +832,7 @@ model Conversation {
   @@index([orgId, threadType, zaloAccountId, lastMessageAt(sort: Desc)])
   // Tab Chính/Khác: filter tab + accountId, sort lastMessageAt desc.
   @@index([orgId, tab, zaloAccountId, lastMessageAt(sort: Desc)])
+  @@index([orgId, threadType, messageReplyState, tab, zaloAccountId, lastMessageAt(sort: Desc)], map: "conversations_reply_state_scope_order_idx")
   @@map("conversations")
 }
 
@@ -904,6 +914,10 @@ model Message {
   @@index([conversationId, albumKey])
   // Composite index cho sort theo Zalo Snowflake — primary order khi list messages.
   @@index([conversationId, zaloMsgIdNum(sort: Desc)])
+  // P1-02: Prisma tracks the three-column index by name so migrate dev/db push
+  // does not drop it. The migration is intentionally customized with NULLS LAST;
+  // Prisma 7.5 does not emit that clause from the schema definition.
+  @@index([conversationId, zaloMsgIdNum(sort: Desc), sentAt(sort: Desc)], map: "messages_conversation_zalo_num_sent_at_order_idx")
   // Phase metrics 2026-05-22: aggregate query per nick per day per category
   @@index([conversationId, sentAt, senderType, sentVia])
   // M10/M11 — attribution + filter
