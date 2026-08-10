@@ -12,8 +12,8 @@
  *  - Friend.zaloLabels JSON: array of {id, name, color} — the labels assigned to that friend.
  *    Recomputed on every sync by walking ZaloLabel.conversations[] and matching externalThreadId.
  *
- * Realtime: sync-now endpoint + periodic cron (every 60s for connected accounts).
- * Socket broadcast on change so UI auto-refresh.
+ * Realtime: on-demand sync endpoints plus the 15-minute full account sync cron.
+ * Socket broadcast on change keeps the UI current between full sync cycles.
  */
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { prisma, tenantTransaction } from '../../shared/database/prisma-client.js';
@@ -213,12 +213,11 @@ export async function syncLabelsForAccount(
       }
     }
 
-    // Upsert CrmTag per label — 3-step để xử lý legacy data từ PR2:
-    //  1. Find theo sourceZaloLabelId (PR3+ rows) → update
-    //  2. Else find theo (orgId, name) (legacy PR2 rows hoặc orphan) → claim + update fields
+    // Upsert CrmTag per label — identity phải nằm trong group của tài khoản Zalo:
+    //  1. Find theo (groupId, sourceZaloLabelId) → update
+    //  2. Else find theo (groupId, name) (legacy row trong đúng account) → claim + update fields
     //  3. Else create mới
-    // Tránh upsert(where=sourceZaloLabelId) hit create branch khi legacy có same name
-    // → fail unique constraint (orgId, name).
+    // Zalo tái sử dụng cùng label ID/name ở nhiều tài khoản; tuyệt đối không claim row từ group khác.
     for (const l of upserted) {
       const tagName = `🔵 ${l.text}`;
       const baseData = {
@@ -233,7 +232,12 @@ export async function syncLabelsForAccount(
       };
 
       const bySource = await prisma.crmTag.findUnique({
-        where: { sourceZaloLabelId: l.zaloLabelId },
+        where: {
+          groupId_sourceZaloLabelId: {
+            groupId: group.id,
+            sourceZaloLabelId: l.zaloLabelId,
+          },
+        },
       });
       if (bySource) {
         try {
@@ -250,7 +254,7 @@ export async function syncLabelsForAccount(
       }
 
       const byName = await prisma.crmTag.findUnique({
-        where: { orgId_name: { orgId, name: tagName } },
+        where: { groupId_name: { groupId: group.id, name: tagName } },
       });
       if (byName) {
         // Claim legacy row (sourceZaloLabelId=null từ PR2) → upgrade managedBy
@@ -268,7 +272,7 @@ export async function syncLabelsForAccount(
 
       // Race-condition safe: 2 concurrent sync requests cho cùng 1 label
       // có thể cả 2 cùng pass bySource=null + byName=null. Khi create lần 2
-      // sẽ hit P2002 unique(orgId, name) hoặc unique(sourceZaloLabelId).
+      // sẽ hit P2002 unique(groupId, name) hoặc unique(groupId, sourceZaloLabelId).
       // Fix: catch P2002 → retry find + update thay vì error toàn bộ sync.
       try {
         await prisma.crmTag.create({
@@ -277,11 +281,18 @@ export async function syncLabelsForAccount(
       } catch (err: any) {
         if (err?.code === 'P2002') {
           const winnerBySrc = await prisma.crmTag.findUnique({
-            where: { sourceZaloLabelId: l.zaloLabelId },
+            where: {
+              groupId_sourceZaloLabelId: {
+                groupId: group.id,
+                sourceZaloLabelId: l.zaloLabelId,
+              },
+            },
           });
           const winnerByName = winnerBySrc
             ? null
-            : await prisma.crmTag.findUnique({ where: { orgId_name: { orgId, name: tagName } } });
+            : await prisma.crmTag.findUnique({
+                where: { groupId_name: { groupId: group.id, name: tagName } },
+              });
           const winner = winnerBySrc ?? winnerByName;
           if (winner) {
             await prisma.crmTag.update({

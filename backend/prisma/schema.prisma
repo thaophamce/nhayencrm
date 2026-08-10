@@ -1219,7 +1219,7 @@ model Note {
 model CrmTag {
   id                String    @id @default(uuid())
   orgId             String    @map("org_id")
-  name              String // unique per org, dùng làm reference key
+  name              String // unique trong group; tag thủ công không group unique per org qua partial index
   color             String    @default("#90A4AE") // hex color
   emoji             String? // optional unicode emoji prefix
   description       String? // mô tả mục đích, vd "Khách quan tâm dự án EGV"
@@ -1237,8 +1237,12 @@ model CrmTag {
   org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   group CrmTagGroup? @relation(fields: [groupId], references: [id], onDelete: SetNull)
 
-  @@unique([orgId, name])
-  @@unique([sourceZaloLabelId]) // 1 Zalo label → 1 CrmTag mirror
+  // Zalo label IDs chỉ unique trong từng tài khoản. Mỗi zalo_sync group thuộc đúng 1 account,
+  // nên identity đúng là (groupId, sourceZaloLabelId), không phải sourceZaloLabelId toàn cục.
+  @@unique([groupId, name])
+  @@unique([groupId, sourceZaloLabelId])
+  // Partial unique cho tag thủ công không group nằm trong custom migration SQL:
+  //   crm_tags_org_name_ungrouped_key ON (org_id, name) WHERE group_id IS NULL
   @@index([orgId, category])
   @@index([orgId, groupId])
   @@index([managedBy, archivedAt])

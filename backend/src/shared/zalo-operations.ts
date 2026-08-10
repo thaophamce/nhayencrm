@@ -147,6 +147,20 @@ function isMalformedJsonResponseError(err: any): boolean {
   );
 }
 
+const FRIEND_ONLINES_RETRY_AFTER_MS = 60 * 60_000;
+const friendOnlinesUnavailableUntil = new Map<string, number>();
+
+function isUnsupportedFriendOnlinesError(err: any): boolean {
+  const status = Number(err?.response?.status ?? err?.status ?? err?.statusCode);
+  if (status === 404) return true;
+  const msg = String(err?.message || err || '').toLowerCase();
+  return msg.includes('status code 404') || msg.includes('request failed with status 404');
+}
+
+function isNoisyFriendOnlinesError(err: any): boolean {
+  return isMalformedJsonResponseError(err) || isUnsupportedFriendOnlinesError(err);
+}
+
 // ── Core execution engine ───────────────────────────────────────────────────
 /**
  * Execute a zca-js operation with all safety layers.
@@ -651,17 +665,26 @@ async function findUser(accountId: string, query: string) {
 }
 
 async function getFriendOnlines(accountId: string) {
+  const unavailableUntil = friendOnlinesUnavailableUntil.get(accountId) ?? 0;
+  if (unavailableUntil > Date.now()) return { onlines: [] };
+  if (unavailableUntil) friendOnlinesUnavailableUntil.delete(accountId);
+
   try {
     return await exec(
       {
         accountId,
         category: 'friend_read',
         operation: 'getFriendOnlines',
-        suppressErrorLog: isMalformedJsonResponseError,
+        suppressErrorLog: isNoisyFriendOnlinesError,
       },
       (api) => api.getFriendOnlines(),
     );
   } catch (err) {
+    if (isUnsupportedFriendOnlinesError(err)) {
+      friendOnlinesUnavailableUntil.set(accountId, Date.now() + FRIEND_ONLINES_RETRY_AFTER_MS);
+      logger.info(`[zalo-ops:${accountId}] getFriendOnlines endpoint unavailable; retrying in 60 minutes`);
+      return { onlines: [] };
+    }
     if (isMalformedJsonResponseError(err)) {
       logger.debug(`[zalo-ops:${accountId}] getFriendOnlines returned malformed SDK response; using empty presence list`);
       return { onlines: [] };

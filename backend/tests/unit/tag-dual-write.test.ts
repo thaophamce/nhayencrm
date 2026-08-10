@@ -99,11 +99,15 @@ vi.mock('../../src/shared/database/prisma-client.js', () => {
       $transaction: vi.fn(async (fn: (tx: typeof tx) => Promise<unknown>) => fn(tx)),
       __state: state,
     },
+    tenantTransaction: vi.fn(async (fn: (tx: typeof tx) => Promise<unknown>) => fn(tx)),
   };
 });
 
 vi.mock('../../src/modules/tags/contact-autotags-dirty.js', () => ({
   markContactAutoTagsDirty: vi.fn(),
+}));
+vi.mock('../../src/modules/activity/activity-logger.js', () => ({
+  logActivity: vi.fn(),
 }));
 
 import { addFriendTag, addCrmTag } from '../../src/modules/tags/tag-service';

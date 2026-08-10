@@ -161,6 +161,19 @@ async function refreshAccountGroups(
         stat.refreshed++;
       }
     } catch (err) {
+      const isRateLimited =
+        (err as { code?: string })?.code === 'RATE_LIMITED'
+        || (err as { statusCode?: number })?.statusCode === 429;
+      if (isRateLimited) {
+        // group_read quota là theo account/window. Gọi tiếp các group chắc chắn tiếp tục 429,
+        // vừa tạo log spam vừa lãng phí request. Dừng account này và thử lại ở tick sau.
+        stat.skipped += groups.length - stat.processed;
+        logger.info(
+          `[group-info-sync-cron] Zalo group quota reached for account ${accountId}; ` +
+            `stopping refresh (${stat.skipped} group(s) deferred)`,
+        );
+        break;
+      }
       stat.errors++;
       logger.warn(`[group-info-sync-cron] Group ${groupId} (acc ${accountId}) refresh failed:`, err);
     }

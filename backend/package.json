@@ -15,6 +15,7 @@
     "media:backfill-thumbnails": "tsx --env-file=.env scripts/backfill-media-thumbnails.ts",
     "pancake:import-zalo-history": "tsx --env-file=.env scripts/import-pancake-zalo-history.ts",
     "test": "vitest run",
+    "test:security:integration": "node scripts/run-security-integration-tests.mjs",
     "test:integration:message-reply-state": "node scripts/run-message-reply-state-integration-test.mjs",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage"

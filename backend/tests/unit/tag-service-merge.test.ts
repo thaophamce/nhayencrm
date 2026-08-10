@@ -26,6 +26,7 @@ vi.mock('../../src/shared/database/prisma-client.js', () => {
       $transaction: vi.fn(async (fn: (tx: typeof mockTx) => Promise<unknown>) => fn(mockTx)),
       __mockTx: mockTx,
     },
+    tenantTransaction: vi.fn(async (fn: (tx: typeof mockTx) => Promise<unknown>) => fn(mockTx)),
   };
 });
 

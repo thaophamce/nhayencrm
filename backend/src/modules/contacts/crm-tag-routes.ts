@@ -99,8 +99,9 @@ export async function crmTagRoutes(app: FastifyInstance): Promise<void> {
       if (!name) return reply.status(400).send({ error: 'name required' });
       if (name.length > 60) return reply.status(400).send({ error: 'name quá dài' });
 
-      const existing = await prisma.crmTag.findUnique({
-        where: { orgId_name: { orgId: user.orgId, name } },
+      const requestedGroupId = request.body.groupId || null;
+      const existing = await prisma.crmTag.findFirst({
+        where: { orgId: user.orgId, groupId: requestedGroupId, name },
       });
       if (existing) return reply.status(409).send({ error: 'Tag đã tồn tại' });
 
@@ -132,7 +133,7 @@ export async function crmTagRoutes(app: FastifyInstance): Promise<void> {
           emoji: request.body.emoji || null,
           description: request.body.description || null,
           category: request.body.category || null,
-          groupId: request.body.groupId || null,
+          groupId: requestedGroupId,
           order: (maxOrder._max.order || 0) + 1,
         },
       });
@@ -182,8 +183,8 @@ export async function crmTagRoutes(app: FastifyInstance): Promise<void> {
       // Đổi tên → phải update Contact.tags references để giữ consistency
       if (body.name && body.name.trim() !== tag.name) {
         const newName = body.name.trim();
-        const conflict = await prisma.crmTag.findUnique({
-          where: { orgId_name: { orgId: user.orgId, name: newName } },
+        const conflict = await prisma.crmTag.findFirst({
+          where: { orgId: user.orgId, groupId: tag.groupId, name: newName },
         });
         if (conflict) return reply.status(409).send({ error: 'Tag mới đã tồn tại' });
         data.name = newName;

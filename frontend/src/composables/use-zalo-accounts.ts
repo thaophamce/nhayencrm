@@ -27,6 +27,11 @@ export interface ZaloAccount {
   hasProxy?: boolean;
 }
 
+/** Protected account APIs must not run while the public/login shell is mounted. */
+export function hasAuthToken(): boolean {
+  return typeof localStorage !== 'undefined' && Boolean(localStorage.getItem('token'));
+}
+
 // onStatusChange: callback gọi khi nick đổi trạng thái qua socket (connected/disconnected/
 // error/reconnect-failed). Dashboard truyền refreshAll để grid card (list enriched) tự cập
 // nhật REACTIVE — trước đây chỉ fetchAccounts (list basic) nên grid phải F5 mới thấy đổi.
@@ -69,6 +74,11 @@ export function useZaloAccounts(opts?: { onStatusChange?: () => void }) {
   }
 
   async function fetchAccounts() {
+    if (!hasAuthToken()) {
+      accounts.value = [];
+      loading.value = false;
+      return;
+    }
     loading.value = true;
     try {
       const res = await api.get('/zalo-accounts');
