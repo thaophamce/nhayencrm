@@ -52,11 +52,19 @@ export async function userRoutes(app: FastifyInstance) {
   // Leader/Admin/Owner thấy đầy đủ.
   app.get('/api/v1/users', async (request: FastifyRequest) => {
     const user = request.user!;
+    const query = (request.query ?? {}) as { role?: string };
     const isPrivileged = user.role === 'owner' || user.role === 'admin';
     const users = await prisma.user.findMany({
-      where: { orgId: user.orgId },
+      where: {
+        orgId: user.orgId,
+        isActive: true,
+        ...(query.role === 'designer'
+          ? { permissionGroup: { name: 'Designer', archivedAt: null } }
+          : {}),
+      },
       select: {
         id: true,
+        username: true,
         email: true,
         phone: true,
         fullName: true,
@@ -85,28 +93,44 @@ export async function userRoutes(app: FastifyInstance) {
       return reply.status(403).send({ error: 'Không có quyền' });
     }
 
-    const { email, phone: rawPhone, fullName, password, role = 'member', teamId } = request.body as any;
-    if (!fullName || !password) {
-      return reply.status(400).send({ error: 'Họ tên và mật khẩu là bắt buộc' });
+    const { username: rawUsername, email, fullName, password, role = 'member', teamId, departmentId, permissionGroupId } = request.body as any;
+    const username = String(rawUsername ?? '').trim().toLowerCase();
+    if (!fullName || !username || !password) {
+      return reply.status(400).send({ error: 'Họ tên, username và mật khẩu là bắt buộc' });
     }
-    // Phase Onboarding v1 2026-05-24 — sale VN chỉ cần SĐT, email optional.
-    // Bắt buộc ít nhất 1 trong 2 (email hoặc phone) để có identifier login.
+    if (!/^[a-z0-9._-]{3,32}$/.test(username)) {
+      return reply.status(400).send({ error: 'Username phải dài 3-32 ký tự, chỉ gồm chữ thường, số, dấu chấm, gạch dưới hoặc gạch ngang' });
+    }
+    if (String(password).length < 8) {
+      return reply.status(400).send({ error: 'Mật khẩu phải có ít nhất 8 ký tự' });
+    }
     const trimmedEmail = email ? String(email).toLowerCase().trim() : null;
-    const normalizedPhone = rawPhone ? normalizePhone(String(rawPhone)) : null;
-    if (!trimmedEmail && !normalizedPhone) {
-      return reply.status(400).send({ error: 'Cần ít nhất 1 trong: Email hoặc Số điện thoại' });
-    }
-    if (rawPhone && !normalizedPhone) {
-      return reply.status(400).send({ error: 'Số điện thoại không hợp lệ' });
-    }
+
+    const existingUsername = await prisma.user.findUnique({ where: { username } });
+    if (existingUsername) return reply.status(409).send({ error: 'Username đã tồn tại' });
 
     if (trimmedEmail) {
       const existingEmail = await prisma.user.findUnique({ where: { email: trimmedEmail } });
       if (existingEmail) return reply.status(400).send({ error: 'Email đã tồn tại' });
     }
-    if (normalizedPhone) {
-      const existingPhone = await prisma.user.findUnique({ where: { phone: normalizedPhone } });
-      if (existingPhone) return reply.status(400).send({ error: 'Số điện thoại đã tồn tại' });
+    let selectedGroup: { id: string; name: string } | null = null;
+    let selectedDepartment: { id: string; name: string } | null = null;
+    if (permissionGroupId) {
+      selectedGroup = await prisma.permissionGroup.findFirst({
+        where: { id: permissionGroupId, orgId: currentUser.orgId, archivedAt: null },
+        select: { id: true, name: true },
+      });
+      if (!selectedGroup) return reply.status(400).send({ error: 'Nhóm quyền không hợp lệ' });
+    }
+    if (departmentId) {
+      selectedDepartment = await prisma.department.findFirst({
+        where: { id: departmentId, orgId: currentUser.orgId, archivedAt: null },
+        select: { id: true, name: true },
+      });
+      if (!selectedDepartment) return reply.status(400).send({ error: 'Phòng ban không hợp lệ' });
+    }
+    if (selectedDepartment && selectedGroup && selectedDepartment.name !== selectedGroup.name) {
+      return reply.status(400).send({ error: 'Phòng ban và nhóm quyền phải cùng là Sale hoặc cùng là Designer' });
     }
 
     if (role === 'owner') return reply.status(400).send({ error: 'Không thể tạo thêm owner' });
@@ -119,12 +143,13 @@ export async function userRoutes(app: FastifyInstance) {
       data: {
         id: randomUUID(),
         orgId: currentUser.orgId,
+        username,
         email: trimmedEmail,
-        phone: normalizedPhone,
         fullName,
         passwordHash,
         role,
         teamId: teamId || null,
+        permissionGroupId: permissionGroupId || null,
         // Phase Onboarding v1 2026-05-24 — user mới luôn null → force đổi password lần đầu.
         passwordChangedAt: null,
         onboardingStepsCompleted: undefined as any,
@@ -132,6 +157,7 @@ export async function userRoutes(app: FastifyInstance) {
       },
       select: {
         id: true,
+        username: true,
         email: true,
         phone: true,
         fullName: true,
@@ -141,7 +167,13 @@ export async function userRoutes(app: FastifyInstance) {
       },
     });
 
-    logger.info(`User created: ${user.email || user.phone} by ${currentUser.email} (onboarding pending)`);
+    if (departmentId) {
+      await prisma.departmentMember.create({
+        data: { id: randomUUID(), departmentId, userId: user.id, deptRole: 'member' },
+      });
+    }
+
+    logger.info(`User created: ${user.username} by ${currentUser.email} (onboarding pending)`);
     return user;
   });
 

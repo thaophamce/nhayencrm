@@ -9,7 +9,7 @@
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '../../shared/database/prisma-client.js';
 import { authMiddleware } from '../auth/auth-middleware.js';
-import { seedDefaultPermissionGroups, migrateLegacyUsersToPermissionGroups } from './seed-default-groups.js';
+import { seedDefaultPermissionGroups, seedDefaultDepartments, migrateLegacyUsersToPermissionGroups } from './seed-default-groups.js';
 import { requireGrant } from './rbac-middleware.js';
 
 export async function registerUserAssignmentRoutes(app: FastifyInstance): Promise<void> {
@@ -25,6 +25,7 @@ export async function registerUserAssignmentRoutes(app: FastifyInstance): Promis
     if (query.permissionGroupId) where.permissionGroupId = query.permissionGroupId;
     if (query.q) {
       where.OR = [
+        { username: { contains: query.q, mode: 'insensitive' } },
         { fullName: { contains: query.q, mode: 'insensitive' } },
         { email: { contains: query.q, mode: 'insensitive' } },
       ];
@@ -34,6 +35,7 @@ export async function registerUserAssignmentRoutes(app: FastifyInstance): Promis
       where,
       select: {
         id: true,
+        username: true,
         email: true,
         // UI refactor 2026-05-27 — phone hiển thị trong cột chính, email ẩn theo toggle
         phone: true,
@@ -139,6 +141,7 @@ export async function registerUserAssignmentRoutes(app: FastifyInstance): Promis
     const user = (request as any).user;
     try {
       const result = await seedDefaultPermissionGroups(user.orgId);
+      await seedDefaultDepartments(user.orgId);
       return reply.send({ ok: true, ...result });
     } catch (e: any) {
       return reply.status(500).send({ error: e.message });
@@ -167,6 +170,7 @@ export async function registerUserAssignmentRoutes(app: FastifyInstance): Promis
     try {
       // Đảm bảo default groups đã seed
       await seedDefaultPermissionGroups(user.orgId);
+      await seedDefaultDepartments(user.orgId);
 
       const groups = await prisma.permissionGroup.findMany({
         where: { orgId: user.orgId, isSystem: true },

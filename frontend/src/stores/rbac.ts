@@ -64,6 +64,7 @@ export interface OnboardingSummary {
 
 export interface RbacUser {
   id: string;
+  username: string | null;
   email: string | null;
   // UI refactor 2026-05-27 — phone hiển thị cột chính, email ẩn theo toggle
   phone: string | null;

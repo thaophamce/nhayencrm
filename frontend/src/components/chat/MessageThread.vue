@@ -1364,7 +1364,8 @@ watch(() => props.conversation?.id, () => {
   groupMembersDialogOpen.value = false;
   groupMembers.value = [];
   groupMembersError.value = '';
-});
+  if (props.conversation?.threadType === 'group') void loadGroupMembers();
+}, { immediate: true });
 
 const cooldownProgress = computed(() => Math.max(0, Math.min(1, Number(props.rateLimitSeconds || 0) / Math.max(1, Number(props.rateLimitTotalSeconds || 1)))));
 type CommonGroup = { id: string; name: string; totalMember: number };
@@ -1531,6 +1532,9 @@ const multiForwardPending = ref(false);
 // live (hay 404). Dedup theo uid, bỏ tin của mình (self).
 const chatMembers = computed(() => {
   const map = new Map<string, { uid: string; name: string; avatar: string | null }>();
+  for (const member of groupMembers.value) {
+    map.set(member.uid, { uid: member.uid, name: member.displayName, avatar: member.avatar });
+  }
   for (const m of props.messages || []) {
     const uid = (m as any).senderUid as string | undefined;
     if (!uid || m.senderType === 'self' || map.has(uid)) continue;
@@ -1543,6 +1547,14 @@ const chatMembers = computed(() => {
   }
   return [...map.values()];
 });
+
+function onGroupMembersChanged(event: Event) {
+  const detail = (event as CustomEvent<{ accountId?: string; groupId?: string }>).detail;
+  if (detail?.accountId === props.conversation?.zaloAccount?.id
+      && detail?.groupId === props.conversation?.externalThreadId) void loadGroupMembers();
+}
+onMounted(() => window.addEventListener('chat:group-members-changed', onGroupMembersChanged));
+onBeforeUnmount(() => window.removeEventListener('chat:group-members-changed', onGroupMembersChanged));
 
 // 2026-05-22 anh chốt Zalo native UX: chỉ tin OUTGOING CUỐI CÙNG mới hiện
 // receipt indicator (delivered/seen). Tin cuối đã seen → ngầm hiểu tin trên cũng seen
@@ -1692,9 +1704,15 @@ async function saveHeaderName() {
       // Hội thoại cá nhân: lưu alias gợi nhớ
       const friendId = conv.friendship?.id;
       if (!friendId) { toast.error('Không tìm thấy friendship'); return; }
-      await api.patch(`/friends/${friendId}`, { aliasInNick: trimmed });
+      // 2026-08-09: BE trả zaloPushed — push sang Zalo lỗi thì CRM đã lưu nhưng Zalo
+      // Real chưa đổi. Vẫn giữ override (DB đã có giá trị mới) nhưng báo đúng sự thật.
+      const { data } = await api.patch(`/friends/${friendId}`, { aliasInNick: trimmed });
       localNameOverride.value = trimmed;
-      toast.success(`Đã đổi tên gợi nhớ → "${trimmed}"`);
+      if (data?.zaloPushed === false) {
+        toast.error(`Đã lưu trong CRM nhưng chưa đổi được trên Zalo: ${data?.zaloPushError || 'lỗi không rõ'}`);
+      } else {
+        toast.success(`Đã đổi tên gợi nhớ → "${trimmed}"`);
+      }
     }
   } catch (err: any) {
     const msg = err?.response?.data?.error || 'Đổi tên thất bại';
@@ -3821,6 +3839,7 @@ watch(() => props.editingMessage?.id, async (id) => {
 .msg-privacy-blurred :deep(.media-caption),
 .msg-privacy-blurred :deep(.recall-body),
 .msg-privacy-blurred :deep(.reply-text),
+.msg-privacy-blurred :deep(.reply-thumb),
 .msg-privacy-blurred :deep(.chat-image),
 .msg-privacy-blurred :deep(.chat-video),
 .msg-privacy-blurred :deep(.file-card),

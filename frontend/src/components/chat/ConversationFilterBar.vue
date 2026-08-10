@@ -89,10 +89,16 @@
           <span class="accent">{{ counts.unread }} chưa đọc</span>
         </template>
       </span>
-      <button class="mini-sort" @click="toggleSort">
-        {{ filters.state.sortMode === 'unread-first' ? 'Chưa đọc lên trên' : 'Mới nhất lên trên' }}
-        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9" /></svg>
-      </button>
+      <div class="mini-sorts">
+        <select v-model="filters.state.sortMode" class="mini-sort" aria-label="Ưu tiên hội thoại">
+          <option value="unread-first">Chưa đọc lên trên</option>
+          <option value="recent">Không ưu tiên chưa đọc</option>
+        </select>
+        <select v-model="filters.state.timeOrder" class="mini-sort time-sort" aria-label="Thứ tự thời gian">
+          <option value="newest">Mới nhất</option>
+          <option value="oldest">Cũ nhất</option>
+        </select>
+      </div>
     </div>
   </div>
 </template>
@@ -157,11 +163,6 @@ function setActiveTab(key: TabKey) {
   if (sameTab) emit('reselect-tab');
 }
 
-function toggleSort() {
-  props.filters.setSortMode(
-    props.filters.state.sortMode === 'unread-first' ? 'recent' : 'unread-first'
-  );
-}
 </script>
 
 <style scoped>
@@ -418,6 +419,9 @@ function toggleSort() {
   font-family: inherit;
   transition: color 0.15s, background 0.15s;
 }
+.mini-sorts { display: flex; align-items: center; gap: 4px; }
+.mini-sort { max-width: 136px; outline: none; }
+.mini-sort.time-sort { max-width: 72px; }
 .mini-sort:hover { color: #4338CA; background: white; }
 .mini-sort .ic { width: 10px; height: 10px; opacity: 0.7; }
 </style>

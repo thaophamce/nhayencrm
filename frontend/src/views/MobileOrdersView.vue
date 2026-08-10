@@ -238,6 +238,7 @@
         <!-- Actions -->
         <div class="pa-4 d-flex gap-2 border-t bg-white">
           <v-btn
+            v-if="canEditOrders"
             variant="tonal"
             color="primary"
             rounded="xl"

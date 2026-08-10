@@ -16,6 +16,7 @@ interface DailyCounter { count: number; date: string; }
 
 const DAILY_KEY = (acct: string, cat: string) => `rl:daily:${acct}:${cat}`;
 const BURST_KEY = (acct: string, cat: string) => `rl:burst:${acct}:${cat}`;
+const UNLIMITED_DAILY_CATEGORIES = new Set<OpCategory>(['message', 'chat_action']);
 
 class ZaloRateLimiter {
   private dailyCounts = new Map<string, DailyCounter>();
@@ -52,7 +53,7 @@ class ZaloRateLimiter {
     const today = new Date().toISOString().split('T')[0];
 
     const daily = this.dailyCounts.get(key);
-    if (daily && daily.date === today && daily.count >= limits.daily) {
+    if (!UNLIMITED_DAILY_CATEGORIES.has(category) && daily && daily.date === today && daily.count >= limits.daily) {
       return { allowed: false, reason: `Đã đạt giới hạn ${limits.daily} ${category}/ngày` };
     }
 
@@ -76,7 +77,7 @@ class ZaloRateLimiter {
     const dailyVal = await r.hget(dailyKey, today);
     const dailyCount = dailyVal ? parseInt(dailyVal, 10) : 0;
 
-    if (dailyCount >= limits.daily) {
+    if (!UNLIMITED_DAILY_CATEGORIES.has(category) && dailyCount >= limits.daily) {
       return { allowed: false, reason: `Đã đạt giới hạn ${limits.daily} ${category}/ngày` };
     }
 

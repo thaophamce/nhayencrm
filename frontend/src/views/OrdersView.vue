@@ -197,6 +197,7 @@
           <aside class="orders-list-sidebar">
             <OrderAlertPanel
               ref="alertPanelRef"
+              :readonly="!canEditOrders"
               @edit="editOrder"
               @changed="onAlertChanged"
             />
@@ -242,7 +243,9 @@ const tabs = computed(() => [
   ...(authStore.canAccess('orders_salary')
     ? [{ value: 'salary', label: 'Lương thiết kế', icon: 'mdi-cash-multiple' }]
     : []),
-  { value: 'report', label: 'Báo cáo', icon: 'mdi-chart-box-outline' },
+  ...(authStore.canAccess('orders', 'view_all')
+    ? [{ value: 'report', label: 'Báo cáo', icon: 'mdi-chart-box-outline' }]
+    : []),
 ]);
 
 import { useRoute } from 'vue-router';
@@ -342,7 +345,7 @@ function clearDateFilter() {
 
 async function loadDesigners() {
   try {
-    const res = await api.get<{ users?: Array<{ id: string; fullName: string }> }>('/users');
+    const res = await api.get<{ users?: Array<{ id: string; fullName: string }> }>('/users', { params: { role: 'designer' } });
     designers.value = res.data.users || [];
   } catch (err) {
     console.error('Cannot load designers:', err);
@@ -350,6 +353,7 @@ async function loadDesigners() {
 }
 
 function editOrder(order: any) {
+  if (!canEditOrders.value) return;
   selectedOrder.value = order;
   showEditModal.value = true;
 }

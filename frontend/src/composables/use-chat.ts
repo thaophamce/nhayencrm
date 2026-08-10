@@ -74,10 +74,22 @@ export interface ReplyMessageRef {
   ts: string;
   propertyExt?: Record<string, unknown>;
   ttl?: number;
+  /**
+   * 2026-08-10 — URL ảnh của tin GỐC (image/video/gif/link thumb). Trước đây bị bỏ
+   * sau khi parse attach → khung trích dẫn chỉ hiện chữ "📷 Hình ảnh", sale đọc
+   * "mẫu này..." mà không thấy mẫu nào. Có URL → reply-card render thumbnail thật.
+   */
+  thumbUrl?: string | null;
 }
 
 interface RawMessage extends Omit<Message, 'reactions' | 'reply' | 'reactionDetails'> {
   quote?: ReplyMessageRef | null;
+  /**
+   * 2026-08-10 — Tên người gửi tin GỐC đã resolve qua alias/crmName ở BE.
+   * quote.fromD là tên Zalo thô nên khung "Trả lời X" từng hiện tên khác với
+   * header + bubble của cùng một người.
+   */
+  quoteSenderResolved?: string | null;
   reactions?: Array<{ emoji: string; reactorId: string; reactorName?: string | null; reactorSource?: string | null; reactorAvatar?: string | null; count?: number; reacted?: boolean }>;
 }
 
@@ -632,7 +644,7 @@ export function useChat() {
       counts.set(reaction.emoji, (counts.get(reaction.emoji) || 0) + 1);
       if (myId && reaction.reactorId === myId) myEmojis.add(reaction.emoji);
     }
-    const { reactions, quote, ...base } = message;
+    const { reactions, quote, quoteSenderResolved, ...base } = message;
 
     // Normalize quote: Zalo lưu với field 'msg' + 'fromD' thay vì 'content' + 'senderName'.
     // Map sang ReplyMessageRef chuẩn để MessageBubble render đúng.
@@ -651,24 +663,48 @@ export function useChat() {
           24: 'voice', 30: 'file', 32: 'image', 38: 'card', 46: 'location',
         } as Record<number, string>)[cliType] || '';
       }
-      // Fallback: parse attach JSON nếu cliMsgType missing
-      if (!msgType && typeof q.attach === 'string' && q.attach.length > 2) {
-        try {
-          const a = JSON.parse(q.attach);
-          if (a.thumbUrl || a.oriUrl) msgType = 'image';
-          else if (a.href) msgType = 'link';
-        } catch { /* ignore */ }
+      // 2026-08-10: GIỮ LẠI url ảnh khi parse attach (trước chỉ dùng để suy msgType
+      // rồi bỏ). attach là JSON string với Zalo Real; tin CRM tự gửi lưu object.
+      // Quote do CRM tạo (buildReplyQuote) đặt thumbUrl ở cấp cao nhất, không trong attach.
+      let thumbUrl: string | null = typeof q.thumbUrl === 'string' && q.thumbUrl.startsWith('http')
+        ? q.thumbUrl : null;
+      const attachObj: Record<string, unknown> | null = (() => {
+        if (typeof q.attach === 'string' && q.attach.length > 2) {
+          try { return JSON.parse(q.attach) as Record<string, unknown>; } catch { return null; }
+        }
+        if (q.attach && typeof q.attach === 'object') return q.attach as Record<string, unknown>;
+        // Tin gửi từ CRM: BE buildReplyQuote nhét media url vào content dạng JSON.
+        if (typeof q.msg === 'string' && q.msg.startsWith('{')) {
+          try { return JSON.parse(q.msg) as Record<string, unknown>; } catch { return null; }
+        }
+        return null;
+      })();
+      if (attachObj) {
+        const pick = (k: string) => {
+          const v = attachObj[k];
+          return typeof v === 'string' && v.startsWith('http') ? v : '';
+        };
+        // thumbUrl/thumb là bản nhẹ → ưu tiên cho preview 40px, đỡ tải ảnh 1920px.
+        thumbUrl = pick('thumbUrl') || pick('thumb') || pick('normalUrl') || pick('oriUrl')
+          || pick('hdUrl') || pick('href') || thumbUrl;
+        if (!msgType && thumbUrl) msgType = 'image';
+        else if (!msgType && typeof attachObj.href === 'string' && attachObj.href) msgType = 'link';
       }
+      // Chỉ hiện thumbnail cho loại có ảnh thật. File/voice/sticker giữ nhãn chữ:
+      // href của file .pdf/.docx không phải ảnh, render <img> sẽ ra ô vỡ.
+      if (thumbUrl && !/image|photo|video|gif|link/i.test(msgType)) thumbUrl = null;
       reply = {
         msgId: String(q.msgId || q.msg_id || q.globalMsgId || ''),
         cliMsgId: q.cliMsgId,
         content: String(q.msg ?? q.content ?? ''),
-        senderName: String(q.fromD ?? q.senderName ?? q.fromName ?? ''),
+        // Tên đã resolve từ BE (alias/crmName) > fromD thô của Zalo.
+        senderName: String(quoteSenderResolved || q.fromD || q.senderName || q.fromName || ''),
         msgType,
         uidFrom: String(q.uidFrom ?? q.uid_from ?? ''),
         ts: String(q.ts ?? ''),
         propertyExt: q.propertyExt,
         ttl: q.ttl,
+        thumbUrl,
       };
     }
 

@@ -282,6 +282,7 @@ watch(
     inboxFilters.state.tagsZalo.join(','),
     inboxFilters.state.tagsCrm.join(','),
     inboxFilters.state.sortMode,
+    inboxFilters.state.timeOrder,
     inboxFilters.state.timeAxis,
     inboxFilters.state.timeRangePreset,
     inboxFilters.state.timeFrom,

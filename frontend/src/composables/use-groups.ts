@@ -103,14 +103,17 @@ export function useGroups() {
     }
   }
 
+  // 2026-08-09: KHÔNG nuốt lỗi thành null nữa. Trước đây rename fail (vd Zalo trả
+  // code 160 "Dữ liệu không hợp lệ" khi nick không phải quản trị viên) → return null
+  // → caller chỉ thấy "Thao tác thất bại" chung chung, không biết lý do thật.
   async function renameGroup(accountId: string, groupId: string, name: string) {
     actionLoading.value = true;
     try {
       const res = await api.patch(`${base(accountId)}/${groupId}/name`, { name });
       return res.data.result;
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to rename group:', err);
-      return null;
+      throw new Error(err?.response?.data?.error || 'Đổi tên nhóm thất bại');
     } finally {
       actionLoading.value = false;
     }

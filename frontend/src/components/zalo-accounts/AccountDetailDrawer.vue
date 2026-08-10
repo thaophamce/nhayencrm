@@ -73,7 +73,7 @@
             <div class="sdk-tot">Tổng lượt gọi SDK: <b>{{ formatNum(account.sdkTotal ?? 0) }}</b></div>
             <div v-for="m in SDK_ROWS" :key="m.cat" class="sdkd-row" :class="sdkClass(m.cat)">
               <div class="sdkd-lbl">{{ m.ic }} {{ m.lb }}</div>
-              <div class="sdkd-val">{{ formatNum(sdkUsed(m.cat)) }}<small>/{{ formatNum(sdkCap(m.cat)) }}</small></div>
+              <div class="sdkd-val">{{ formatNum(sdkUsed(m.cat)) }}<small>/{{ m.cat === 'message' ? '∞' : formatNum(sdkCap(m.cat)) }}</small></div>
               <div class="sdkd-bar"><i :style="{ width: sdkPct(m.cat) + '%' }"></i></div>
             </div>
           </div>
@@ -393,7 +393,7 @@ const SDK_ROWS = [
 ];
 function sdkUsed(cat: string): number { return props.account?.sdkCounts?.[cat] ?? 0; }
 function sdkCap(cat: string): number { return props.account && props.limitFor ? props.limitFor(props.account.id, cat) : 0; }
-function sdkPct(cat: string): number { const c = sdkCap(cat); return c > 0 ? Math.min(100, Math.round((sdkUsed(cat) / c) * 100)) : 0; }
+function sdkPct(cat: string): number { if (cat === 'message' || cat === 'chat_action') return 0; const c = sdkCap(cat); return c > 0 ? Math.min(100, Math.round((sdkUsed(cat) / c) * 100)) : 0; }
 function sdkClass(cat: string): string { const p = sdkPct(cat); return p >= 100 ? 'q-crit' : p >= 70 ? 'q-warn' : 'q-ok'; }
 
 const emit = defineEmits<{

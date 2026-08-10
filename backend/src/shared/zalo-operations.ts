@@ -265,6 +265,16 @@ async function exec<T>(opts: ExecOptions, fn: (api: any) => Promise<T>): Promise
       400,
     );
   }
+  // renameGroup: Zalo trả code 160 "Dữ liệu không hợp lệ" khi nick không đủ quyền
+  // đổi tên nhóm, nhóm đã bị giải tán, hoặc tên vi phạm giới hạn của Zalo. Zalo không
+  // phân biệt rõ 3 case này nên message phải nêu cả 3 + giữ code để đối chiếu log.
+  if (operation === 'renameGroup' && zaloCode === 160) {
+    throw new ZaloOpError(
+      'Zalo từ chối đổi tên nhóm này (nick không đủ quyền đổi tên, nhóm đã giải tán, hoặc tên không hợp lệ). [zalo:160]',
+      'INVALID_PARAMS',
+      400,
+    );
+  }
 
   throw new ZaloOpError(
     `${operation} failed: ${msg}${zaloCode != null ? ` [zalo:${zaloCode}]` : ''}`,

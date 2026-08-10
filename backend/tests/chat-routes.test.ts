@@ -30,6 +30,19 @@ vi.mock('../src/modules/zalo/zalo-access-middleware.js', () => ({
 }));
 vi.mock('../src/modules/zalo/zalo-pool.js', () => ({ zaloPool: zaloPoolMock }));
 vi.mock('../src/modules/zalo/zalo-rate-limiter.js', () => ({ zaloRateLimiter: zaloRateLimiterMock }));
+vi.mock('../src/modules/zalo/zalo-scope.js', () => ({
+  DISPLAYABLE_NICK_WHERE: {
+    OR: [
+      { archivedAt: null },
+      { archivedAt: { not: null }, zaloUid: { not: null } },
+    ],
+  },
+  getZaloScope: vi.fn().mockResolvedValue({
+    isOrgAdmin: true,
+    accessibleIds: [],
+    displayableIds: [],
+  }),
+}));
 
 const { chatRoutes } = await import('../src/modules/chat/chat-routes.js');
 
@@ -62,6 +75,8 @@ beforeEach(() => {
   });
   prismaMock.message.create.mockResolvedValue({ id: 'msg-2', content: 'thanks' });
   prismaMock.conversation.update.mockResolvedValue({});
+  prismaMock.conversation.findMany.mockResolvedValue([]);
+  prismaMock.conversation.count.mockResolvedValue(0);
   prismaMock.user.findUnique.mockResolvedValue({ fullName: 'Test User' });
   zaloPoolMock.getInstance.mockReturnValue({
     status: 'connected',
@@ -147,6 +162,27 @@ describe('POST /api/v1/conversations/:id/messages', () => {
     expect(prismaMock.conversation.update).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ isReplied: true, unreadCount: 0 }),
     }));
+  });
+});
+
+describe('GET /api/v1/conversations reply-state filter', () => {
+  it('composes stored state with caller filters without building an id IN list', async () => {
+    const app = buildApp();
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/v1/conversations?messageReplyState=unanswered&threadType=group',
+    });
+
+    expect(res.statusCode, res.body).toBe(200);
+    expect(prismaMock.conversation.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        threadType: 'group',
+        messageReplyState: 'unanswered',
+        AND: expect.arrayContaining([{ threadType: 'user' }]),
+      }),
+    }));
+    const query = prismaMock.conversation.findMany.mock.calls[0]?.[0];
+    expect(query?.where).not.toHaveProperty('id');
   });
 });
 

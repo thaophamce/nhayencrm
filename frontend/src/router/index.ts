@@ -354,7 +354,12 @@ router.beforeEach(async (to, _from, next) => {
       authStore.user?.passwordChangedAt !== null &&
       to.meta.allowUnchangedPassword
     ) {
-      return next('/');
+      return next(authStore.user?.permissionGroupName === 'Designer' ? '/orders' : '/');
+    }
+
+    // Designer là tài khoản portal đơn thiết kế: không được đi sang bất kỳ site CRM nào khác.
+    if (authStore.user?.permissionGroupName === 'Designer' && to.path !== '/orders') {
+      return next('/orders');
     }
 
     // RBAC page-level guard 2026-06-08 — chặn theo nhóm quyền (grants).
