@@ -52,7 +52,7 @@ describe('getChatStatistics', () => {
     const sql = prismaMock.$queryRaw.mock.calls
       .map(([query]) => query.strings.join(' '))
       .join('\n');
-    expect(sql).toContain("c.thread_type = 'user'");
+    expect(sql).toContain(`c."threadType" = 'user'`);
     expect(sql).toContain("al.action = 'friend_request_received'");
   });
 

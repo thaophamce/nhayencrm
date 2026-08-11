@@ -59,7 +59,7 @@ export async function getChatStatistics(input: ChatStatisticsInput) {
       ))::bigint AS count
       FROM messages m JOIN conversations c ON c.id = m.conversation_id
       WHERE c.org_id = ${user.orgId} AND ${accountSql}
-        AND c.thread_type = 'user'
+        AND c."threadType" = 'user'
         AND m.sent_at >= ${from} AND m.sent_at < ${to}
         AND m.sender_type = 'contact' AND m.is_deleted = false AND m.is_local = false
     `),
