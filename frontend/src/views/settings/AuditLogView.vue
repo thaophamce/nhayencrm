@@ -72,11 +72,13 @@ interface AuditLog {
 const ACTION_FILTERS = [
   { value: '', label: 'Tất cả' },
   { value: 'user.handoff', label: '🔄 Bàn giao' },
+  { value: 'user.reset_credentials', label: '🔐 Reset tài khoản' },
   { value: 'user.reset_password', label: '🔑 Reset mật khẩu' },
   { value: 'user.deactivate', label: '🚫 Vô hiệu' },
 ];
 const ACTION_LABELS: Record<string, string> = {
   'user.handoff': 'Bàn giao khách hàng',
+  'user.reset_credentials': 'Đặt lại username / mật khẩu',
   'user.reset_password': 'Đặt lại mật khẩu',
   'user.deactivate': 'Vô hiệu hóa',
 };
@@ -113,6 +115,7 @@ function prevPage() { offset.value = Math.max(0, offset.value - limit.value); lo
 function actionLabel(a: string) { return ACTION_LABELS[a] || a; }
 function badgeClass(a: string) {
   if (a === 'user.handoff') return 'b-handoff';
+  if (a === 'user.reset_credentials') return 'b-reset';
   if (a === 'user.reset_password') return 'b-reset';
   if (a === 'user.deactivate') return 'b-danger';
   return 'b-default';

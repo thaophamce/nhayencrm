@@ -301,6 +301,77 @@ export async function userRoutes(app: FastifyInstance) {
     return { success: true, zaloSent, zaloError };
   });
 
+  // PUT /api/v1/users/:id/credentials — owner/admin đặt lại đồng thời username + mật khẩu.
+  // Không gửi thông tin đăng nhập qua Zalo. Mọi JWT cũ bị thu hồi và nhân viên phải
+  // đổi mật khẩu ở lần đăng nhập kế tiếp vì quản trị viên đã biết mật khẩu tạm thời.
+  app.put('/api/v1/users/:id/credentials', async (request: FastifyRequest, reply: FastifyReply) => {
+    const currentUser = request.user!;
+    if (!['owner', 'admin'].includes(currentUser.role)) {
+      return reply.status(403).send({ error: 'Không có quyền' });
+    }
+
+    const { id } = request.params as { id: string };
+    if (id === currentUser.id) {
+      return reply.status(400).send({ error: 'Không thể đặt lại tài khoản của chính mình tại đây' });
+    }
+
+    const body = (request.body ?? {}) as { username?: unknown; password?: unknown };
+    const username = String(body.username ?? '').trim().toLowerCase();
+    const password = typeof body.password === 'string' ? body.password : '';
+
+    if (!/^[a-z0-9._-]{3,32}$/.test(username)) {
+      return reply.status(400).send({
+        error: 'Username phải có 3-32 ký tự, chỉ gồm chữ thường, số, dấu chấm, gạch dưới hoặc gạch ngang',
+      });
+    }
+    if (password.length < 8) {
+      return reply.status(400).send({ error: 'Mật khẩu phải có ít nhất 8 ký tự' });
+    }
+
+    const target = await prisma.user.findFirst({
+      where: { id, orgId: currentUser.orgId },
+      select: { id: true, username: true, fullName: true },
+    });
+    if (!target) {
+      return reply.status(404).send({ error: 'Không tìm thấy nhân viên' });
+    }
+
+    const duplicate = await prisma.user.findUnique({
+      where: { username },
+      select: { id: true },
+    });
+    if (duplicate && duplicate.id !== id) {
+      return reply.status(409).send({ error: 'Username đã được sử dụng', code: 'USERNAME_TAKEN' });
+    }
+
+    const passwordHash = await bcrypt.hash(password, 10);
+    try {
+      const updated = await prisma.user.update({
+        where: { id, orgId: currentUser.orgId },
+        data: {
+          username,
+          passwordHash,
+          passwordChangedAt: null,
+          jwtTokenVersion: { increment: 1 },
+        },
+        select: { id: true, username: true, fullName: true },
+      });
+
+      logger.info(`User ${id} credentials reset by ${currentUser.email} (JWT revoked, onboarding force re-flow)`);
+      await writeAudit(currentUser, 'user.reset_credentials', id, {
+        previousUsername: target.username,
+        username,
+      });
+
+      return { success: true, user: updated };
+    } catch (error: any) {
+      if (error?.code === 'P2002') {
+        return reply.status(409).send({ error: 'Username đã được sử dụng', code: 'USERNAME_TAKEN' });
+      }
+      throw error;
+    }
+  });
+
   // DELETE /api/v1/users/:id — deactivate user (owner only)
   app.delete('/api/v1/users/:id', async (request: FastifyRequest, reply: FastifyReply) => {
     const currentUser = request.user!;

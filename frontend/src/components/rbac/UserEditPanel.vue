@@ -60,6 +60,25 @@
             </div>
           </section>
 
+          <section v-if="canManageCredentials" class="section credentials-section">
+            <div class="section-title-row">
+              <h3 class="section-title">Tài khoản đăng nhập</h3>
+              <span class="credentials-status">Được bảo vệ</span>
+            </div>
+            <label class="field-label">Username hiện tại</label>
+            <div class="credentials-current">
+              <code>{{ currentLoginUsername || 'Chưa đặt username' }}</code>
+            </div>
+            <p class="field-hint">
+              Đặt lại đồng thời username và mật khẩu. Nhân viên sẽ bị đăng xuất khỏi các phiên cũ
+              và phải đổi mật khẩu sau lần đăng nhập kế tiếp.
+            </p>
+            <p v-if="credentialsSuccess" class="credentials-success">{{ credentialsSuccess }}</p>
+            <button class="btn-reset-pw" :disabled="busy" @click="openCredentialsModal">
+              🔐 Đặt lại username / mật khẩu
+            </button>
+          </section>
+
           <!-- ── Department ──────────────────────── -->
           <section class="section">
             <h3 class="section-title">Phòng ban</h3>
@@ -181,28 +200,6 @@
             </p>
           </section>
 
-          <!-- ── Danger zone ─────────────────────── -->
-          <!-- 2026-06-09 (anh báo thiếu): admin đặt lại mật khẩu cho sale quên pw.
-               BE PUT /users/:id/password đã có sẵn: hash + force đổi lần đầu + revoke JWT cũ. -->
-          <section v-if="canResetPassword" class="section">
-            <h3 class="section-title">Mật khẩu</h3>
-            <p class="field-hint">
-              Đặt lại mật khẩu cho nhân viên quên/mất mật khẩu. Hệ thống sinh mật khẩu mới,
-              nhân viên sẽ phải đổi lại khi đăng nhập lần đầu.
-            </p>
-            <div v-if="resetPwResult" class="reset-pw-result">
-              <div class="reset-pw-row">
-                <span class="reset-pw-label">Mật khẩu mới:</span>
-                <code class="reset-pw-code">{{ resetPwResult }}</code>
-                <button class="btn-copy-sm" @click="copyResetPw" title="Copy">📋</button>
-              </div>
-              <p class="reset-pw-note">Gửi mật khẩu này cho nhân viên. Họ sẽ buộc đổi lại khi đăng nhập.</p>
-            </div>
-            <button class="btn-reset-pw" :disabled="busy" @click="confirmResetPassword">
-              🔑 Đặt lại mật khẩu
-            </button>
-          </section>
-
           <!-- 2026-06-09 (anh chốt): BÀN GIAO khi sale nghỉ — chuyển KH + nick + lịch hẹn
                sang sale khác để không mất khách. Nên bàn giao TRƯỚC khi vô hiệu. -->
           <section v-if="canHandoff" class="section">
@@ -257,18 +254,70 @@
     </div>
   </Transition>
 
-  <!-- 2026-06-09 (anh báo popup confirm() trình duyệt xấu): modal xác nhận in-app
-       tái dùng cho reset pw / bàn giao / vô hiệu. Riêng reset pw có tùy chọn gửi Zalo. -->
+  <Teleport to="body">
+    <div v-if="credentialsModalOpen" class="ce-overlay" @click.self="closeCredentialsModal">
+      <form class="ce-modal credentials-modal" @submit.prevent="saveCredentials">
+        <h3 class="ce-title">Đặt lại tài khoản đăng nhập</h3>
+        <p class="ce-msg">
+          Cập nhật tài khoản cho <strong>{{ user?.fullName }}</strong>. Thao tác này không gửi thông tin qua Zalo.
+        </p>
+
+        <label class="field-label" for="credentials-username">Username mới</label>
+        <input
+          id="credentials-username"
+          v-model="credentialsUsername"
+          class="field-input"
+          autocomplete="off"
+          autocapitalize="none"
+          maxlength="32"
+          placeholder="Ví dụ: thienbinh"
+          :disabled="busy"
+        />
+        <p class="credentials-field-help">3-32 ký tự: chữ thường, số, dấu chấm, gạch dưới hoặc gạch ngang.</p>
+
+        <label class="field-label" for="credentials-password">Mật khẩu mới</label>
+        <input
+          id="credentials-password"
+          v-model="credentialsPassword"
+          type="password"
+          class="field-input"
+          autocomplete="new-password"
+          minlength="8"
+          :disabled="busy"
+        />
+
+        <label class="field-label" for="credentials-password-confirm">Nhập lại mật khẩu</label>
+        <input
+          id="credentials-password-confirm"
+          v-model="credentialsPasswordConfirm"
+          type="password"
+          class="field-input"
+          autocomplete="new-password"
+          minlength="8"
+          :disabled="busy"
+        />
+
+        <p class="credentials-security-note">
+          🔒 Phiên đăng nhập cũ sẽ bị thu hồi; nhân viên phải đổi mật khẩu sau khi đăng nhập.
+        </p>
+        <p v-if="credentialsError" class="credentials-error">{{ credentialsError }}</p>
+
+        <div class="ce-actions">
+          <button type="button" class="ce-cancel" :disabled="busy" @click="closeCredentialsModal">Hủy</button>
+          <button type="submit" class="ce-ok" :disabled="busy">
+            {{ busy ? 'Đang lưu…' : 'Lưu tài khoản mới' }}
+          </button>
+        </div>
+      </form>
+    </div>
+  </Teleport>
+
+  <!-- Modal xác nhận in-app tái dùng cho bàn giao và vô hiệu hóa. -->
   <Teleport to="body">
     <div v-if="confirmModal.open" class="ce-overlay" @click.self="closeConfirm">
       <div class="ce-modal" :class="{ 'ce-danger': confirmModal.danger }">
         <h3 class="ce-title">{{ confirmModal.title }}</h3>
         <p class="ce-msg">{{ confirmModal.message }}</p>
-        <!-- Tùy chọn gửi mật khẩu mới qua Zalo (chỉ hiện cho reset pw) -->
-        <label v-if="confirmModal.showZaloOpt" class="ce-zalo-opt">
-          <input type="checkbox" v-model="sendPwViaZalo" />
-          Gửi mật khẩu mới cho nhân viên qua Zalo (nick hệ thống) — có lưu ở Thông báo hệ thống
-        </label>
         <div class="ce-actions">
           <button class="ce-cancel" :disabled="busy" @click="closeConfirm">Hủy</button>
           <button class="ce-ok" :class="{ 'ce-ok-danger': confirmModal.danger }" :disabled="busy" @click="runConfirm">
@@ -332,23 +381,82 @@ const canDeactivate = computed(() => {
   return props.currentUserRole === 'owner' && props.user?.id !== props.currentUserId;
 });
 
-// 2026-06-09 — admin/owner đặt lại mật khẩu cho sale khác (không cho tự reset chính mình ở đây).
-const canResetPassword = computed(() => {
+const canManageCredentials = computed(() => {
   return ['owner', 'admin'].includes(props.currentUserRole ?? '') && props.user?.id !== props.currentUserId;
 });
-const resetPwResult = ref<string | null>(null);
-const sendPwViaZalo = ref(true); // mặc định gửi pw mới qua Zalo cho tiện sale
+const currentLoginUsername = computed(() => {
+  if (props.user?.username) return props.user.username;
+  const legacyEmail = props.user?.email?.trim() ?? '';
+  return legacyEmail && !legacyEmail.includes('@') ? legacyEmail : '';
+});
+const credentialsModalOpen = ref(false);
+const credentialsUsername = ref('');
+const credentialsPassword = ref('');
+const credentialsPasswordConfirm = ref('');
+const credentialsError = ref('');
+const credentialsSuccess = ref('');
+
+function openCredentialsModal() {
+  if (!props.user || !canManageCredentials.value) return;
+  credentialsUsername.value = currentLoginUsername.value;
+  credentialsPassword.value = '';
+  credentialsPasswordConfirm.value = '';
+  credentialsError.value = '';
+  credentialsModalOpen.value = true;
+}
+
+function closeCredentialsModal() {
+  if (!busy.value) credentialsModalOpen.value = false;
+}
+
+async function saveCredentials() {
+  if (!props.user || !canManageCredentials.value) return;
+
+  const username = credentialsUsername.value.trim().toLowerCase();
+  credentialsUsername.value = username;
+  credentialsError.value = '';
+
+  if (!/^[a-z0-9._-]{3,32}$/.test(username)) {
+    credentialsError.value = 'Username không hợp lệ. Vui lòng dùng 3-32 ký tự được cho phép.';
+    return;
+  }
+  if (credentialsPassword.value.length < 8) {
+    credentialsError.value = 'Mật khẩu phải có ít nhất 8 ký tự.';
+    return;
+  }
+  if (credentialsPassword.value !== credentialsPasswordConfirm.value) {
+    credentialsError.value = 'Hai lần nhập mật khẩu chưa khớp.';
+    return;
+  }
+
+  busy.value = true;
+  try {
+    await api.put(`/users/${props.user.id}/credentials`, {
+      username,
+      password: credentialsPassword.value,
+    });
+    credentialsSuccess.value = `Đã cập nhật tài khoản “${username}” và thu hồi các phiên đăng nhập cũ.`;
+    credentialsModalOpen.value = false;
+    credentialsPassword.value = '';
+    credentialsPasswordConfirm.value = '';
+    emit('changed');
+  } catch (e: any) {
+    credentialsError.value = e?.response?.data?.error || e?.response?.data?.message || 'Không thể cập nhật tài khoản';
+  } finally {
+    busy.value = false;
+  }
+}
 
 // 2026-06-09 — modal xác nhận in-app (thay confirm() trình duyệt xấu).
 const confirmModal = ref<{
   open: boolean; title: string; message: string; okLabel: string;
-  danger: boolean; showZaloOpt: boolean; action: (() => Promise<void>) | null;
-}>({ open: false, title: '', message: '', okLabel: 'Xác nhận', danger: false, showZaloOpt: false, action: null });
+  danger: boolean; action: (() => Promise<void>) | null;
+}>({ open: false, title: '', message: '', okLabel: 'Xác nhận', danger: false, action: null });
 function openConfirm(opts: Partial<typeof confirmModal.value> & { action: () => Promise<void> }) {
   confirmModal.value = {
     open: true, title: opts.title ?? 'Xác nhận', message: opts.message ?? '',
     okLabel: opts.okLabel ?? 'Xác nhận', danger: opts.danger ?? false,
-    showZaloOpt: opts.showZaloOpt ?? false, action: opts.action,
+    action: opts.action,
   };
 }
 function closeConfirm() { if (!busy.value) confirmModal.value.open = false; }
@@ -357,44 +465,6 @@ async function runConfirm() {
   if (act) await act();
   if (!error.value) confirmModal.value.open = false; // giữ modal mở nếu lỗi để user thấy
 }
-// Sinh mật khẩu dễ đọc cho sale (không ký tự khó gõ): chữ thường + số, 8 ký tự.
-function genPassword(): string {
-  const chars = 'abcdefghjkmnpqrstuvwxyz23456789'; // bỏ o/0/l/1/i gây nhầm
-  let out = '';
-  for (let i = 0; i < 8; i++) out += chars[Math.floor(Math.random() * chars.length)];
-  return out;
-}
-function confirmResetPassword() {
-  if (!props.user || !canResetPassword.value) return;
-  openConfirm({
-    title: 'Đặt lại mật khẩu',
-    message: `Đặt lại mật khẩu cho "${props.user.fullName}"? Mật khẩu cũ sẽ mất, nhân viên phải đăng nhập lại bằng mật khẩu mới.`,
-    okLabel: '🔑 Đặt lại',
-    showZaloOpt: true,
-    action: doResetPassword,
-  });
-}
-async function doResetPassword() {
-  if (!props.user) return;
-  const newPw = genPassword();
-  busy.value = true;
-  error.value = '';
-  resetPwResult.value = null;
-  try {
-    // sendZalo: BE sẽ gửi mật khẩu mới qua nick hệ thống + lưu Thông báo hệ thống.
-    await api.put(`/users/${props.user.id}/password`, { password: newPw, sendZalo: sendPwViaZalo.value });
-    resetPwResult.value = newPw; // vẫn hiện cho admin copy (phòng khi Zalo gửi lỗi)
-    emit('changed');
-  } catch (e: any) {
-    error.value = e?.response?.data?.error || e?.response?.data?.message || 'Lỗi đặt lại mật khẩu';
-  } finally {
-    busy.value = false;
-  }
-}
-function copyResetPw() {
-  if (resetPwResult.value) navigator.clipboard?.writeText(resetPwResult.value).catch(() => {});
-}
-
 // 2026-06-09 — Bàn giao khách hàng khi sale nghỉ.
 const store2 = useRbacStore();
 const canHandoff = computed(() =>
@@ -489,7 +559,8 @@ watch(
     localFullName.value = props.user.fullName ?? '';
     localEmail.value = props.user.email ?? '';
     localPhone.value = (props.user as any).phone ?? '';
-    resetPwResult.value = null; // ẩn mật khẩu vừa reset khi chuyển sang user khác
+    credentialsModalOpen.value = false;
+    credentialsSuccess.value = '';
     handoffToId.value = '';
     handoffResult.value = null;
     handoffTransfer.value = { contacts: true, nicks: true, appointments: true };
@@ -697,7 +768,41 @@ function avatarColor(name: string): string {
 </script>
 
 <style>
-/* 2026-06-09 — Đặt lại mật khẩu */
+/* Tài khoản đăng nhập */
+.credentials-section { background: #fbfdff; }
+.credentials-status {
+  color: #166534;
+  background: #dcfce7;
+  border-radius: 999px;
+  padding: 3px 9px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.credentials-current {
+  display: flex;
+  align-items: center;
+  min-height: 40px;
+  margin-bottom: 8px;
+  padding: 0 12px;
+  border: 1px solid #d6d8dc;
+  border-radius: 8px;
+  background: #fff;
+}
+.credentials-current code {
+  color: #0e445a;
+  font-size: 13px;
+  font-weight: 700;
+}
+.credentials-success {
+  color: #166534;
+  background: #f0fdf4;
+  border: 1px solid #86efac;
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin: 0 0 10px;
+  font-size: 12px;
+  line-height: 1.4;
+}
 .btn-reset-pw {
   background: #fff;
   border: 1px solid #1786be;
@@ -710,23 +815,6 @@ function avatarColor(name: string): string {
 }
 .btn-reset-pw:hover:not(:disabled) { background: #e4f1f8; }
 .btn-reset-pw:disabled { opacity: 0.5; cursor: not-allowed; }
-.reset-pw-result {
-  background: #f0fdf4;
-  border: 1px solid #86efac;
-  border-radius: 8px;
-  padding: 10px 12px;
-  margin-bottom: 10px;
-}
-.reset-pw-row { display: flex; align-items: center; gap: 8px; }
-.reset-pw-label { font-size: 12.5px; color: #41454d; }
-.reset-pw-code {
-  font-family: ui-monospace, monospace;
-  font-size: 15px; font-weight: 700; letter-spacing: 1px;
-  color: #0e6491; background: #fff; padding: 3px 10px; border-radius: 6px;
-  border: 1px solid #bae6fd;
-}
-.btn-copy-sm { background: none; border: none; cursor: pointer; font-size: 15px; padding: 2px; }
-.reset-pw-note { font-size: 11.5px; color: #6b7280; margin: 6px 0 0; }
 .field-hint { font-size: 12px; color: #6b7280; margin: 0 0 10px; line-height: 1.4; }
 
 /* 2026-06-09 — Modal xác nhận in-app (thay confirm() trình duyệt) */
@@ -742,12 +830,32 @@ function avatarColor(name: string): string {
 .ce-title { font-size: 17px; font-weight: 700; color: #0e445a; margin: 0 0 8px; }
 .ce-danger .ce-title { color: #b91c1c; }
 .ce-msg { font-size: 13.5px; color: #41454d; line-height: 1.5; margin: 0 0 14px; }
-.ce-zalo-opt {
-  display: flex; align-items: flex-start; gap: 8px; font-size: 13px; color: #2b2f36;
-  background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 8px; padding: 10px 12px;
-  margin-bottom: 16px; cursor: pointer; line-height: 1.4;
+.credentials-modal .field-input { margin-bottom: 10px; }
+.credentials-field-help {
+  margin: -4px 0 12px;
+  color: #6b7280;
+  font-size: 11px;
+  line-height: 1.4;
 }
-.ce-zalo-opt input { margin-top: 2px; }
+.credentials-security-note {
+  color: #0e445a;
+  background: #f0f9ff;
+  border: 1px solid #bae6fd;
+  border-radius: 8px;
+  padding: 9px 11px;
+  margin: 4px 0 12px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+.credentials-error {
+  color: #b91c1c;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin: 0 0 12px;
+  font-size: 12px;
+}
 .ce-actions { display: flex; justify-content: flex-end; gap: 10px; }
 .ce-cancel {
   background: #f0f1f3; border: none; color: #41454d; font-weight: 500;
