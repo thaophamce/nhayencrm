@@ -167,10 +167,12 @@ export async function applyFriendTransition(args: {
   const { orgId, zaloAccountId, contactId, zaloUidInNick, newFriendshipStatus } = args;
   const source = args.source ?? 'event';
 
-  await tenantTransaction(async (tx) => {
+  const transitionApplied = await tenantTransaction(async (tx) => {
     const existing = await tx.friend.findUnique({
       where: { zaloAccountId_zaloUidInNick: { zaloAccountId, zaloUidInNick } },
       select: {
+        contactId: true,
+        friendshipStatus: true,
         relationshipKind: true,
         hasConversation: true,
         becameFriendAt: true,  // B1 — cần để biết đã set chưa, tránh reset
@@ -180,6 +182,18 @@ export async function applyFriendTransition(args: {
     const fromKind = (existing?.relationshipKind as RelationshipKind) ?? 'none';
     const hasConversation = existing?.hasConversation ?? false;
     const toKind = deriveRelationshipKind(newFriendshipStatus, hasConversation);
+
+    // A full sync is an observation, not a new friendship event. Once contact
+    // and state already match, avoid rewriting updated_at and all side effects.
+    if (
+      source === 'sync'
+      && !args.attemptStateOnAccept
+      && existing?.contactId === contactId
+      && existing.friendshipStatus === newFriendshipStatus
+      && fromKind === toKind
+    ) {
+      return false;
+    }
 
     const now = new Date();
     const data: any = {
@@ -270,7 +284,10 @@ export async function applyFriendTransition(args: {
         data: { state: args.attemptStateOnAccept, decidedAt: now },
       });
     }
+    return true;
   });
+
+  if (!transitionApplied) return;
 
   // Lớp 2b (2026-06-22): sau khi gắn Friend(nick,uid)→contactId, re-point hội thoại đang trỏ
   // contact KHÁC về đúng contactId → chuông Follow-Up + tab + hồ sơ khớp. Best-effort, ngoài tx.
