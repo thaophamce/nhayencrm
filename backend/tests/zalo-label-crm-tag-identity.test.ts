@@ -95,4 +95,34 @@ describe('Zalo label to CrmTag identity', () => {
       },
     });
   });
+
+  it('does not rewrite or count a Friend when labels and mirrored CRM tags are unchanged', async () => {
+    const seed = [{
+      id: 12,
+      text: 'VIP',
+      textKey: 'vip',
+      color: '#1976D2',
+      conversations: ['uid-stable'],
+    }];
+    txMock.zaloLabel.findMany.mockResolvedValue([
+      { ...labelRow, conversations: ['uid-stable'] },
+    ]);
+    prismaMock.friend.findMany.mockResolvedValue([
+      {
+        id: 'friend-stable',
+        zaloUidInNick: 'uid-stable',
+        contactId: 'contact-stable',
+        zaloLabels: [{ id: 12, name: 'VIP', color: '#1976D2', emoji: null }],
+        crmTagsPerNick: ['🔵 VIP'],
+      },
+    ]);
+
+    const result = await syncLabelsForAccount('acc-1', 'org-1', {
+      seedLabelData: seed,
+      seedVersion: 1,
+    });
+
+    expect(result.friendsUpdated).toBe(0);
+    expect(prismaMock.friend.update).not.toHaveBeenCalled();
+  });
 });
