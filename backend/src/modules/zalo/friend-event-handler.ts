@@ -16,6 +16,7 @@
  * Updates Contact.{accepted,pending,chatting}NicksCount on every transition.
  */
 import { prisma, tenantTransaction } from '../../shared/database/prisma-client.js';
+import { Prisma } from '@prisma/client';
 import { logger } from '../../shared/utils/logger.js';
 import { randomUUID } from 'node:crypto';
 import { zaloPool } from './zalo-pool.js';
@@ -168,6 +169,16 @@ export async function applyFriendTransition(args: {
   const source = args.source ?? 'event';
 
   const transitionApplied = await tenantTransaction(async (tx) => {
+    // Zalo may deliver duplicate frames close together. Serialize transitions for
+    // one nick/customer pair so only the first pending_received transition writes
+    // a statistics event and contact counters are not applied twice.
+    // $executeRaw intentionally discards PostgreSQL's void return value. Prisma
+    // cannot deserialize the void column returned by pg_advisory_xact_lock via
+    // $queryRaw.
+    await tx.$executeRaw(Prisma.sql`
+      SELECT pg_advisory_xact_lock(hashtextextended(${`${zaloAccountId}:${zaloUidInNick}`}, 0))
+    `);
+
     const existing = await tx.friend.findUnique({
       where: { zaloAccountId_zaloUidInNick: { zaloAccountId, zaloUidInNick } },
       select: {
@@ -196,6 +207,9 @@ export async function applyFriendTransition(args: {
     }
 
     const now = new Date();
+    const isNewReceivedRequest = source === 'event'
+      && newFriendshipStatus === 'pending_received'
+      && existing?.friendshipStatus !== 'pending_received';
     const data: any = {
       friendshipStatus: newFriendshipStatus,
       relationshipKind: toKind,
@@ -233,6 +247,22 @@ export async function applyFriendTransition(args: {
       },
       update: data,
     });
+
+    if (isNewReceivedRequest) {
+      await tx.activityLog.create({
+        data: {
+          orgId,
+          actorType: 'system',
+          systemSource: 'zalo_friend_event',
+          category: 'interaction',
+          action: 'friend_request_received',
+          entityType: 'contact',
+          entityId: contactId,
+          details: { zaloAccountId, zaloUidInNick },
+          createdAt: now,
+        },
+      });
+    }
 
     // Counter delta on Contact
     const delta = counterDelta(fromKind, toKind);
