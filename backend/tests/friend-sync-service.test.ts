@@ -189,6 +189,36 @@ describe('syncFriendsForAccount — diff-then-emit', () => {
     expect(prismaMock.friend.update).not.toHaveBeenCalled();
     expect(io._toMock.emit).not.toHaveBeenCalled();
   });
+
+  it('SKIP update and emit when only avatar signing query rotates', async () => {
+    zaloOpsMock.getAllFriends.mockResolvedValue([
+      {
+        userId: 'uid-avatar',
+        zaloName: 'KH Avatar',
+        avatar: 'https://photo.zalo.me/avatar/customer.jpg?key=new-key&time=1786435200',
+        globalId: 'g-avatar',
+        username: 'avatar-user',
+      },
+    ]);
+    prismaMock.friend.findMany.mockResolvedValue([
+      {
+        id: 'f-avatar',
+        contactId: 'c1',
+        zaloUidInNick: 'uid-avatar',
+        zaloDisplayName: 'KH Avatar',
+        zaloAvatarUrl: 'https://photo.zalo.me/avatar/customer.jpg?key=old-key&time=1786348800',
+        zaloGlobalId: 'g-avatar',
+        zaloUsername: 'avatar-user',
+      },
+    ]);
+    const io = mockIO();
+
+    const result = await syncFriendsForAccount('za-avatar', 'org-1', { trigger: 'cron', io });
+
+    expect(result.emittedCount).toBe(0);
+    expect(prismaMock.friend.update).not.toHaveBeenCalled();
+    expect(io._toMock.emit).not.toHaveBeenCalled();
+  });
 });
 
 describe('syncFriendsForAccount — contact resolution', () => {

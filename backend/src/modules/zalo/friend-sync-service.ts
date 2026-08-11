@@ -103,11 +103,26 @@ const DIFFABLE_FIELDS = [
 type DiffableField = (typeof DIFFABLE_FIELDS)[number];
 type DiffSnapshot = Partial<Record<DiffableField, string | null>>;
 
+function avatarIdentity(value: string | null): string | null {
+  if (!value) return null;
+  try {
+    // Zalo rotates key/time query parameters on the same image. The pathname is
+    // the stable image identity; treating the signed URL as identity caused a
+    // full-table write and one Socket.IO event per Friend every cron cycle.
+    return new URL(value, 'https://zalo.invalid').pathname;
+  } catch {
+    return value.split(/[?#]/, 1)[0] || null;
+  }
+}
+
 function computeDiff(existing: DiffSnapshot, incoming: DiffSnapshot): DiffSnapshot {
   const patch: DiffSnapshot = {};
   for (const k of DIFFABLE_FIELDS) {
     const oldV = existing[k] ?? null;
     const newV = incoming[k] ?? null;
+    if (k === 'zaloAvatarUrl' && avatarIdentity(oldV) === avatarIdentity(newV)) {
+      continue;
+    }
     if (oldV !== newV) {
       patch[k] = newV;
     }
