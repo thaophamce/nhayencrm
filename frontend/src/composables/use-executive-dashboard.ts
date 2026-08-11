@@ -6,6 +6,7 @@ import type {
   ExecutiveModule,
   HealthLevel,
 } from '@/components/executive-dashboard/types';
+import { getOrderStatsMonthValue } from '@/utils/order-stats-time';
 
 type LoadKey = 'messages' | 'delivery' | 'design' | 'hr';
 type LoadStatus = { loading: boolean; error: string };
@@ -91,7 +92,7 @@ export function useExecutiveDashboard() {
   }
 
   async function loadDesign() {
-    const { month } = monthRange();
+    const month = getOrderStatsMonthValue();
     const [statsResponse, ordersResponse] = await Promise.all([
       api.get('/orders/stats', { params: { month } }),
       api.get('/orders', { params: { limit: 100, offset: 0 } }),
