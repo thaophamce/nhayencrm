@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Nguyễn Tiến Lộc
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
+import { shouldRedirectDesignerToOrders } from './access-guards';
 import { useToast } from '@/composables/use-toast';
 // Open-core: extension route injection (empty in Community edition via @ee stub).
 import { eeSettingsChildren, eeReportsChildren, eeTopRoutes } from '@ee/routes';
@@ -358,7 +359,11 @@ router.beforeEach(async (to, _from, next) => {
     }
 
     // Designer là tài khoản portal đơn thiết kế: không được đi sang bất kỳ site CRM nào khác.
-    if (authStore.user?.permissionGroupName === 'Designer' && to.path !== '/orders') {
+    if (shouldRedirectDesignerToOrders(
+      authStore.user?.permissionGroupName,
+      to.path,
+      to.meta.allowUnchangedPassword === true,
+    )) {
       return next('/orders');
     }
 
