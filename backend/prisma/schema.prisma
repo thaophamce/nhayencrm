@@ -4222,6 +4222,8 @@ model Order {
 
   @@index([designerId])
   @@index([orgId])
+  @@index([orgId, createdAt])
+  @@index([orgId, designerId, createdAt])
   @@index([sourceSystem])
   @@index([importRunId])
   @@unique([orgId, orderCode])

@@ -1,11 +1,18 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Nguyễn Tiến Lộc
 import type { FastifyRequest, FastifyReply } from 'fastify';
-import { prisma } from '../../shared/database/prisma-client.js';
+import { Prisma } from '@prisma/client';
+import { prisma, tenantTransaction } from '../../shared/database/prisma-client.js';
 import { ORDER_STATUS_VALUES } from './order-status.js';
 import { calculateImportedMonthlySalaryStats } from './design-salary-calculator.js';
 import { userHasGrant } from '../rbac/permission-group-service.js';
 import type { Action } from '../rbac/permission-types.js';
+import {
+  DEFAULT_ORG_TIMEZONE,
+  getFixedOffsetMinutes,
+  getMonthRangeInOffset,
+  getMonthValueInOffset,
+} from '../../shared/utils/fixed-offset-time.js';
 
 // Cấu hình lương mặc định đồng bộ từ Tracker
 const SALARY_CONFIG = {
@@ -366,43 +373,70 @@ export async function getOrderStats(request: FastifyRequest, reply: FastifyReply
   const user = request.user!;
   const { month } = request.query as { month?: string }; // định dạng YYYY-MM
 
-  const targetMonth = month || new Date().toISOString().slice(0, 7);
-  const startDate = new Date(`${targetMonth}-01T00:00:00.000Z`);
-  const endDate = new Date(new Date(startDate).setMonth(startDate.getMonth() + 1));
+  if (month && !getMonthRangeInOffset(month)) {
+    return reply.status(400).send({ error: 'Tháng thống kê không hợp lệ' });
+  }
 
   try {
-    const canEdit = await canManageDesignOrders(user.id, 'edit');
+    const [canEdit, org] = await Promise.all([
+      canManageDesignOrders(user.id, 'edit'),
+      prisma.organization.findUnique({ where: { id: user.orgId }, select: { timezone: true } }),
+    ]);
+    const timezone = org?.timezone || DEFAULT_ORG_TIMEZONE;
+    const targetMonth = month || getMonthValueInOffset(new Date(), timezone);
+    const monthRange = getMonthRangeInOffset(targetMonth, timezone)!;
+    const { startDate, endDate, daysInMonth } = monthRange;
     const baseWhere: any = { orgId: user.orgId, ...(!canEdit ? { designerId: user.id } : {}) };
+    const monthWhere = { ...baseWhere, createdAt: { gte: startDate, lt: endDate } };
 
-    // Đếm tổng theo trạng thái (toàn bộ, không giới hạn tháng)
-    const grouped = await prisma.order.groupBy({
-      by: ['status'],
-      where: baseWhere,
-      _count: { _all: true },
-    });
+    const designerSql = canEdit ? Prisma.empty : Prisma.sql`AND "designer_id" = ${user.id}`;
+    const offsetMinutes = getFixedOffsetMinutes(timezone);
+    type DailyCountRow = { day: number; count: bigint };
 
-    const byStatus: Record<string, number> = {
+    const [grouped, monthlyGrouped, dailyRows] = await tenantTransaction(
+      tx => Promise.all([
+        // Giữ contract toàn thời gian cho Dashboard điều hành và client cũ.
+        tx.order.groupBy({ by: ['status'], where: baseWhere, _count: { _all: true } }),
+        // Màn Tổng quan Đơn thiết kế dùng bộ số liệu tháng riêng này.
+        tx.order.groupBy({ by: ['status'], where: monthWhere, _count: { _all: true } }),
+        tx.$queryRaw<DailyCountRow[]>(Prisma.sql`
+          SELECT
+            EXTRACT(DAY FROM ("created_at" + ${offsetMinutes} * INTERVAL '1 minute'))::int AS day,
+            COUNT(*)::bigint AS count
+          FROM "orders"
+          WHERE "org_id" = ${user.orgId}
+            AND "created_at" >= ${startDate}
+            AND "created_at" < ${endDate}
+            ${designerSql}
+          GROUP BY 1
+          ORDER BY 1
+        `),
+      ]),
+      { isolationLevel: 'RepeatableRead' },
+    );
+
+    const emptyStatusCounts = (): Record<string, number> => ({
       demo: 0,
       designing: 0,
       approved: 0,
       cancelled: 0,
-    };
+    });
+    const byStatus = emptyStatusCounts();
     for (const g of grouped) {
       byStatus[g.status] = g._count._all;
     }
     const total = Object.values(byStatus).reduce((a, b) => a + b, 0);
 
-    // Đơn tạo trong tháng, gom theo ngày cho biểu đồ đường
-    const monthOrders = await prisma.order.findMany({
-      where: { ...baseWhere, createdAt: { gte: startDate, lt: endDate } },
-      select: { createdAt: true },
-    });
+    const monthlyByStatus = emptyStatusCounts();
+    for (const g of monthlyGrouped) {
+      monthlyByStatus[g.status] = g._count._all;
+    }
+    const monthlyTotal = Object.values(monthlyByStatus).reduce((a, b) => a + b, 0);
 
-    const daysInMonth = new Date(endDate.getTime() - 1).getUTCDate();
     const daily: number[] = new Array(daysInMonth).fill(0);
-    for (const o of monthOrders) {
-      const day = o.createdAt.getUTCDate();
-      daily[day - 1] = (daily[day - 1] || 0) + 1;
+    for (const row of dailyRows) {
+      const day = Number(row.day);
+      if (day >= 1 && day <= daysInMonth) daily[day - 1] = Number(row.count);
     }
     const dailyLabels = Array.from({ length: daysInMonth }, (_, i) => String(i + 1));
 
@@ -410,6 +444,8 @@ export async function getOrderStats(request: FastifyRequest, reply: FastifyReply
       month: targetMonth,
       total,
       byStatus,
+      monthlyTotal,
+      monthlyByStatus,
       daily,
       dailyLabels,
     };

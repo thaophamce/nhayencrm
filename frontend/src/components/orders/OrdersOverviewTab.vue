@@ -196,6 +196,7 @@ import {
 import { api } from '@/api/index';
 import { ORDER_STATUS_OPTIONS } from '@/constants/order-status';
 import OrderAlertPanel from '@/components/orders/OrderAlertPanel.vue';
+import { getOrderStatsMonthValue, selectMonthlyOrderOverviewStats } from '@/utils/order-stats-time';
 
 ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale, PointElement, LineElement, Filler);
 
@@ -208,7 +209,7 @@ const STATUS_HEX: Record<string, string> = {
   cancelled: '#E5484D',
 };
 
-const selectedMonth = ref(new Date().toISOString().slice(0, 7));
+const selectedMonth = ref(getOrderStatsMonthValue());
 const loading = ref(false);
 const stats = ref<any>(null);
 const alertPanelRef = ref<any>(null);
@@ -220,7 +221,7 @@ async function loadStats() {
   loading.value = true;
   try {
     const res = await api.get<any>('/orders/stats', { params: { month: selectedMonth.value } });
-    stats.value = res.data;
+    stats.value = selectMonthlyOrderOverviewStats(res.data);
     alertPanelRef.value?.refresh();
   } catch (err) {
     console.error('Cannot load order stats:', err);
