@@ -41,6 +41,18 @@ function sameStringSet(a: string[], b: string[]): boolean {
   return true;
 }
 
+type FriendLabelSnapshot = { id?: number; name?: string; color?: string; emoji?: string | null };
+
+function sameFriendLabels(a: FriendLabelSnapshot[], b: FriendLabelSnapshot[]): boolean {
+  return a.length === b.length && a.every((label, index) => {
+    const next = b[index];
+    return label.id === next?.id
+      && label.name === next?.name
+      && label.color === next?.color
+      && (label.emoji ?? null) === (next?.emoji ?? null);
+  });
+}
+
 /**
  * Pull labels from a Zalo account via SDK, upsert into DB, then recompute Friend.zaloLabels
  * for every friend of that account. Returns { labels, friendsUpdated }.
@@ -381,7 +393,7 @@ export async function syncLabelsForAccount(
   let friendsUpdated = 0;
   for (const f of friendsFull) {
     const newLabels = uidToLabels.get(f.zaloUidInNick) || [];
-    const oldLabels = Array.isArray(f.zaloLabels) ? (f.zaloLabels as Array<{ name?: string }>) : [];
+    const oldLabels = Array.isArray(f.zaloLabels) ? (f.zaloLabels as FriendLabelSnapshot[]) : [];
     const oldNames = new Set(oldLabels.map(l => l.name).filter(Boolean) as string[]);
     const newNames = new Set(newLabels.map(l => l.name).filter(Boolean));
     const addedLabels = [...newNames].filter(n => !oldNames.has(n));
@@ -403,6 +415,10 @@ export async function syncLabelsForAccount(
     for (const labelName of newNames) {
       const mirroredTag = `🔵 ${labelName}`;
       if (!newCrmTags.includes(mirroredTag)) newCrmTags.push(mirroredTag);
+    }
+
+    if (sameFriendLabels(oldLabels, newLabels) && sameStringSet(oldCrmTags, newCrmTags)) {
+      continue;
     }
 
     await prisma.friend.update({
