@@ -119,6 +119,8 @@
 import { ref, computed, watch } from 'vue';
 import { api } from '@/api/index';
 import { useAuthStore } from '@/stores/auth';
+import { useToast } from '@/composables/use-toast';
+import { normalizeOrderSearch } from '@/utils/order-search';
 import CreateOrderModal from '@/components/orders/CreateOrderModal.vue';
 import EditOrderModal from '@/components/orders/EditOrderModal.vue';
 
@@ -134,6 +136,7 @@ interface Order {
 }
 
 const auth = useAuthStore();
+const toast = useToast();
 const isAdminOrManager = computed(() => ['admin', 'manager'].includes(auth.user?.role ?? ''));
 const canEditOrders = computed(() => auth.canAccess('orders', 'edit'));
 
@@ -152,9 +155,10 @@ async function changeStatus(order: Order, newStatus: string) {
   const old = order.status;
   order.status = newStatus; // optimistic
   try {
-    await api.patch(`/orders/${order.id}`, { status: newStatus });
+    await api.put(`/orders/${order.id}`, { status: newStatus });
   } catch (err) {
     order.status = old; // revert on error
+    toast.error('Không thể cập nhật trạng thái đơn');
     console.error('[DesignOrderTabPanel] changeStatus error', err);
   } finally {
     updatingId.value = null;
@@ -195,7 +199,7 @@ async function fetchOrders(reset = true) {
       params: {
         limit: LIMIT,
         offset: offset.value,
-        search: searchQuery.value || undefined,
+        search: normalizeOrderSearch(searchQuery.value),
         status: filterStatus.value || undefined,
         designerId: filterDesigner.value || undefined,
         dateFrom: filterDateFrom.value || undefined,
