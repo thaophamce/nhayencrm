@@ -25,6 +25,11 @@ import { logger } from '../../shared/utils/logger.js';
 // Fix 2026-06-03 — M11 optimistic badge cache (Anh báo "Sale CRM · Staff")
 // 2026-06-11 — createMediaMessage gộp 4 block message.create lặp (DRY, eng review E4).
 import { getUserFullName, createMediaMessage } from './chat-helpers.js';
+import {
+  extractZaloMessageId,
+  withZaloAttachmentTimeout,
+  ZaloAttachmentSendTimeoutError,
+} from './chat-send-utils.js';
 
 export const IMAGE_MAX = 100 * 1024 * 1024;
 export const VIDEO_MAX = 500 * 1024 * 1024;
@@ -151,6 +156,7 @@ export async function chatAttachmentRoutes(app: FastifyInstance) {
       await mkdir(tmpRoot, { recursive: true });
       const tmpPaths: string[] = [];
       const mirrors: UploadResult[] = [];
+      let deferTmpCleanup = false;
       const localReady: Array<Promise<void>> = [];
       const resolveLocalReady: Array<() => void> = [];
       for (let i = 0; i < files.length; i++) {
@@ -175,6 +181,141 @@ export async function chatAttachmentRoutes(app: FastifyInstance) {
         await Promise.all(localReady);
 
         const created: any[] = [];
+        let hasUnconfirmedSend = false;
+        let hasFailedSend = false;
+
+        const emitPersisted = async (message: any) => emitChatMessage({
+          io,
+          orgId: user.orgId,
+          accountId: conversation.zaloAccountId,
+          conversationId: id,
+          message,
+          privacyMode: conversation.zaloAccount.privacyMode,
+          ownerUserId: conversation.zaloAccount.ownerUserId,
+        });
+
+        const senderMetadata = (sendStatus?: string, failReason?: string) => ({
+          sender: { kind: 'user_crm', name: userFullName },
+          ...(sendStatus ? { sendStatus } : {}),
+          ...(failReason ? { failReason } : {}),
+        });
+
+        const createPendingMessage = async (input: {
+          contentType: 'image' | 'video' | 'file';
+          content: string;
+        }) => {
+          const message = await createMediaMessage({
+            conversationId: id,
+            zaloAccount: conversation.zaloAccount,
+            repliedByUserId: user.id,
+            zaloMsgId: '',
+            contentType: input.contentType,
+            content: input.content,
+            metadata: senderMetadata('sending'),
+            sentVia: 'user',
+          });
+          created.push(message);
+          await emitPersisted(message);
+          return message;
+        };
+
+        const replaceCreated = (message: any) => {
+          const index = created.findIndex((item) => item.id === message.id);
+          if (index >= 0) created[index] = message;
+        };
+
+        const updatePendingMessage = async (
+          message: any,
+          options: { sendResult?: unknown; attachmentIndex?: number; sendStatus?: string; failReason?: string },
+        ) => {
+          const zaloMsgId = options.sendResult
+            ? extractZaloMessageId(options.sendResult, options.attachmentIndex ?? 0)
+            : '';
+          const resolvedSendStatus = options.sendResult && !zaloMsgId
+            ? 'pending_confirmation'
+            : options.sendStatus;
+          if (resolvedSendStatus === 'pending_confirmation') hasUnconfirmedSend = true;
+          if (options.sendResult && zaloMsgId) {
+            await prisma.message.updateMany({
+              where: { id: message.id, zaloMsgId: null },
+              data: {
+                zaloMsgId,
+                zaloMsgIdNum: /^\d+$/.test(zaloMsgId) ? BigInt(zaloMsgId) : null,
+                metadata: senderMetadata(resolvedSendStatus, options.failReason),
+              },
+            });
+          } else {
+            await prisma.message.updateMany({
+              where: { id: message.id, zaloMsgId: null },
+              data: { metadata: senderMetadata(resolvedSendStatus, options.failReason) },
+            });
+          }
+          const updated = await prisma.message.findUnique({ where: { id: message.id } }) ?? message;
+          replaceCreated(updated);
+          await emitPersisted(updated);
+          return updated;
+        };
+
+        const keepPendingConfirmation = async (messages: any[], label: string) => {
+          // Promise.race cannot cancel zca-js. Keep source files briefly because the
+          // SDK may still be uploading even after CRM has released the HTTP request.
+          deferTmpCleanup = true;
+          const pendingResults = await Promise.all(messages.map(async (message) => {
+            const result = await prisma.message.updateMany({
+              where: { id: message.id, zaloMsgId: null },
+              data: { metadata: senderMetadata('pending_confirmation') },
+            });
+            const current = await prisma.message.findUnique({ where: { id: message.id } });
+            if (current) {
+              replaceCreated(current);
+              if (result.count > 0) await emitPersisted(current);
+            }
+            return result.count > 0;
+          }));
+          const pendingCount = pendingResults.filter(Boolean).length;
+          if (pendingCount > 0) {
+            hasUnconfirmedSend = true;
+            logger.warn(`[chat-attachment] ${label} reached Zalo timeout; keeping ${pendingCount} local message(s) pending confirmation`);
+          } else {
+            logger.info(`[chat-attachment] ${label} timed out after self-listen had already confirmed every local message`);
+          }
+        };
+
+        const markFailed = async (messages: any[], err: unknown) => {
+          const reason = err instanceof Error ? err.message : String(err || 'attachment send failed');
+          const results = await Promise.all(messages.map(async (message) => {
+            const result = await prisma.message.updateMany({
+              where: { id: message.id, zaloMsgId: null },
+              data: { metadata: senderMetadata('failed', reason) },
+            });
+            const current = await prisma.message.findUnique({ where: { id: message.id } });
+            if (current) {
+              replaceCreated(current);
+              if (result.count > 0) await emitPersisted(current);
+            }
+            return result.count > 0;
+          }));
+          const failedCount = results.filter(Boolean).length;
+          if (failedCount > 0) hasFailedSend = true;
+          return failedCount;
+        };
+
+        const reconcileConfirmed = async (
+          message: any,
+          sendResult: unknown,
+          attachmentIndex = 0,
+        ) => {
+          try {
+            await updatePendingMessage(message, { sendResult, attachmentIndex });
+          } catch (err) {
+            logger.error('[chat-attachment] Zalo confirmed media but CRM update failed; keeping row pending for self-listen:', err);
+            hasUnconfirmedSend = true;
+            await prisma.message.updateMany({
+              where: { id: message.id, zaloMsgId: null },
+              data: { metadata: senderMetadata('pending_confirmation') },
+            }).catch(() => {});
+          }
+        };
 
         // Split by kind — image batch vs video one-by-one vs file one-by-one
         const imageIndexes: number[] = [];
@@ -188,28 +329,32 @@ export async function chatAttachmentRoutes(app: FastifyInstance) {
 
         // Send images as one zca-js call (supports multiple paths at once)
         if (imageIndexes.length > 0) {
-          zaloRateLimiter.recordSend(conversation.zaloAccountId);
-          const paths = imageIndexes.map((i) => tmpPaths[i]);
-          const sendResult: any = await instance.api.sendMessage(
-            { msg: caption, attachments: paths },
-            threadId,
-            threadType,
-          );
-          const zaloMsgId = String(sendResult?.msgId || sendResult?.data?.msgId || '');
+          await mirrorPromise;
+          const pendingImages: any[] = [];
           for (const i of imageIndexes) {
-            await mirrorPromise;
             const mirror = mirrors[i];
-            const msg = await createMediaMessage({
-              conversationId: id,
-              zaloAccount: conversation.zaloAccount,
-              repliedByUserId: user.id,
-              zaloMsgId,
+            pendingImages.push(await createPendingMessage({
               contentType: 'image',
               content: JSON.stringify({ href: mirror.url, thumb: mirror.url, size: mirror.size }),
-              metadata: { sender: { kind: 'user_crm', name: userFullName } },
-              sentVia: 'user',
-            });
-            created.push(msg);
+            }));
+          }
+          try {
+            zaloRateLimiter.recordSend(conversation.zaloAccountId);
+            const paths = imageIndexes.map((i) => tmpPaths[i]);
+            const sendResult = await withZaloAttachmentTimeout(instance.api.sendMessage(
+              { msg: caption, attachments: paths },
+              threadId,
+              threadType,
+            ));
+            for (let index = 0; index < pendingImages.length; index++) {
+              await reconcileConfirmed(pendingImages[index], sendResult, index);
+            }
+          } catch (err) {
+            if (err instanceof ZaloAttachmentSendTimeoutError) {
+              await keepPendingConfirmation(pendingImages, 'image send');
+            } else {
+              await markFailed(pendingImages, err);
+            }
           }
         }
 
@@ -226,82 +371,75 @@ export async function chatAttachmentRoutes(app: FastifyInstance) {
           } catch (err) {
             logger.warn('[chat-attachment] Video thumbnail generation failed:', err);
           }
+          await mirrorPromise;
+          const mirror = mirrors[i];
+          const thumbUrl = thumbnailMirror?.url ?? mirror.url;
+          const pendingVideo = await createPendingMessage({
+            contentType: 'video',
+            content: JSON.stringify({ href: mirror.url, thumb: thumbUrl, thumbUrl, thumbnail: thumbUrl, size: mirror.size }),
+          });
           try {
-            const sendResult: any = await sendNativeVideo({
+            const sendResult = await withZaloAttachmentTimeout(sendNativeVideo({
               api: instance.api as any,
               videoPath: tmpPaths[i],
               thumbnailPath: generatedThumbnail?.path,
               threadId,
               threadType: threadType as 0 | 1,
               message: caption,
-            });
-            const zaloMsgId = String((sendResult as any)?.msgId || (sendResult as any)?.data?.msgId || '');
-            await mirrorPromise;
-            const mirror = mirrors[i];
-            const thumbUrl = thumbnailMirror?.url ?? mirror.url;
-            const msg = await createMediaMessage({
-              conversationId: id,
-              zaloAccount: conversation.zaloAccount,
-              repliedByUserId: user.id,
-              zaloMsgId,
-              contentType: 'video',
-              content: JSON.stringify({ href: mirror.url, thumb: thumbUrl, thumbUrl, thumbnail: thumbUrl, size: mirror.size }),
-              metadata: { sender: { kind: 'user_crm', name: userFullName } },
-              sentVia: 'user',
-            });
-            created.push(msg);
+            }));
+            await reconcileConfirmed(pendingVideo, sendResult);
           } catch (err) {
+            if (err instanceof ZaloAttachmentSendTimeoutError) {
+              await keepPendingConfirmation([pendingVideo], 'native video send');
+              continue;
+            }
             logger.error('[chat-attachment] Native video send failed, trying fallback:', err);
-            // Fallback: regular attachment send
-            const sendResult: any = await zaloOps.sendFile(
-              conversation.zaloAccountId,
-              threadId,
-              threadType as 0 | 1,
-              [tmpPaths[i]],
-              io,
-            );
-            const zaloMsgId = String(sendResult?.msgId || sendResult?.data?.msgId || '');
-            await mirrorPromise;
-            const mirror = mirrors[i];
-            const thumbUrl = thumbnailMirror?.url ?? mirror.url;
-            const msg = await createMediaMessage({
-              conversationId: id,
-              zaloAccount: conversation.zaloAccount,
-              repliedByUserId: user.id,
-              zaloMsgId,
-              contentType: 'video',
-              content: JSON.stringify({ href: mirror.url, thumb: thumbUrl, thumbUrl, thumbnail: thumbUrl, size: mirror.size }),
-              metadata: { sender: { kind: 'user_crm', name: userFullName } },
-              sentVia: 'user',
-            });
-            created.push(msg);
+            try {
+              const sendResult = await withZaloAttachmentTimeout(zaloOps.sendFile(
+                conversation.zaloAccountId,
+                threadId,
+                threadType as 0 | 1,
+                [tmpPaths[i]],
+                io,
+              ));
+              await reconcileConfirmed(pendingVideo, sendResult);
+            } catch (fallbackErr) {
+              if (fallbackErr instanceof ZaloAttachmentSendTimeoutError) {
+                await keepPendingConfirmation([pendingVideo], 'fallback video send');
+              } else {
+                await markFailed([pendingVideo], fallbackErr);
+              }
+            }
           }
         }
 
         // Send files (generic) one-by-one
         for (const i of fileIndexes) {
-          zaloRateLimiter.recordSend(conversation.zaloAccountId);
-          const sendResult: any = await zaloOps.sendFile(
-            conversation.zaloAccountId,
-            threadId,
-            threadType as 0 | 1,
-            [tmpPaths[i]],
-            io,
-            caption,
-          );
-          const zaloMsgId = String(sendResult?.msgId || sendResult?.data?.msgId || '');
           await mirrorPromise;
           const mirror = mirrors[i];
           const f = files[i];
-          const msg = await createMediaMessage({
-            conversationId: id,
-            zaloAccount: conversation.zaloAccount,
-            repliedByUserId: user.id,
-            zaloMsgId,
+          const pendingFile = await createPendingMessage({
             contentType: 'file',
             content: JSON.stringify({ href: mirror.url, name: f.filename, size: mirror.size, mime: f.mimeType }),
           });
-          created.push(msg);
+          try {
+            zaloRateLimiter.recordSend(conversation.zaloAccountId);
+            const sendResult = await withZaloAttachmentTimeout(zaloOps.sendFile(
+              conversation.zaloAccountId,
+              threadId,
+              threadType as 0 | 1,
+              [tmpPaths[i]],
+              io,
+              caption,
+            ));
+            await reconcileConfirmed(pendingFile, sendResult);
+          } catch (err) {
+            if (err instanceof ZaloAttachmentSendTimeoutError) {
+              await keepPendingConfirmation([pendingFile], 'file send');
+            } else {
+              await markFailed([pendingFile], err);
+            }
+          }
         }
 
         await prisma.conversation.update({
@@ -309,32 +447,38 @@ export async function chatAttachmentRoutes(app: FastifyInstance) {
           data: { lastMessageAt: new Date(), isReplied: true, unreadCount: 0 },
         });
 
-        for (const m of created) {
-          // PRIVACY 2026-06-11: redact + scope org (emit-chat). Nick main → URL file
-          // KHÔNG ra room org (chỉ chính chủ đã unlock nhận bản thật).
-          await emitChatMessage({
-            io,
-            orgId: user.orgId,
-            accountId: conversation.zaloAccountId,
-            conversationId: id,
-            message: m,
-            privacyMode: conversation.zaloAccount.privacyMode,
-            ownerUserId: conversation.zaloAccount.ownerUserId,
-          });
-        }
-
         await mirrorPromise;
         const attachmentTotalMs = Date.now() - attachmentRequestStartedAt;
-        logger.info(`[chat-attachment][perf] stage=send_total files=${files.length} totalMs=${attachmentTotalMs}`);
+        logger.info(`[chat-attachment][perf] stage=send_total files=${files.length} unconfirmed=${hasUnconfirmedSend} totalMs=${attachmentTotalMs}`);
         reply.header('Server-Timing', `chat-attachment;dur=${attachmentTotalMs}`);
+        if (hasUnconfirmedSend) {
+          return reply.status(202).send({
+            messages: created,
+            warning: 'Zalo received the send request but did not confirm in time. Messages remain visible while CRM reconciles the result.',
+          });
+        }
+        if (hasFailedSend) {
+          return reply.status(207).send({
+            messages: created,
+            warning: 'Một số file không gửi được. Các file thành công vẫn được giữ nguyên; không cần gửi lại cả lô.',
+          });
+        }
         return { messages: created };
       } catch (err: any) {
         logger.error('[chat-attachment] upload error:', err);
         return reply.status(500).send({ error: err?.message ?? 'attachment send failed' });
       } finally {
         // Clean tmp files (best effort)
-        for (const p of tmpPaths) {
-          if (p) await unlink(p).catch(() => {});
+        if (deferTmpCleanup) {
+          const cleanupPaths = tmpPaths.filter(Boolean);
+          const timer = setTimeout(() => {
+            for (const p of cleanupPaths) void unlink(p).catch(() => {});
+          }, 15 * 60_000);
+          timer.unref?.();
+        } else {
+          for (const p of tmpPaths) {
+            if (p) await unlink(p).catch(() => {});
+          }
         }
       }
     },
