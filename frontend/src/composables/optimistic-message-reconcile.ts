@@ -23,3 +23,15 @@ export function reconcileOptimisticMessage<T extends OptimisticMessageLike>(
   if (realIndex !== -1) return messages;
   return [...messages, real];
 }
+
+/** Replace a socket snapshot with the same database id, or append it when new. */
+export function upsertRealtimeMessage<T extends OptimisticMessageLike>(
+  messages: T[],
+  incoming: T,
+): T[] {
+  const index = messages.findIndex((message) => message.id === incoming.id);
+  if (index === -1) return [...messages, incoming];
+  const next = messages.slice();
+  next[index] = incoming;
+  return next;
+}

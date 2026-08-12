@@ -9,6 +9,7 @@ import { logger } from '../../shared/utils/logger.js';
 import { safeContactUpdate, safeContactCreate } from '../../shared/database/safe-contact-write.js';
 import { publishMessagePersisted } from '../../shared/bridge-bus.js';
 import { randomUUID } from 'node:crypto';
+import { claimPendingMediaMessage, clearPendingConfirmationMetadata } from './chat-send-utils.js';
 import { emitWebhook } from '../api/webhook-service.js';
 import { runAutomationRules } from '../../shared/ee-registry/automation.js';
 import { automationEventBus } from '../../shared/ee-registry/event-bus.js';
@@ -305,37 +306,68 @@ export async function handleIncomingMessage(
       const dupNum = /^\d+$/.test(msg.msgId) ? BigInt(msg.msgId) : null;
 
       if (isAttachment) {
+        let alreadyPersisted = await prisma.message.findFirst({
+          where: { conversationId: conversation.id, zaloMsgId: msg.msgId },
+        });
+        if (alreadyPersisted) {
+          const reconciledMetadata = clearPendingConfirmationMetadata(alreadyPersisted.metadata);
+          const needsBackfill = !!msg.cliMsgId || !!msg.albumKey || !!reconciledMetadata;
+          if (needsBackfill) {
+            alreadyPersisted = await prisma.message.update({
+              where: { id: alreadyPersisted.id },
+              data: {
+                ...(msg.cliMsgId ? { zaloCliMsgId: msg.cliMsgId } : {}),
+                ...(msg.albumKey ? {
+                  albumKey: msg.albumKey,
+                  albumIndex: msg.albumIndex ?? 0,
+                  albumTotal: msg.albumTotal ?? null,
+                } : {}),
+                ...(reconciledMetadata ? { metadata: reconciledMetadata } : {}),
+              },
+            });
+          }
+          publishMessagePersisted({ messageId: alreadyPersisted.id, conversationId: conversation.id });
+          return {
+            message: alreadyPersisted,
+            conversationId: conversation.id,
+            orgId: account.orgId,
+            contactId,
+          };
+        }
         // FIX 2026-06-12 (album drop): echo ảnh album về N tin riêng (mỗi sibling 1 zaloMsgId).
         // CRM gửi album chỉ tạo 1 placeholder (zaloMsgId=null). Bộ lọc cũ findFirst→update
         // KHÔNG nguyên tử: nhiều echo cùng khớp 1 placeholder null (race) → bỏ nhầm sibling.
         // Sửa: CLAIM placeholder NGUYÊN TỬ bằng updateMany (compare-and-swap trên zaloMsgId=null).
         //   • Đúng 1 echo claim được (count=1) → suppress (đó là tin đã hiện sẵn cho sale).
         //   • Các sibling còn lại claim trượt (count=0) → CHO QUA, insert như tin album bình thường.
-        const claimed = await prisma.message.updateMany({
-          where: {
-            conversationId: conversation.id,
-            senderType: 'self',
-            contentType: msg.contentType,
-            zaloMsgId: null,
-            sentAt: { gte: new Date(Date.now() - 30_000) },
-          },
-          data: {
-            zaloMsgId: msg.msgId,
-            zaloMsgIdNum: dupNum,
-            ...(msg.cliMsgId ? { zaloCliMsgId: msg.cliMsgId } : {}),
-            // Backfill album metadata vào placeholder (lần claim đầu) để row tổng có albumKey thật.
-            ...(msg.albumKey ? { albumKey: msg.albumKey, albumIndex: msg.albumIndex ?? 0, albumTotal: msg.albumTotal ?? null } : {}),
-          },
+        let claimedRow = await claimPendingMediaMessage(prisma.message, {
+          conversationId: conversation.id,
+          contentType: msg.contentType,
+          msgId: msg.msgId,
+          msgIdNum: dupNum,
+          cliMsgId: msg.cliMsgId,
+          albumKey: msg.albumKey,
+          albumIndex: msg.albumIndex,
+          albumTotal: msg.albumTotal,
         });
-        if (claimed.count > 0) {
+        if (claimedRow) {
           // 2026-06-19 Cầu Telegram: echo media OUTBOUND từ CRM → mirror sang Telegram (lấy
           // id row vừa claim theo zaloMsgId).
-          const claimedRow = await prisma.message
-            .findFirst({ where: { conversationId: conversation.id, zaloMsgId: msg.msgId }, select: { id: true } })
-            .catch(() => null);
-          if (claimedRow) publishMessagePersisted({ messageId: claimedRow.id, conversationId: conversation.id });
+          const metadata = clearPendingConfirmationMetadata(claimedRow.metadata);
+          if (metadata) {
+            claimedRow = await prisma.message.update({
+              where: { id: claimedRow.id },
+              data: { metadata },
+            });
+          }
+          publishMessagePersisted({ messageId: claimedRow.id, conversationId: conversation.id });
           logger.debug(`[message-handler] Skipping self echo: claimed placeholder (album=${msg.albumKey ?? 'none'} idx=${msg.albumIndex})`);
-          return null;
+          return claimedRow ? {
+            message: claimedRow,
+            conversationId: conversation.id,
+            orgId: account.orgId,
+            contactId,
+          } : null;
         }
         // Không claim được placeholder nào → đây là sibling album (hoặc tin thật) → để insert tiếp.
       } else {

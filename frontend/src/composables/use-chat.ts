@@ -12,7 +12,7 @@ import { usePrivacyStore } from '@/stores/privacy';
 import { useWorkScope } from '@/composables/use-work-scope';
 import { classifyIncoming } from '@/composables/work-scope-logic';
 import { useToast } from '@/composables/use-toast';
-import { reconcileOptimisticMessage } from '@/composables/optimistic-message-reconcile';
+import { reconcileOptimisticMessage, upsertRealtimeMessage } from '@/composables/optimistic-message-reconcile';
 import { markAiFollowUpStale } from '@/composables/use-ai-follow-up';
 import {
   usePancakeChatSession,
@@ -1199,6 +1199,7 @@ export function useChat() {
         selectedConvId: selectedConvId.value,
         scope: workScope.accountIds.value,
       });
+      let replacedExistingThreadMessage = false;
 
       // (a) THREAD ĐANG MỞ: LUÔN nhận tin (kể cả nick ngoài scope — vd vừa nav sang chưa
       // reload). KHÔNG bị guard chặn → không mất tin (fix bug v1.2).
@@ -1217,11 +1218,17 @@ export function useChat() {
             return;
           }
         }
-        if (!messages.value.find(m => m.id === data.message.id)) {
+        const normalized = normalizeMessage(data.message as RawMessage);
+        if (messages.value.some(m => m.id === normalized.id)) {
+          const updated = upsertRealtimeMessage(messages.value, normalized);
+          updated.sort(compareMessages);
+          messages.value = updated;
+          replacedExistingThreadMessage = true;
+        } else {
           // INSERT theo sortedBy sentAt thay vì push cuối array. Lý do: socket có
           // thể giao messages KHÔNG theo chronological order (vd old_messages backfill
           // delivers reverse, hoặc 2 msg cùng giây tới khác thứ tự server vs client).
-          insertMessageSorted(normalizeMessage(data.message as RawMessage));
+          insertMessageSorted(normalized);
         }
       }
 
@@ -1251,7 +1258,7 @@ export function useChat() {
         // phải click/refresh mới cập nhật. Thay = object mới: ép v-for re-render row đó
         // + đổi WeakMap key → memoize tự invalidate. Fix cả cá nhân lẫn nhóm.
         const updatedContact = cur.contact ? { ...cur.contact } : cur.contact;
-        if (updatedContact) {
+        if (updatedContact && !replacedExistingThreadMessage) {
           if (data.message.senderType === 'self') {
             updatedContact.totalOutbound = (updatedContact.totalOutbound ?? 0) + 1;
             updatedContact.lastOutboundAt = data.message.sentAt;
@@ -1268,7 +1275,7 @@ export function useChat() {
           lastMessageAt: data.message.sentAt,
           // preview tin mới nhất ngay
           messages: [data.message, ...(cur.messages || [])].slice(0, 1),
-          unreadCount: (data.message.senderType !== 'self' && !isOpen)
+          unreadCount: (!replacedExistingThreadMessage && data.message.senderType !== 'self' && !isOpen)
             ? (cur.unreadCount ?? 0) + 1
             : cur.unreadCount,
         } as typeof cur;
