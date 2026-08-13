@@ -80,6 +80,7 @@ import { CARE_STATUSES } from '@/constants/care-status';
 import { getAutoTagDef } from '@/constants/auto-tags';
 import { loadTagDefs, findTagDef, isZaloManaged, cleanTagName, tagColor as lookupTagColor } from '@/composables/use-crm-tag-defs';
 import MentionPopover from './MentionPopover.vue';
+import { safeCssHexColor } from '@/utils/safe-css-color';
 
 // Ensure CrmTag defs loaded — module-level cache, only fetches once.
 void loadTagDefs();
@@ -111,7 +112,12 @@ function tagChipHtml(rawName: string, forceZalo = false): string {
     || findTagDef(`🔵 ${rawName}`)?.managedBy === 'zalo_sync'; // CrmTag stored with prefix
   const cleaned = cleanTagName(rawName);
   const def = findTagDef(cleaned) || findTagDef(rawName) || findTagDef(`🔵 ${cleaned}`);
-  const color = def?.color || (zaloManaged ? '#0068FF' : lookupTagColor(rawName));
+  // Treat stored/third-party color values as untrusted. This also protects legacy
+  // rows created before server-side validation was introduced.
+  const color = safeCssHexColor(
+    def?.color || (zaloManaged ? '#0068FF' : lookupTagColor(rawName)),
+    zaloManaged ? '#0068FF' : '#90A4AE',
+  );
   const emoji = !zaloManaged && def?.emoji ? `${def.emoji} ` : '';
   // Zalo tags hiện logo Zalo thật (SVG) thay vì chấm tròn — match brand identity.
   const leading = zaloManaged ? '<img src="/brand/zalo-icon.svg" alt="Zalo" class="zalo-icon-inline"/>' : '';

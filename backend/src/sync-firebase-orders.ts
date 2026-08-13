@@ -27,20 +27,44 @@ function parsePaymentStatus(status: any) {
   return 'unpaid';
 }
 
+function firebaseDatabaseBaseUrl(raw: string): string {
+  const url = new URL(raw);
+  const allowedHost = url.hostname.endsWith('.firebasedatabase.app')
+    || url.hostname.endsWith('.firebaseio.com');
+  if (url.protocol !== 'https:' || !allowedHost || url.username || url.password || url.search || url.hash) {
+    throw new Error('FIREBASE_SYNC_DB_URL must be an HTTPS Firebase Realtime Database base URL');
+  }
+  url.pathname = url.pathname.replace(/\/+$/, '');
+  return url.toString().replace(/\/$/, '');
+}
+
 async function syncAll() {
+  const fbApiKey = process.env.FIREBASE_SYNC_API_KEY;
+  const fbEmail = process.env.FIREBASE_SYNC_EMAIL;
+  const fbPassword = process.env.FIREBASE_SYNC_PASSWORD;
+  const fbDbUrl = process.env.FIREBASE_SYNC_DB_URL;
+
+  if (!fbApiKey || !fbEmail || !fbPassword || !fbDbUrl) {
+    throw new Error(
+      'Missing Firebase sync credentials. ' +
+      'Set FIREBASE_SYNC_API_KEY, FIREBASE_SYNC_EMAIL, FIREBASE_SYNC_PASSWORD, FIREBASE_SYNC_DB_URL in .env'
+    );
+  }
+
   console.log('Authenticating with Firebase Auth REST API...');
-  const authUrl = "https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=AIzaSyACe1O0cN5jZ4CRk8m05hrIfs6OkvGP3Yo";
+  const authUrl = `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${fbApiKey}`;
   const authRes = await fetch(authUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email: 'vy@giaonhayen.internal', password: '123456', returnSecureToken: true })
+    body: JSON.stringify({ email: fbEmail, password: fbPassword, returnSecureToken: true })
   });
   if (!authRes.ok) throw new Error(`Auth failed: ${authRes.statusText}`);
   const authData: any = await authRes.json();
   const idToken = authData.idToken;
   console.log('Firebase auth token obtained!');
 
-  const dbUrl = `https://nhayen-giaovan-90a84-default-rtdb.asia-southeast1.firebasedatabase.app/orders.json?auth=${idToken}`;
+  const dbUrl = new URL(`${firebaseDatabaseBaseUrl(fbDbUrl)}/orders.json`);
+  dbUrl.searchParams.set('auth', idToken);
   console.log('Fetching orders from Firebase RTDB...');
   const res = await fetch(dbUrl);
   if (!res.ok) throw new Error(`Fetch orders failed: ${res.statusText}`);

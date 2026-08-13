@@ -14,6 +14,7 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { prisma } from '../../shared/database/prisma-client.js';
 import { authMiddleware } from '../auth/auth-middleware.js';
 import { logger } from '../../shared/utils/logger.js';
+import { sanitizeCssHexColor } from '../../shared/utils/safe-css-color.js';
 
 /* ── Read-only enforcement cho Zalo-managed tags ──────────────────────────
  * Tag được sync tự động từ Zalo SDK (managedBy='zalo_sync', sourceZaloLabelId
@@ -24,6 +25,10 @@ import { logger } from '../../shared/utils/logger.js';
 const MANAGED_BY_ZALO = 'zalo_sync';
 const MSG_READ_ONLY = 'Tag này được đồng bộ từ Zalo. Đổi/gỡ trên app Zalo, hệ thống sẽ tự cập nhật.';
 
+/** Validate & sanitize color value — chỉ chấp nhận hex 3/6 ký tự.
+ *  Bất kỳ giá trị nào không phải hex hợp lệ → fallback về default.
+ *  Ngăn CSS injection qua inline style `--tag-color: <color>` trong ActivityItem.vue.
+ */
 function hasOverride(request: FastifyRequest): boolean {
   const user = request.user;
   if (!user) return false;
@@ -129,7 +134,7 @@ export async function crmTagRoutes(app: FastifyInstance): Promise<void> {
         data: {
           orgId: user.orgId,
           name,
-          color: request.body.color || '#90A4AE',
+          color: sanitizeCssHexColor(request.body.color),
           emoji: request.body.emoji || null,
           description: request.body.description || null,
           category: request.body.category || null,
@@ -169,7 +174,7 @@ export async function crmTagRoutes(app: FastifyInstance): Promise<void> {
         }
       }
       const data: Record<string, unknown> = {};
-      if (body.color !== undefined) data.color = body.color;
+      if (body.color !== undefined) data.color = sanitizeCssHexColor(body.color);
       if (body.emoji !== undefined) data.emoji = body.emoji;
       if (body.description !== undefined) data.description = body.description;
       if (body.category !== undefined) data.category = body.category;

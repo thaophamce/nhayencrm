@@ -70,3 +70,13 @@ backend/src/test_detail_endpoint.ts
 
 # Firebase Admin credentials (never commit)
 *-firebase-adminsdk-*.json
+
+# Database dumps & backups — chứa PII, không commit
+*.dump
+*.dump.gz
+*.sql.gz
+backend/*.dump
+backend/*.sql
+
+# Security reports — có thể chứa credential patterns
+SECURITY_AUDIT.md

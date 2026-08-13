@@ -19,6 +19,7 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { prisma, tenantTransaction } from '../../shared/database/prisma-client.js';
 import { authMiddleware } from '../auth/auth-middleware.js';
 import { logger } from '../../shared/utils/logger.js';
+import { sanitizeCssHexColor } from '../../shared/utils/safe-css-color.js';
 import { zaloPool } from './zalo-pool.js';
 import { logActivity } from '../activity/activity-logger.js';
 import { getZaloScope, requireAccountManagement, requireAccountVisible } from './zalo-scope.js';
@@ -233,7 +234,7 @@ export async function syncLabelsForAccount(
     for (const l of upserted) {
       const tagName = `🔵 ${l.text}`;
       const baseData = {
-        color: l.color || '#1976D2',
+        color: sanitizeCssHexColor(l.color, '#1976D2'),
         emoji: l.emoji || null,
         groupId: group.id,
         category: groupName,
@@ -345,7 +346,7 @@ export async function syncLabelsForAccount(
         if (existingTag.name !== l.text || existingTag.color !== l.color || existingTag.emoji !== l.emoji) {
           await prisma.tag.update({
             where: { id: existingTag.id },
-            data: { name: l.text, slug: tagSlug, color: l.color || '#1976D2', emoji: l.emoji ?? null, archivedAt: null },
+            data: { name: l.text, slug: tagSlug, color: sanitizeCssHexColor(l.color, '#1976D2'), emoji: l.emoji ?? null, archivedAt: null },
           });
         } else if (existingTag.archivedAt) {
           await prisma.tag.update({ where: { id: existingTag.id }, data: { archivedAt: null } });
@@ -357,7 +358,7 @@ export async function syncLabelsForAccount(
             orgId,
             name: l.text,
             slug: tagSlug,
-            color: l.color || '#1976D2',
+            color: sanitizeCssHexColor(l.color, '#1976D2'),
             emoji: l.emoji ?? null,
             scope: 'friend',
             source: 'zalo_real',
@@ -865,7 +866,9 @@ export async function zaloLabelsRoutes(app: FastifyInstance): Promise<void> {
         return {
           ...l,
           text: request.body.text ?? l.text,
-          color: request.body.color ?? l.color,
+          color: request.body.color === undefined
+            ? sanitizeCssHexColor(l.color, '#1976D2')
+            : sanitizeCssHexColor(request.body.color, '#1976D2'),
           emoji: request.body.emoji ?? l.emoji,
         };
       });
