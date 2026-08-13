@@ -2918,10 +2918,13 @@ async function handleImageFiles(files: File[]) {
   try {
     const fd = new FormData();
     for (const f of files) fd.append('files', f, f.name);
-    await api.post(`/conversations/${props.conversation.id}/attachments`, fd, {
+    const response = await api.post(`/conversations/${props.conversation.id}/attachments`, fd, {
       headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 15 * 60_000,
     });
-    toast.success(`Đã gửi ${files.length} ảnh`);
+    if (response.status === 207) toast.warning('Một số ảnh không gửi được; ảnh thành công vẫn được giữ nguyên');
+    else if (response.status === 202) toast.warning('Ảnh đã hiện trên CRM, đang chờ Zalo xác nhận');
+    else toast.success(`Đã gửi ${files.length} ảnh`);
     emit('refresh-thread');
   } catch (err) {
     const detail = (err as { response?: { data?: { error?: string } } })?.response?.data?.error || 'Upload thất bại';
@@ -2936,10 +2939,13 @@ async function handleFiles(files: File[]) {
   try {
     const fd = new FormData();
     for (const f of files) fd.append('files', f, f.name);
-    await api.post(`/conversations/${props.conversation.id}/attachments`, fd, {
+    const response = await api.post(`/conversations/${props.conversation.id}/attachments`, fd, {
       headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 15 * 60_000,
     });
-    toast.success(`Đã gửi ${files.length} file`);
+    if (response.status === 207) toast.warning('Một số file không gửi được; file thành công vẫn được giữ nguyên');
+    else if (response.status === 202) toast.warning('File đã hiện trên CRM, đang chờ Zalo xác nhận');
+    else toast.success(`Đã gửi ${files.length} file`);
     emit('refresh-thread');
   } catch (err) {
     const detail = (err as { response?: { data?: { error?: string } } })?.response?.data?.error || 'Upload thất bại';
