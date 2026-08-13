@@ -379,7 +379,7 @@
       <DesignOrderTabPanel
         v-if="props.conversationId"
         :conversation-id="props.conversationId"
-        :group-name="props.groupName"
+        :conversation-name="conversationDisplayName"
       />
       <div v-else class="main-tab-placeholder"><h3>??n thi?t k?</h3><p>Ch?a ch?n h?i tho?i.</p></div>
     </div>
@@ -606,6 +606,7 @@ const quoteSubTab = ref<'standard' | 'vip'>('standard');
 import AiAssistantPanel from './AiAssistantPanel.vue';
 import OrderTabPanel from './OrderTabPanel.vue';
 import DesignOrderTabPanel from './DesignOrderTabPanel.vue';
+import { getConversationDisplayName } from '@/utils/design-order-search';
 import ScoreInlinePanel from '@/components/scoring/ScoreInlinePanel.vue';
 import ScoreHistoryModal from '@/components/scoring/ScoreHistoryModal.vue';
 import SalesHandoffModal from './SalesHandoffModal.vue';
@@ -665,6 +666,13 @@ const sharedMedia = ref<SharedMediaItem[]>([]);
 const sharedFiles = ref<SharedFileItem[]>([]);
 const sharedLinks = ref<SharedLinkItem[]>([]);
 const currentMemberUid = computed(() => props.externalThreadId || '');
+const conversationDisplayName = computed(() => getConversationDisplayName({
+  threadType: props.threadType,
+  groupName: props.groupName,
+  aliasInNick: props.friendship?.aliasInNick,
+  crmName: props.contact?.crmName,
+  fullName: props.contact?.fullName,
+}));
 const canCreateGroup = computed(() => !!props.activeZaloAccountId && !!currentMemberUid.value);
 const { createGroup, addMembers, leaveGroup } = useGroups();
 
@@ -1001,7 +1009,10 @@ const activeTab = ref<'profile' | 'crm' | 'activity' | 'score'>('profile');
 
 // Đổi hội thoại hoặc loại hội thoại → reset về tab phù hợp
 watch([() => props.conversationId, () => props.threadType], () => {
-  mainTab.value = props.hideProfile ? 'orders' : 'profile';
+  // Giữ tab Đơn thiết kế khi chuyển hội thoại để mã đơn được cập nhật và tìm lại ngay.
+  if (mainTab.value !== 'design-orders') {
+    mainTab.value = props.hideProfile ? 'orders' : 'profile';
+  }
   followUpSubTab.value = 'ai';
 }, { immediate: true });
 

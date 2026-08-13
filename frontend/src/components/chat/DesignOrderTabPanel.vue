@@ -116,11 +116,17 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue';
+import { ref, computed, onBeforeUnmount, watch } from 'vue';
 import { api } from '@/api/index';
 import { useAuthStore } from '@/stores/auth';
+import { extractDesignOrderCode } from '@/utils/design-order-search';
 import CreateOrderModal from '@/components/orders/CreateOrderModal.vue';
 import EditOrderModal from '@/components/orders/EditOrderModal.vue';
+
+const props = defineProps<{
+  conversationId: string;
+  conversationName?: string | null;
+}>();
 
 interface Designer { id: string; fullName: string }
 interface Order {
@@ -166,8 +172,9 @@ const orders = ref<Order[]>([]);
 const loading = ref(false);
 const hasMore = ref(false);
 const offset = ref(0);
+let latestFetchId = 0;
 
-const searchQuery = ref('');
+const searchQuery = ref(extractDesignOrderCode(props.conversationName));
 const filterStatus = ref<string | null>(null);
 const filterDesigner = ref('');
 const filterDateFrom = ref('');
@@ -188,6 +195,7 @@ async function loadDesigners() {
 }
 
 async function fetchOrders(reset = true) {
+  const fetchId = ++latestFetchId;
   if (reset) { orders.value = []; offset.value = 0; }
   loading.value = true;
   try {
@@ -202,6 +210,7 @@ async function fetchOrders(reset = true) {
         dateTo: filterDateTo.value || undefined,
       },
     });
+    if (fetchId !== latestFetchId) return;
     const rows: Order[] = res.data?.orders ?? res.data?.items ?? [];
     if (reset) {
       orders.value = rows;
@@ -210,9 +219,10 @@ async function fetchOrders(reset = true) {
     }
     hasMore.value = rows.length === LIMIT;
   } catch (err) {
+    if (fetchId !== latestFetchId) return;
     console.error('[DesignOrderTabPanel] fetchOrders error', err);
   } finally {
-    loading.value = false;
+    if (fetchId === latestFetchId) loading.value = false;
   }
 }
 
@@ -256,8 +266,21 @@ function getStatusLabel(s: string) { return STATUS_LABELS[s] ?? s; }
 // Search debounce
 let searchTimer: ReturnType<typeof setTimeout> | null = null;
 watch(searchQuery, () => {
+  // Vô hiệu hoá ngay request của hội thoại trước, không để kết quả cũ ghi đè trong lúc debounce.
+  latestFetchId += 1;
   if (searchTimer) clearTimeout(searchTimer);
   searchTimer = setTimeout(() => fetchOrders(), 350);
+});
+
+// Khi sale đổi hội thoại trong lúc tab đang mở, đồng bộ mã mới vào ô tìm kiếm.
+// Gán lại searchQuery cũng kích hoạt chính debounce bên trên để tự tìm ngay.
+watch(() => props.conversationName, (name) => {
+  searchQuery.value = extractDesignOrderCode(name);
+});
+
+onBeforeUnmount(() => {
+  if (searchTimer) clearTimeout(searchTimer);
+  latestFetchId += 1;
 });
 
 // Initial load
