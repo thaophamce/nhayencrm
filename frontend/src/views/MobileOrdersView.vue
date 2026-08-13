@@ -268,8 +268,10 @@
 import { ref, computed, watch, onMounted } from 'vue';
 import { api } from '@/api';
 import { useAuthStore } from '@/stores/auth';
+import { useToast } from '@/composables/use-toast';
 
 const authStore = useAuthStore();
+const toast = useToast();
 
 const canEditOrders = computed(() => authStore.canAccess('orders', 'edit'));
 
@@ -290,11 +292,12 @@ async function changeStatus(order: any, newStatus: string) {
   order.status = newStatus;
   if (selectedOrder.value?.id === order.id) selectedOrder.value.status = newStatus;
   try {
-    await api.patch(`/orders/${order.id}`, { status: newStatus });
+    await api.put(`/orders/${order.id}`, { status: newStatus });
   } catch (err) {
     // Revert on error
     order.status = oldStatus;
     if (selectedOrder.value?.id === order.id) selectedOrder.value.status = oldStatus;
+    toast.error('Không thể cập nhật trạng thái đơn');
     console.error('Update status error:', err);
   } finally {
     updatingId.value = null;
