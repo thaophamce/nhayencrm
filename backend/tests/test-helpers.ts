@@ -70,6 +70,7 @@ export function mockPrisma() {
       count: vi.fn(),
       create: vi.fn(),
       update: vi.fn(),
+      updateMany: vi.fn(),
     },
     messageReaction: {
       upsert: vi.fn(),
