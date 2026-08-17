@@ -313,14 +313,6 @@ export async function getSalaryReport(request: FastifyRequest, reply: FastifyRep
 
   try {
     const canViewAllSalary = user.role === 'owner' || user.role === 'admin' || await canManageDesignOrders(user.id, 'view_all');
-    const designers = await prisma.user.findMany({
-      where: {
-        orgId: user.orgId,
-        permissionGroup: { name: 'Designer', archivedAt: null },
-        ...(!canViewAllSalary ? { id: user.id } : {}),
-      },
-      select: { id: true, fullName: true, role: true }
-    });
 
     // CRM-native orders: salary derived from OrderStatusHistory rows
     const salaryOrders = await prisma.order.findMany({
@@ -334,6 +326,31 @@ export async function getSalaryReport(request: FastifyRequest, reply: FastifyRep
       },
     });
     const salaryStats = calculateImportedMonthlySalaryStats(salaryOrders, targetMonth);
+
+    // Base list: members of the Designer permission group
+    const designerGroupMembers = await prisma.user.findMany({
+      where: {
+        orgId: user.orgId,
+        permissionGroup: { name: 'Designer', archivedAt: null },
+        ...(!canViewAllSalary ? { id: user.id } : {}),
+      },
+      select: { id: true, fullName: true, role: true }
+    });
+
+    // Also include anyone assigned to an order but not in the Designer group
+    // (e.g. Sale staff who do design work on the side)
+    const knownIds = new Set(designerGroupMembers.map(d => d.id));
+    const extraIds = [...new Set(
+      salaryOrders.map(o => o.designerId).filter((id): id is string => !!id && !knownIds.has(id))
+    )];
+    const extraMembers = extraIds.length > 0
+      ? await prisma.user.findMany({
+          where: { id: { in: extraIds } },
+          select: { id: true, fullName: true, role: true },
+        })
+      : [];
+
+    const designers = [...designerGroupMembers, ...extraMembers];
 
     const reportData = designers.map(d => {
       const stats = salaryStats.get(d.id);
