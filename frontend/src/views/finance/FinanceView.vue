@@ -1,6 +1,6 @@
 <template>
-  <div class="finance-page">
-    <div class="finance-layout">
+  <div class="finance-page finance-page--minimal">
+    <div class="finance-layout finance-layout--minimal">
       <aside class="finance-sidebar">
         <nav aria-label="Điều hướng tài chính">
           <button
@@ -315,7 +315,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, defineComponent, h, ref, watch } from 'vue';
+import { computed, defineComponent, h, onMounted, ref, watch } from 'vue';
+import { api } from '@/api/index';
 import { useToast } from '@/composables/use-toast';
 import { createClientId } from '@/utils/client-id';
 
@@ -388,6 +389,30 @@ function loadState(): FinanceState {
   try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '') as FinanceState; } catch { return structuredClone(defaults); }
 }
 const finance = ref(loadState());
+const serverStateLoaded = ref(false);
+let serverWriteChain: Promise<unknown> = Promise.resolve();
+
+function persistLocal() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(finance.value));
+}
+
+async function loadServerState() {
+  try {
+    const response = await api.get<{ state: FinanceState | null }>('/finance/state');
+    if (response.data.state) {
+      finance.value = response.data.state;
+      persistLocal();
+    } else {
+      await api.put('/finance/state', { state: finance.value });
+    }
+  } catch {
+    // Keep the local cache when the server is unavailable.
+  } finally {
+    serverStateLoaded.value = true;
+  }
+}
+
+onMounted(loadServerState);
 import { useRoute } from 'vue-router';
 
 const route = useRoute();
@@ -452,7 +477,14 @@ const allocationSuggestion = computed(() => {
 });
 const form = ref({ date:new Date().toISOString().slice(0,10), type:'COD Viettel', amount:'', note:'', supplierId:'dn' });
 const money = (value:number) => new Intl.NumberFormat('vi-VN', { style:'currency', currency:'VND', maximumFractionDigits:0 }).format(value);
-function persist(){ localStorage.setItem(STORAGE_KEY, JSON.stringify(finance.value)); }
+function persist() {
+  persistLocal();
+  if (!serverStateLoaded.value) return;
+  const state = structuredClone(finance.value);
+  serverWriteChain = serverWriteChain
+    .then(() => api.put('/finance/state', { state }))
+    .catch(() => undefined);
+}
 function openQuickAllocation(){
   allocationAmount.value = '';
   allocationDialog.value = true;
@@ -558,4 +590,9 @@ const TransactionTable = defineComponent({
 @media(max-width:650px){.finance-layout{grid-template-columns:72px minmax(0,1fr)}.finance-sidebar{padding:10px 7px}.sidebar-title{justify-content:center;padding:8px 4px 13px}.sidebar-title span,.finance-sidebar button span{display:none}.finance-sidebar button{justify-content:center;padding:12px 8px}.finance-workspace{padding:16px 12px 90px;border-top-left-radius:18px}.finance-header{align-items:flex-start;flex-direction:column}.header-actions{width:100%}.sync-pill{display:none}.primary-action{flex:1}.funds-grid,.debt-blocks-grid,.repayment-stats{grid-template-columns:1fr}.metric-block{padding:15px}.history-heading,.repayment-heading{align-items:flex-start;flex-direction:column}.repayment-heading>div:last-child{align-self:flex-end}.kpi-grid{grid-template-columns:1fr}.debt-summary{align-items:flex-start;flex-direction:column}.progress-ring{margin:auto}.supplier-card{grid-template-columns:auto 1fr}.supplier-amount{grid-column:2;text-align:left}.debt-list article{grid-template-columns:auto 1fr}.debt-list article>div:nth-child(n+3){grid-column:2}.form-grid{grid-template-columns:1fr}.form-grid .full{grid-column:auto}}
 @media(max-width:650px){.quick-allocation-button{right:14px;bottom:14px;padding:11px 13px}.quick-allocation-button span{display:none}.allocation-dialog-header{padding:17px 18px 13px}.allocation-results article{align-items:flex-start;flex-direction:column;gap:7px}.allocation-results article>strong{padding-left:37px}}
 .wallet-hero{background:#1a5da0}.wallet-subpage>.fund-hero{flex:0 0 132px;box-sizing:border-box;width:100%;box-shadow:0 10px 24px rgba(26,93,160,.18)}.wallet-subpage>.panel{flex:1 1 0;background:#f5f8ff;border-color:#c2d4ef}.wallet-subpage>.panel .transaction-wrap,.wallet-subpage .transaction-wrap{height:calc(100% - 48px);min-height:0;overflow:auto}.wallet-subpage .transaction-table{table-layout:fixed}.wallet-filter-area{display:flex;align-items:center;gap:10px;margin-left:auto}.wallet-month-filter span{color:rgba(255,255,255,.75)}.wallet-month-filter input{border-color:rgba(255,255,255,.35);background:rgba(255,255,255,.15);color:#fff;height:30px;padding:3px 10px;border-radius:7px;border:1px solid rgba(255,255,255,.35);font:inherit;outline:none}.wallet-month-filter input:focus{border-color:rgba(255,255,255,.7);background:rgba(255,255,255,.2)}.wallet-clear-btn{padding:5px 10px;border:1px solid rgba(255,255,255,.35);border-radius:7px;background:rgba(255,255,255,.15);color:#fff;font:inherit;font-size:11px;font-weight:800;cursor:pointer}.wallet-clear-btn:hover{background:rgba(255,255,255,.25)}
+</style>
+<style scoped>
+.finance-page--minimal .finance-sidebar{display:none}
+.finance-layout--minimal{grid-template-columns:minmax(0,1fr)}
+.finance-page--minimal .finance-workspace{border-top-left-radius:0;padding:16px}
 </style>

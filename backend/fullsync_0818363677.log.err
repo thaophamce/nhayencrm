@@ -1,0 +1,3 @@
+(node:9312) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+WARNING: Zalo account is disconnected — continuing Pancake import (Zalo connection not required)

@@ -1,0 +1,81 @@
+KIỂM CHỨNG: "GEMINI NÓI VẬY ĐÚNG KHÔNG?" — CƠ CHẾ ĐỒNG BỘ ZALO
+Người kiểm: Claude (CTO) — 22/07/2026
+Cách làm: KHÔNG tin lời, đọc thẳng code ZaloCRM. Mọi câu dưới đây có số dòng để anh tra.
+File đọc: backend/src/modules/zalo/zalo-listener-factory.ts
+         backend/src/modules/zalo/zalo-history-backfill.ts
+
+======================================================================
+KẾT LUẬN 1 DÒNG
+======================================================================
+Gemini nói ĐÚNG về nguyên lý. Và ZaloCRM của anh CHÍNH LÀ kiểu #2 (Zalo cá nhân,
+bắt tin real-time) — KHÔNG phải OA. Điểm Gemini nói "không kéo được lịch sử cũ
+nhiều tháng/năm" thì code của mình còn siết CHẶT HƠN: cắt cứng ở 30 ngày.
+
+======================================================================
+1. GEMINI ĐÚNG CHỖ NÀO (đối chiếu code)
+======================================================================
+Gemini tách 2 cơ chế: (a) OA = webhook Zalo đẩy tin về server; (b) cá nhân =
+client chạy 24/7 "bắt" tin lúc nó tới rồi lưu DB riêng. Đọc UI = đọc DB riêng,
+không hỏi lại Zalo. → ĐÚNG.
+
+Code xác nhận ZaloCRM đi đường (b):
+- zalo-listener-factory.ts dùng zca-js: api.listener.on('message', ...) (dòng 603),
+  listener.start({ retryOnClose: true }) (dòng 983) — listener sống dai, tự nối lại.
+- Mỗi tin tới → handleIncomingMessage(...) lưu DB (dòng 671) → emit socket ra FE
+  (emitChatMessage, dòng 721). Đúng mô tả "bắt real-time, lưu kho riêng, UI đọc kho".
+- Bắt cả: typing (424), seen_messages (447), delivered (509), reaction (786),
+  undo (757), friend_event (799), group_event (948). Đây là mô hình "khách chạy
+  client thật" chứ không phải OA push.
+=> Nói cách khác: mình KHÔNG lách luật Zalo, chỉ hứng tin đúng lúc nó tới. Y hệt
+   Pancake. Gemini mô tả trúng.
+
+======================================================================
+2. GEMINI ĐÚNG VỀ "KHÔNG KÉO ĐƯỢC LỊCH SỬ CŨ" — CODE CÒN SIẾT HƠN
+======================================================================
+Gemini: Zalo cá nhân chỉ thấy chat TỪ lúc kết nối trở đi, không hồi tố nhiều
+tháng/năm. → ĐÚNG, và zalo-history-backfill.ts ghi rõ giới hạn:
+- Comment đầu file (dòng 7): "no message history; zca-js has no 1-1 history API"
+  → thư viện KHÔNG có API lấy lịch sử 1-1 tử tế.
+- DM (chat 1-1): pump requestOldMessages nhưng CẮT CỨNG 30 ngày (dòng 140-153:
+  allOlderThan30Days → dừng), tối đa 50 trang (DM_MAX_PAGES=50, dòng 21).
+- Nhóm: getGroupChatHistory tối đa 50 tin/nhóm (MESSAGES_PER_GROUP=50, dòng 20),
+  tối đa 50 nhóm (MAX_GROUPS=50, dòng 19), cũng bỏ tin > 30 ngày (dòng 353).
+- Danh bạ: hiện CỐ TÌNH BỎ quét toàn bộ để chạy nhanh (dòng 270-274) — liên hệ
+  chỉ sinh ra khi có tin nhắn tới.
+=> Thực tế: nick mới đăng nhập chỉ "seed" được ~30 ngày gần nhất + 50 nhóm gần
+   nhất. KHÔNG có chuyện kéo về cả năm lịch sử. Đây là GIỚI HẠN của Zalo cá nhân
+   + lựa chọn thiết kế của mình, đúng như Gemini cảnh báo.
+
+======================================================================
+3. TRẢ LỜI CÂU CUỐI CỦA GEMINI: "OA CHÍNH THỨC HAY CÁ NHÂN?"
+======================================================================
+Về mặt SỰ THẬT: mình ĐÃ chọn rồi — toàn bộ hệ đang chạy Zalo CÁ NHÂN (zca-js).
+Không phải câu hỏi mở, mà là hiện trạng. Muốn đổi sang OA = viết lại lõi sync.
+
+So sánh thẳng để anh quyết có nên nghĩ tới OA hay không:
+
+  Zalo CÁ NHÂN (đang dùng) — zca-js:
+   + Chat như người thật: kết bạn, nhắn trước, thấy tên/avatar/typing/seen thật,
+     gom nhiều nick — hợp bán hàng cưới của mình.
+   + Không cần Zalo duyệt, không phí OA.
+   − KHÔNG chính thức: Zalo có thể đổi giao thức/khóa nick bất cứ lúc nào → mình
+     phải chạy theo. Rủi ro "treo nick" là có thật.
+   − Lịch sử cũ gần như không kéo được (mục 2).
+
+  Zalo OA chính thức — Open API + Webhook:
+   + Ổn định, được Zalo hỗ trợ, không lo khóa vì "dùng client lậu".
+   + Push webhook chuẩn, có SLA.
+   − OA KHÔNG nhắn trước cho khách; khách phải nhắn vào OA trước, và có cửa sổ
+     thời gian trả lời. Sai hẳn kịch bản "sale chủ động gom nick nhắn khách".
+   − Phải đăng ký OA doanh nghiệp, tốn phí ZNS/tin.
+   => OA hợp CSKH/thông báo tự động, KHÔNG hợp cách mình đang bán.
+
+Ý CTO: giữ Zalo cá nhân làm lõi (đúng nghiệp vụ), ĐỪNG đổi sang OA chỉ vì "chính
+thức". Nếu sau này muốn giảm rủi ro treo nick thì cân nhắc HYBRID: cá nhân để
+sale chủ động + OA để gửi thông báo/ZNS hàng loạt. Nhưng đó là việc lớn, chưa cần
+bây giờ. Không có gì phải sửa gấp — Gemini không chỉ ra lỗi nào trong code cả.
+
+======================================================================
+4. TÔI CHƯA SỬA GÌ
+======================================================================
+Đây là việc kiểm chứng + tư vấn. Không đụng 1 dòng code nào. 2 file trên chỉ đọc.

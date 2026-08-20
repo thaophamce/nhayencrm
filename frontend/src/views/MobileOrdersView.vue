@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 <!-- Copyright (C) 2026 Nguyễn Tiến Lộc -->
 <template>
-  <div class="cl-mobile-orders pa-3" style="min-height: calc(100vh - 120px); background: #F8FAFC;">
+  <div class="cl-mobile-orders pa-3">
     <!-- Top Search & Title -->
     <div class="cl-orders-header mb-3 px-1">
       <div class="cl-orders-title">Đơn hàng</div>
@@ -30,7 +30,6 @@
       hide-details
       prepend-inner-icon="mdi-magnify"
       class="mb-3 cl-orders-search"
-      bg-color="white"
     />
 
     <!-- Filter chips -->
@@ -432,7 +431,12 @@ onMounted(() => {
 <style scoped>
 .cl-mobile-orders {
   display: flex;
+  min-height: calc(100dvh - 120px);
   flex-direction: column;
+  padding-bottom: 92px !important;
+  color: var(--ink);
+  background: var(--surface-2);
+  font-family: var(--font);
 }
 .cl-orders-header {
   display: flex;
@@ -443,8 +447,8 @@ onMounted(() => {
 .cl-orders-title {
   font-size: 20px;
   font-weight: 700;
-  color: #0F172A;
-  font-family: 'Quicksand', sans-serif;
+  color: var(--ink);
+  font-family: var(--font);
 }
 .cl-orders-add-btn {
   margin: 0 !important;
@@ -455,8 +459,9 @@ onMounted(() => {
 }
 .cl-orders-search :deep(.v-field) {
   border-radius: 10px !important;
-  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.02) !important;
-  border: 1px solid #E2E8F0 !important;
+  background: var(--surface) !important;
+  box-shadow: var(--sh-xs) !important;
+  border: 1px solid var(--line) !important;
   font-size: 13px !important;
   height: 36px !important;
 }
@@ -480,7 +485,8 @@ onMounted(() => {
   display: flex;
   gap: 8px;
   overflow-x: auto;
-  padding: 4px 2px;
+  padding: 4px 2px 6px;
+  scrollbar-width: none;
 }
 .cl-filter-container::-webkit-scrollbar {
   height: 0;
@@ -488,60 +494,57 @@ onMounted(() => {
 .cl-filter-chip {
   display: inline-flex;
   align-items: center;
-  padding: 4px 12px;
-  border-radius: 12px;
+  min-height: 34px;
+  padding: 0 13px;
+  border-radius: var(--r-pill);
   font-size: 12px;
   font-weight: 600;
-  border: 1.5px solid #E2E8F0;
-  background: #F8FAFC;
-  color: #64748B;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink-2);
   cursor: pointer;
   white-space: nowrap;
   flex-shrink: 0;
   transition: all 0.15s ease-in-out;
 }
 .cl-filter-chip.active {
-  background: #2563EB;
-  color: #fff;
-  border-color: #2563EB;
+  background: var(--brand);
+  color: var(--surface);
+  border-color: var(--brand);
 }
-.cl-filter-chip.active.demo { background: #FFB74D; border-color: #FFB74D; }
-.cl-filter-chip.active.designing { background: #64B5F6; border-color: #64B5F6; }
-.cl-filter-chip.active.approved { background: #81C784; border-color: #81C784; }
-.cl-filter-chip.active.cancelled { background: #E57373; border-color: #E57373; }
+.cl-filter-chip.active.demo { background: var(--warning); border-color: var(--warning); }
+.cl-filter-chip.active.designing { background: var(--brand-bright); border-color: var(--brand-bright); }
+.cl-filter-chip.active.approved { background: var(--success); border-color: var(--success); }
+.cl-filter-chip.active.cancelled { background: var(--error); border-color: var(--error); }
 
 .cl-order-card {
-  background: #FFFFFF;
-  border-radius: 18px;
+  background: var(--surface);
+  border-radius: var(--r-md);
   padding: 16px;
-  border: 1px solid #E2E8F0;
-  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.02);
+  border: 1px solid var(--line);
+  box-shadow: var(--sh-xs);
   cursor: pointer;
   transition: all 0.2s ease;
 }
-.theme--dark .cl-order-card {
-  background: #1E293B;
-  border-color: #334155;
-}
 .cl-order-card:hover {
   transform: translateY(-2px);
-  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.05);
+  box-shadow: var(--sh-sm);
 }
 .cl-status-pill {
   font-size: 11px;
   font-weight: 800;
   padding: 3px 8px;
   border-radius: 10px;
-  color: #FFFFFF;
+  color: var(--surface);
 }
-.cl-status-pill.demo { background: #F57C00; }
-.cl-status-pill.designing { background: #2F80ED; }
-.cl-status-pill.approved { background: #34A853; }
-.cl-status-pill.cancelled { background: #E5484D; }
+.cl-status-pill.demo { background: var(--warning); }
+.cl-status-pill.designing { background: var(--brand); }
+.cl-status-pill.approved { background: var(--success); }
+.cl-status-pill.cancelled { background: var(--error); }
 
 .cl-order-skeleton {
   height: 100px;
-  background: linear-gradient(90deg, #F1F5F9 25%, #E2E8F0 50%, #F1F5F9 75%);
+  background: linear-gradient(90deg, var(--surface-3) 25%, var(--line) 50%, var(--surface-3) 75%);
   background-size: 200% 100%;
   animation: loading-animation 1.5s infinite;
   border-radius: 18px;
@@ -561,21 +564,18 @@ onMounted(() => {
   border-top-right-radius: 28px !important;
   display: flex;
   flex-direction: column;
-  background: #FFFFFF;
-}
-.theme--dark .cl-sheet-card {
-  background: #0F172A;
+  background: var(--surface);
 }
 .cl-drag-handle {
   width: 36px;
   height: 5px;
-  background: #CBD5E1;
+  background: var(--ink-4);
   border-radius: 3px;
   margin: 12px auto 4px auto;
   flex-shrink: 0;
 }
 .cl-header-border {
-  border-bottom: 1px solid #F1F5F9;
+  border-bottom: 1px solid var(--line);
 }
 .cl-detail-group {
   display: flex;
@@ -584,18 +584,14 @@ onMounted(() => {
 }
 .cl-detail-label {
   font-size: 12px;
-  color: #64748B;
+  color: var(--ink-3);
   font-weight: 500;
 }
 .cl-detail-value {
   font-size: 14px;
-  color: #0F172A;
+  color: var(--ink);
   font-weight: 600;
 }
-.theme--dark .cl-detail-value {
-  color: #F8FAFC;
-}
-
 /* Timeline */
 .cl-timeline {
   display: flex;
@@ -610,10 +606,7 @@ onMounted(() => {
   top: 6px;
   bottom: 6px;
   width: 2px;
-  background: #E2E8F0;
-}
-.theme--dark .cl-timeline::before {
-  background: #334155;
+  background: var(--line);
 }
 .cl-timeline-item {
   display: flex;
@@ -624,15 +617,20 @@ onMounted(() => {
 .cl-timeline-dot {
   width: 14px;
   height: 14px;
-  background: #2563EB;
-  border: 3px solid #FFFFFF;
+  background: var(--brand);
+  border: 3px solid var(--surface);
   border-radius: 50%;
   flex-shrink: 0;
-  box-shadow: 0 0 0 2px #93C5FD;
+  box-shadow: 0 0 0 2px var(--brand-soft);
 }
 .cl-timeline-content {
   display: flex;
   flex-direction: column;
   gap: 2px;
+}
+
+@media (max-width: 340px) {
+  .cl-mobile-orders { padding-inline: 8px !important; }
+  .cl-order-card { padding: 13px; }
 }
 </style>

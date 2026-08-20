@@ -1,0 +1,64 @@
+﻿KẾ HOẠCH CẬP NHẬT GIAO DIỆN VÀ CHỨC NĂNG HỘI THOẠI ZALO
+Ngày: 13/07/2026
+
+MỤC TIÊU
+Hoàn thiện phần thông tin hội thoại nhóm, thanh thẻ lọc, tiêu đề hội thoại và trình xem ảnh theo đúng các ảnh tham khảo.
+
+1. THÔNG TIN HỘI THOẠI NHÓM
+- Hình tròn phía trên tên nhóm phải hiển thị ảnh đại diện thật của hội thoại/nhóm Zalo.
+- Nếu nhóm chưa có ảnh đại diện thì mới dùng ảnh chữ cái viết tắt làm phương án dự phòng.
+- Thêm nút “Thêm thành viên” bên cạnh nút “Tạo nhóm Zalo”.
+- Thêm nút “Rời nhóm” bên cạnh nút “Tạo nhóm Zalo”.
+- Hai nút “Thêm thành viên” và “Rời nhóm” chỉ hiển thị khi hội thoại hiện tại là hội thoại nhóm.
+- “Thêm thành viên” mở danh sách bạn bè Zalo, cho phép chọn nhiều người và thêm thật vào nhóm đang mở.
+- “Rời nhóm” phải có hộp thoại xác nhận trước khi thực hiện; khi thành công sẽ gỡ hội thoại khỏi danh sách và chuyển về màn hình chat phù hợp.
+- Kiểm tra và sửa chức năng đổi tên nhóm để gọi đúng API/SDK Zalo, cập nhật tên ngay trên giao diện và đồng bộ lại danh sách hội thoại.
+
+2. THANH THẺ TAG/NHÃN Ở DANH SÁCH HỘI THOẠI
+- Đổ màu nền cho từng thẻ tag theo màu cấu hình của thẻ, thay vì chỉ dùng viền trắng/xám.
+- Màu chữ và độ tương phản phải dễ đọc trên nền thẻ.
+- Giữ giao diện đồng nhất với màu tím của web app.
+- Thêm nút mũi tên kéo sang phải khi còn thẻ bị khuất.
+- Sau khi kéo sang phải, hiển thị thêm nút mũi tên kéo sang trái.
+- Hai nút tự ẩn khi đã đến đầu hoặc cuối danh sách.
+
+3. TIÊU ĐỀ HỘI THOẠI
+- Thêm icon bút chì cạnh tên hội thoại.
+- Nhấp icon bút chì sẽ cho phép sửa tên hội thoại:
+  + Hội thoại nhóm: đổi tên nhóm Zalo thật.
+  + Hội thoại cá nhân: dùng cơ chế tên gợi nhớ/alias phù hợp hiện có của hệ thống.
+- Sau khi lưu, tên mới phải cập nhật ngay ở tiêu đề và danh sách hội thoại.
+- Bỏ thẻ/chữ “Trống” cạnh tên hội thoại.
+- Đổi nội dung nút/ô “Phân loại” thành “Gắn thẻ”.
+
+4. TRÌNH XEM ẢNH/VIDEO TRONG THÔNG TIN HỘI THOẠI
+- Khi nhấp vào ảnh, không mở ảnh ở website/tab mới.
+- Mở popup lightbox ngay trong web app và hiển thị ảnh được chọn.
+- Popup có nền tối, nút đóng và hỗ trợ đóng bằng phím Escape.
+- Khi rê chuột lên ảnh trong popup, hiển thị icon kính lúp.
+- Nhấp icon kính lúp để phóng ảnh lên 2 lần (x2).
+- Cho phép thu nhỏ về kích thước ban đầu.
+- Khi ảnh đang phóng to, vùng popup có thể cuộn/pan để xem đầy đủ ảnh.
+- Nếu danh sách có nhiều ảnh, cân nhắc dùng nút trái/phải để xem ảnh trước và ảnh sau trong cùng popup.
+
+5. KIỂM TRA TÍCH HỢP
+- Kiểm tra quyền thao tác nhóm của tài khoản Zalo trước khi hiện/cho bấm các nút quản trị.
+- Hiển thị thông báo lỗi cụ thể từ backend, không chỉ báo chung “Máy chủ lỗi”.
+- Kiểm tra lại các trường hợp: nhóm có/không có avatar, đổi tên thành công/thất bại, thêm thành viên, rời nhóm, danh sách tag dài và popup ảnh.
+- Build frontend và backend sau khi hoàn tất.
+
+CÁC FILE DỰ KIẾN LIÊN QUAN
+- frontend/src/components/chat/ChatContactPanel.vue
+- frontend/src/components/chat/MessageThread.vue
+- frontend/src/components/chat/ConversationList.vue
+- frontend/src/views/ChatView.vue
+- frontend/src/components/groups/group-create-dialog.vue (có thể tái sử dụng phần chọn thành viên)
+- frontend/src/composables/use-groups.ts
+- backend/src/modules/zalo/group-routes.ts
+- backend/src/shared/zalo-operations.ts
+
+GHI CHÚ TRIỂN KHAI
+- Không dùng dữ liệu giả; mọi nút phải thao tác thật với Zalo/CRM.
+- Giữ font Quicksand, màu tím #6C4CF1 và style hiện tại của web app.
+- Không trộn thẻ CRM với nhãn Zalo native.
+- Bảo toàn tiếng Việt UTF-8, không để lỗi font.

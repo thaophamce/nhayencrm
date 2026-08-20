@@ -1,0 +1,497 @@
+﻿TRAO ĐỔI TÍNH NĂNG: TẠO ĐƠN TỪ PANCAKE
+Ngày rà soát: 25/07/2026
+Trạng thái: CHƯA CODE - chờ chốt nghiệp vụ
+
+============================================================
+1. TÓM TẮT YÊU CẦU
+============================================================
+
+Trong tab "QUẢN LÝ ĐƠN" của hội thoại nhóm Zalo, thêm nút:
+
+    TẠO ĐƠN TỪ PANCAKE
+
+Khi bấm:
+1) ZaloCRM gọi Pancake POS Open API để tạo đơn mới.
+2) Pancake trả thông tin đơn vừa tạo.
+3) ZaloCRM lấy mã đơn hiển thị của Pancake.
+4) ZaloCRM đổi tên nhóm Zalo thành mã đơn đó.
+5) ZaloCRM lưu liên kết giữa hội thoại nhóm và đơn Pancake.
+
+Ví dụ:
+- Pancake tạo đơn, mã hiển thị: 12345 hoặc POS12345.
+- Nhóm Zalo hiện tại đổi tên thành: 12345 hoặc POS12345.
+
+============================================================
+2. VỊ TRÍ NÚT TRONG SOURCE
+============================================================
+
+Panel trong ảnh phù hợp file:
+
+frontend/src/components/chat/OrderTabPanel.vue
+
+Panel được gọi tại:
+
+frontend/src/components/chat/ChatContactPanel.vue
+
+Nút nên đặt phía trên form quản lý đơn hiện tại, rộng 100%, dễ thấy.
+Nút chỉ hiện trong hội thoại nhóm vì tab "QUẢN LÝ ĐƠN" hiện chỉ dành cho nhóm.
+
+Đề xuất giao diện:
+
+[ Tạo đơn từ Pancake ]
+
+Sau khi tạo thành công:
+
+[ Mở đơn trên Pancake ]
+Mã Pancake: XXXXX
+Trạng thái: Mới
+
+Không dùng nút "Tạo đơn" CRM hiện tại để gọi Pancake ngầm. Tách hai nút giúp nhân viên biết đơn được tạo ở hệ thống nào và tránh nhầm.
+
+============================================================
+3. API PANCAKE ĐÃ KIỂM TRA
+============================================================
+
+Tài liệu:
+https://docs.pancake.biz/pos/api/
+
+OpenAPI:
+https://docs.pancake.biz/pos/api/openapi.json?lang=vi
+
+Máy chủ API:
+https://pos.pages.fm/api/v1
+
+Endpoint tạo đơn:
+POST /shops/{SHOP_ID}/orders
+
+URL đầy đủ:
+POST https://pos.pages.fm/api/v1/shops/{SHOP_ID}/orders?api_key={API_KEY}
+
+Xác thực:
+- API key truyền bằng query parameter tên "api_key".
+- Tạo API key tại Pancake: Cấu hình -> Ứng dụng -> API KEY -> Thêm mới.
+
+Theo OpenAPI hiện tại:
+- Request bắt buộc "shop_id".
+- Nếu có sản phẩm, mỗi item bắt buộc "variation_id" và "quantity".
+- Response có các trường đáng chú ý: id, system_id, display_id, custom_id, shop_id, status, status_name.
+- Trạng thái 0 = Mới.
+
+Payload tối thiểu cần thử nghiệm thật:
+
+{
+  "shop_id": SHOP_ID,
+  "status": 0,
+  "note": "Tạo từ ZaloCRM - hội thoại {conversationId}",
+  "merge_order": false
+}
+
+Lưu ý lớn:
+Tài liệu khai báo chỉ "shop_id" bắt buộc. Nhưng vận hành thực tế Pancake có thể yêu cầu kho, khách hàng hoặc sản phẩm tùy cấu hình shop. Phải test bằng API key/shop thật trước khi khóa form cuối.
+
+============================================================
+4. "MÃ ĐƠN" NÀO DÙNG LÀM TÊN NHÓM?
+============================================================
+
+Response Pancake có nhiều trường giống mã:
+- id: ID nội bộ đơn.
+- system_id: mã hệ thống.
+- display_id: mã hiển thị.
+- custom_id: mã tùy chỉnh.
+
+Đề xuất quy tắc an toàn:
+1) Ưu tiên display_id nếu Pancake trả giá trị.
+2) Nếu không có display_id, dùng custom_id nếu có.
+3) Nếu cả hai trống, dùng id.
+
+Cần test một đơn thật để xác nhận trường nào trùng mã nhân viên đang nhìn thấy trên giao diện Pancake POS.
+
+Không nên tự đặt custom_id ngay trong lần đầu nếu Pancake đã có cơ chế sinh mã riêng. Tự đặt mã có nguy cơ trùng quy tắc của shop.
+
+============================================================
+5. LUỒNG XỬ LÝ ĐỀ XUẤT
+============================================================
+
+Bước 1 - Kiểm tra trước khi gọi Pancake
+- Người dùng có quyền Admin/Manager hoặc quyền mới "Tạo đơn Pancake".
+- Hội thoại tồn tại trong đúng tổ chức.
+- Hội thoại là nhóm Zalo.
+- Có zaloAccountId và externalThreadId (groupId).
+- Cấu hình Pancake đủ API_KEY và SHOP_ID.
+- Hội thoại chưa liên kết đơn Pancake.
+
+Bước 2 - Khóa nút
+- Hiện loading: "Đang tạo đơn Pancake..."
+- Không cho bấm lần hai.
+- Backend cũng phải chống tạo trùng; khóa ở frontend không đủ.
+
+Bước 3 - Gọi Pancake từ backend
+- Frontend gọi backend ZaloCRM.
+- Backend mới gọi Pancake POS.
+- API key không bao giờ gửi xuống trình duyệt.
+
+Endpoint nội bộ đề xuất:
+
+POST /api/v1/orders/pancake/from-conversation/:conversationId
+
+Payload giai đoạn đầu:
+
+{
+  "warehouseId": "...",        // nếu nghiệp vụ/shop yêu cầu
+  "billFullName": "...",       // nếu đã có
+  "billPhoneNumber": "...",    // nếu đã có
+  "note": "..."                // tùy chọn
+}
+
+Bước 4 - Pancake tạo đơn
+Backend gọi:
+
+POST https://pos.pages.fm/api/v1/shops/{SHOP_ID}/orders?api_key=...
+
+Bước 5 - Lưu liên kết ngay
+Sau khi Pancake trả thành công, backend phải lưu ngay:
+- pancakeOrderId
+- pancakeDisplayId
+- pancakeCustomId
+- pancakeShopId
+- pancakeStatus
+- pancakeCreatedAt
+- pancakeRawResponse hoặc dữ liệu cần thiết để đối soát
+
+Lưu trước khi đổi tên nhóm. Lý do: Pancake có thể đã tạo đơn nhưng Zalo đổi tên thất bại. Nếu không lưu, lần bấm sau tạo đơn trùng.
+
+Bước 6 - Đổi tên nhóm Zalo
+Dùng API nội bộ sẵn có:
+
+PATCH /api/v1/zalo-accounts/{accountId}/groups/{groupId}/name
+
+Backend hiện đã có zaloOps.renameGroup(...).
+Tên mới lấy theo quy tắc mã đơn đã chốt.
+
+Bước 7 - Đồng bộ DB hội thoại
+Sau khi Zalo đổi tên thành công, cập nhật Conversation.groupName ngay. Không chờ cron đồng bộ để giao diện đổi tên chậm.
+
+Bước 8 - Trả kết quả
+Response nội bộ đề xuất:
+
+{
+  "success": true,
+  "pancakeOrder": {
+    "id": 12345,
+    "displayId": "12345",
+    "customId": null,
+    "status": 0,
+    "statusName": "new"
+  },
+  "groupRename": {
+    "success": true,
+    "name": "12345"
+  }
+}
+
+============================================================
+6. TRƯỜNG HỢP PANCAKE THÀNH CÔNG NHƯNG ĐỔI TÊN ZALO THẤT BẠI
+============================================================
+
+Đây là tình huống quan trọng nhất.
+
+Không được báo chung "Tạo đơn thất bại", vì đơn Pancake đã tồn tại.
+Phải báo rõ:
+
+"Đã tạo đơn Pancake 12345, nhưng chưa đổi được tên nhóm Zalo. Bấm 'Thử đổi tên lại'."
+
+Giao diện hiện:
+- Mã đơn Pancake.
+- Nút "Thử đổi tên lại".
+- Nút "Mở đơn trên Pancake" nếu xác định được URL.
+- Không cho tạo thêm đơn Pancake cho hội thoại này.
+
+============================================================
+7. CHỐNG TẠO ĐƠN TRÙNG
+============================================================
+
+Cần 3 lớp:
+
+1) Frontend
+- Disable nút khi request đang chạy.
+
+2) Database
+- Một conversationId chỉ liên kết tối đa một đơn Pancake.
+- Unique constraint theo orgId + conversationId cho liên kết Pancake.
+- Unique constraint theo shopId + pancakeOrderId.
+
+3) Backend
+- Trước khi gọi Pancake, kiểm tra liên kết đã tồn tại.
+- Nếu đã có, trả đơn cũ; không tạo đơn mới.
+- Xử lý hai request đồng thời bằng transaction/khóa hoặc bản ghi idempotency trạng thái "creating".
+
+Ghi chú:
+Pancake API tài liệu không nêu idempotency key cho endpoint này. Vì vậy ZaloCRM phải tự bảo vệ trước double-click, retry và timeout.
+
+Nếu request timeout mà không biết Pancake đã tạo hay chưa:
+- Không tự gọi tạo lần hai ngay.
+- Đánh dấu trạng thái "unknown".
+- Dùng API danh sách đơn để đối soát theo dấu vết note/custom_id/thời gian, hoặc yêu cầu nhân viên kiểm tra.
+
+============================================================
+8. DỮ LIỆU CẦN LẤY TỪ HỘI THOẠI
+============================================================
+
+Với hội thoại nhóm, thông tin khách có thể không đầy đủ.
+Có hai phương án:
+
+PHƯƠNG ÁN A - Tạo đơn nháp/rỗng trước
+- Gửi shop_id, status=0, note, merge_order=false.
+- Pancake sinh mã.
+- Đổi tên nhóm ngay.
+- Nhân viên vào Pancake bổ sung khách, sản phẩm, kho, giao hàng.
+
+Ưu điểm: đúng yêu cầu "bấm là tạo đơn và lấy mã"; ít trường nhập.
+Nhược điểm: cần xác minh Pancake shop thật cho phép đơn không sản phẩm.
+
+PHƯƠNG ÁN B - Mở popup nhập đủ thông tin
+- Khách hàng: tên, SĐT.
+- Kho hàng.
+- Sản phẩm/biến thể, số lượng.
+- Địa chỉ giao hàng.
+- Ghi chú.
+- Sau đó mới tạo đơn.
+
+Ưu điểm: đơn Pancake dùng ngay.
+Nhược điểm: tính năng lớn hơn; phải tải kho, sản phẩm, biến thể từ Pancake; thao tác chậm hơn.
+
+Khuyến nghị làm hai giai đoạn:
+- Giai đoạn 1: Phương án A, test API thật.
+- Giai đoạn 2: popup đầy đủ theo nhu cầu vận hành.
+
+============================================================
+9. LIÊN HỆ VỚI ĐƠN NỘI BỘ ZALOCRM HIỆN CÓ
+============================================================
+
+Source hiện có bảng Order nội bộ:
+- orderCode
+- fileCount
+- deadline
+- designerId
+- status thiết kế
+- conversationId
+
+Đây là đơn công việc thiết kế nội bộ, khác đơn bán hàng Pancake POS.
+
+Đề xuất:
+- Không ghi đè ID Pancake vào trường Order.id.
+- Có thể dùng mã Pancake làm Order.orderCode.
+- Thêm trường liên kết Pancake vào Order hoặc tạo bảng PancakeOrderLink riêng.
+
+Phương án tốt hơn: thêm trường vào Order nếu chắc chắn 1 nhóm chỉ có 1 đơn CRM và 1 đơn Pancake.
+Ví dụ:
+- pancakeOrderId String?
+- pancakeDisplayId String?
+- pancakeCustomId String?
+- pancakeShopId String?
+- pancakeStatus Int?
+- pancakeSyncStatus String?
+- pancakeLastError String?
+- pancakeCreatedAt DateTime?
+
+Nếu một hội thoại có thể có nhiều đơn Pancake, phải tạo bảng riêng PancakeOrderLink và bỏ giả định 1-1.
+
+============================================================
+10. CẤU HÌNH VÀ BẢO MẬT
+============================================================
+
+Cấu hình đề xuất ở backend:
+
+PANCAKE_POS_BASE_URL=https://pos.pages.fm/api/v1
+PANCAKE_POS_API_KEY=
+PANCAKE_POS_SHOP_ID=
+PANCAKE_POS_WAREHOUSE_ID=
+
+Không commit API key vào Git.
+Không log URL đầy đủ vì query string chứa api_key.
+Không trả API key về frontend.
+Che API key trong error/log.
+Đặt timeout khi gọi Pancake, ví dụ 15 giây.
+Chỉ backend gọi domain pos.pages.fm.
+
+Nếu hệ thống nhiều tổ chức/shop:
+- Không dùng một biến môi trường chung.
+- Tạo cấu hình Pancake theo orgId, mã hóa API key trong DB.
+
+============================================================
+11. QUYỀN
+============================================================
+
+Hiện OrderTabPanel chỉ cho Admin/Manager sửa và tạo đơn CRM.
+Nút Pancake nên dùng một trong hai cách:
+
+Cách nhanh:
+- Admin/Manager mới thấy và bấm được.
+
+Cách chuẩn:
+- Permission riêng: pancake_order.create.
+- Permission retry rename: pancake_order.rename_group.
+- Nhân viên chỉ xem mã/link nếu không có quyền tạo.
+
+Khuyến nghị giai đoạn đầu: Admin/Manager.
+
+============================================================
+12. UI CHI TIẾT
+============================================================
+
+Trạng thái chưa liên kết:
+- Nút xanh: "Tạo đơn từ Pancake".
+- Dòng phụ: "Tạo đơn POS mới và đổi tên nhóm theo mã đơn".
+
+Khi đang tạo:
+- Spinner.
+- Chữ: "Đang tạo đơn Pancake...".
+- Khóa toàn bộ thao tác tạo.
+
+Thành công toàn bộ:
+- Toast: "Đã tạo đơn Pancake 12345 và đổi tên nhóm".
+- Card hiện mã đơn, trạng thái, thời điểm tạo.
+- Ẩn nút tạo; hiện nút mở/xem.
+
+Tạo đơn thành công, đổi tên thất bại:
+- Cảnh báo màu vàng, không màu đỏ toàn phần.
+- Hiện mã đơn đã tạo.
+- Nút "Thử đổi tên lại".
+
+Pancake từ chối:
+- Không đổi tên nhóm.
+- Hiện lỗi dễ hiểu từ backend.
+- Cho bấm lại sau khi sửa dữ liệu/cấu hình.
+
+============================================================
+13. URL MỞ ĐƠN PANCAKE
+============================================================
+
+Open API trả dữ liệu đơn, nhưng URL giao diện quản trị cần kiểm chứng theo shop/tài khoản Pancake.
+Không tự đoán URL production.
+Sau khi có tài khoản thật, mở một đơn Pancake, sao chép URL và xác định mẫu URL.
+Nếu chưa xác định được, giai đoạn đầu chỉ hiện mã đơn để tìm trong POS.
+
+============================================================
+14. TEST BẮT BUỘC
+============================================================
+
+1) Tạo đơn thành công, đổi tên nhóm thành công.
+2) Pancake API key sai.
+3) SHOP_ID sai.
+4) Shop yêu cầu warehouse_id.
+5) Shop không cho đơn rỗng/không sản phẩm.
+6) Pancake timeout trước khi trả response.
+7) Bấm nhanh hai lần.
+8) Hai nhân viên bấm cùng lúc.
+9) Pancake thành công nhưng Zalo rename lỗi.
+10) Retry rename không tạo thêm đơn.
+11) Hội thoại không phải nhóm.
+12) Nhóm thiếu externalThreadId.
+13) Người dùng không có quyền.
+14) Mã display_id trống, fallback custom_id/id.
+15) Tên nhóm vượt giới hạn ký tự Zalo hoặc chứa ký tự không hợp lệ.
+16) Refresh trang vẫn thấy liên kết đơn.
+17) DB groupName và tên thật trên Zalo nhất quán.
+18) API key không lộ trong log, network frontend, response lỗi.
+
+============================================================
+15. KẾ HOẠCH CODE SAU KHI CHỐT
+============================================================
+
+Giai đoạn 0 - Test Pancake thật
+- Lấy API key, SHOP_ID.
+- Gọi GET /shops để xác nhận quyền.
+- Gọi GET /shops/{SHOP_ID}/warehouses.
+- Tạo một đơn thử bằng payload tối thiểu.
+- Xác nhận trường mã đơn đúng: display_id, custom_id hay id.
+
+Giai đoạn 1 - Backend
+- Thêm cấu hình Pancake.
+- Viết Pancake POS client.
+- Thêm DB fields/bảng liên kết và migration.
+- Thêm endpoint tạo đơn từ conversation.
+- Thêm chống trùng/idempotency nội bộ.
+- Gọi renameGroup và cập nhật Conversation.groupName.
+- Thêm endpoint retry rename.
+
+Giai đoạn 2 - Frontend
+- Thêm nút trong OrderTabPanel.vue.
+- Thêm loading, success card, partial-failure card.
+- Thêm retry rename.
+- Đồng bộ groupName trên giao diện sau thành công.
+
+Giai đoạn 3 - Kiểm thử
+- Unit test Pancake client với mock.
+- Integration test tạo đơn và chống trùng.
+- Test lỗi một phần.
+- Test thật bằng shop Pancake test/đơn thử.
+
+============================================================
+16. CÁC ĐIỂM CẦN ANH CHỐT
+============================================================
+
+CÂU 1. Nút áp dụng ở đâu?
+[A] Chỉ hội thoại nhóm (khuyến nghị, đúng yêu cầu tên nhóm).
+[B] Cả hội thoại cá nhân; cá nhân không có bước đổi tên nhóm.
+
+CÂU 2. Khi bấm, tạo đơn kiểu nào?
+[A] Tạo đơn mới trạng thái "Mới" với dữ liệu tối thiểu, rồi nhân viên bổ sung trong Pancake (khuyến nghị giai đoạn 1).
+[B] Mở popup nhập khách, kho, sản phẩm, địa chỉ trước khi tạo.
+
+CÂU 3. Tên nhóm chính xác lấy mã nào?
+[A] Mã đang hiển thị trên giao diện Pancake POS (khuyến nghị; cần test xác định field).
+[B] ID nội bộ API trả về.
+[C] custom_id do ZaloCRM tự sinh.
+
+CÂU 4. Nếu tên nhóm hiện tại có nội dung quan trọng?
+[A] Đổi hoàn toàn thành mã đơn (đúng yêu cầu hiện tại).
+[B] Giữ tên cũ và nối mã: "{mã đơn} - {tên cũ}".
+
+CÂU 5. Đơn nội bộ CRM xử lý thế nào?
+[A] Pancake thành công thì tự tạo luôn Order CRM với orderCode = mã Pancake (khuyến nghị để tab quản lý đơn hoạt động liền).
+[B] Chỉ lưu liên kết Pancake; người dùng vẫn tự tạo Order CRM sau.
+[C] Bỏ form Order CRM, dùng Pancake làm nguồn đơn duy nhất.
+
+CÂU 6. Một nhóm được phép có bao nhiêu đơn Pancake?
+[A] Một nhóm = một đơn Pancake (khuyến nghị, phù hợp tên nhóm là mã đơn).
+[B] Một nhóm có nhiều đơn; phải chọn đơn chính để đặt tên nhóm.
+
+CÂU 7. Ai được bấm?
+[A] Admin/Manager (khuyến nghị giai đoạn đầu).
+[B] Mọi sale/designer.
+[C] Quyền riêng do admin cấp.
+
+CÂU 8. Nếu Pancake tạo đơn xong nhưng đổi tên nhóm lỗi?
+[A] Giữ đơn, báo lỗi một phần, cho retry đổi tên; tuyệt đối không tạo lại (khuyến nghị).
+[B] Xóa/hủy đơn Pancake tự động nếu API hỗ trợ.
+
+CÂU 9. Dữ liệu khách lấy từ đâu khi đang ở nhóm?
+[A] Không cần ở giai đoạn 1; tạo đơn tối thiểu.
+[B] Chọn một thành viên nhóm làm khách.
+[C] Nhập tay tên/SĐT trong popup.
+[D] Lấy từ Order/Contact đã liên kết nếu có.
+
+CÂU 10. Shop Pancake nào dùng?
+Cần cung cấp:
+- SHOP_ID
+- API key (nhập vào .env hoặc màn cấu hình; không gửi vào tài liệu/Git)
+- WAREHOUSE_ID mặc định nếu shop yêu cầu
+- Một mã đơn mẫu và ảnh/URL đơn mẫu để đối chiếu trường mã hiển thị
+
+============================================================
+17. PHƯƠNG ÁN KHUYẾN NGHỊ CHỐT NHANH
+============================================================
+
+- Chỉ hội thoại nhóm.
+- Một nhóm = một đơn Pancake.
+- Admin/Manager được tạo.
+- Nút "Tạo đơn từ Pancake" nằm đầu tab QUẢN LÝ ĐƠN.
+- Giai đoạn đầu tạo đơn trạng thái Mới bằng payload tối thiểu.
+- Dùng mã hiển thị Pancake làm tên nhóm; xác định field bằng một đơn test thật.
+- Pancake thành công thì tạo/cập nhật Order CRM cùng mã.
+- Lưu liên kết trước rồi mới rename nhóm.
+- Rename lỗi thì giữ đơn, cho retry; không tạo lại.
+- API key chỉ nằm backend.
+
+CHƯA NÊN CODE trước khi có test API thật và chốt 10 câu trên.

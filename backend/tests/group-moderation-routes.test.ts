@@ -8,12 +8,14 @@ import { mockUser, mockZaloOps } from './test-helpers.js';
 
 // ── Hoisted mock state ─────────────────────────────────────────────────────────
 const zaloOpsMock = mockZaloOps();
+const conversationUpdateMany = vi.fn();
 
 vi.mock('../src/shared/database/prisma-client.js', () => ({
   prisma: {
     zaloAccount: { findFirst: vi.fn() },
     zaloAccountAccess: { findFirst: vi.fn() },
     groupPoll: { create: vi.fn(), findFirst: vi.fn(), update: vi.fn() },
+    conversation: { updateMany: conversationUpdateMany },
   },
 }));
 vi.mock('../src/shared/zalo-operations.js', () => ({
@@ -49,7 +51,7 @@ function buildApp(): FastifyInstance {
   return app;
 }
 
-beforeEach(() => { vi.clearAllMocks(); });
+beforeEach(() => { vi.clearAllMocks(); conversationUpdateMany.mockResolvedValue({ count: 1 }); });
 
 // ── POST block member ──────────────────────────────────────────────────────────
 describe('POST .../groups/:groupId/block', () => {
@@ -122,6 +124,9 @@ describe('POST .../groups/:groupId/leave', () => {
     const res = await buildApp().inject({ method: 'POST', url: `${BASE}/g1/leave`, payload: {} });
     expect(res.statusCode).toBe(200);
     expect(zaloOpsMock.leaveGroup).toHaveBeenCalledWith('za-1', 'g1');
+    expect(conversationUpdateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ zaloAccountId: 'za-1', externalThreadId: 'g1' }),
+    }));
   });
 });
 

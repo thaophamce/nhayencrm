@@ -1,5 +1,5 @@
 <template>
-  <div class="delivery-tabs">
+  <div class="delivery-tabs delivery-tabs--minimal">
     <aside class="delivery-side-nav" aria-label="&#272;i&#7873;u h&#432;&#7899;ng Giao v&#7853;n">
       <button v-for="item in menuItems" :key="item.value" :class="{ active: activeArea === item.value }" @click="activeArea = item.value">
         <v-icon size="19">{{ item.icon }}</v-icon><span>{{ item.label }}</span>
@@ -147,4 +147,9 @@ button.order-id{border:0;background:none;color:#075dcc;font-weight:700;cursor:po
 .tags-row{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}.tag-chip{background:#eaf2ff;color:#1767d2;border-radius:20px;padding:4px 11px;font-size:11.5px;font-weight:700}
 .detail-card.shipping p{border-color:#eef1f5}.ship-ico{color:#1767d5;margin-right:4px;vertical-align:-2px}.ship-status{color:#1767d5}.ship-track-link{display:inline-flex;align-items:center;gap:3px;margin-top:12px;color:#1767d5;font-size:12.5px;font-weight:700;text-decoration:none}.ship-track-link:hover{text-decoration:underline}
 .status-select{display:flex;align-items:center;gap:8px}.status-select span{color:#536075;font-size:12.5px;white-space:nowrap}.status-select select{width:auto!important;min-width:150px;padding:9px 10px}.footer-total{font-size:13px;color:#536075}.footer-total b{color:#111827}
+</style>
+<style scoped>
+.delivery-tabs--minimal{grid-template-columns:minmax(0,1fr)}
+.delivery-tabs--minimal .delivery-side-nav{display:none}
+.delivery-tabs--minimal .delivery-tab-content{border-top-left-radius:0;width:100%}
 </style>

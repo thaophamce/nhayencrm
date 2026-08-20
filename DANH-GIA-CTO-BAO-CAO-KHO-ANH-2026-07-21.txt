@@ -1,0 +1,103 @@
+ĐÁNH GIÁ CỦA CTO — BÁO CÁO TỐI ƯU KHO ẢNH (Codex)
+Người đánh giá: Claude (CTO dự án) — Ngày 21/07/2026
+Cách đánh giá: KHÔNG tin số liệu báo cáo. Tự đọc mã nguồn + tự chạy lại build/test.
+
+======================================================================
+KẾT LUẬN NHANH: BÁO CÁO TRUNG THỰC. DUYỆT CODE. CHƯA DUYỆT CHẠY PRODUCTION.
+======================================================================
+
+Codex nói gì làm nấy. Tôi kiểm từng tuyên bố quan trọng bằng chính mã
+nguồn, không phải bằng lời báo cáo. Không phát hiện thổi phồng.
+
+======================================================================
+1. NHỮNG GÌ TÔI TỰ XÁC MINH (KHỚP)
+======================================================================
+
+A. Thumbnail + nén ảnh — media-service.ts:
+   - MAX_EDGE=2000, WEBP_QUALITY=82, THUMB_MAX_EDGE=400, THUMB_WEBP_QUALITY=70.
+     ĐÚNG y báo cáo (dòng 36-39).
+   - GIF: không nằm trong COMPRESSIBLE → giữ nguyên bytes, không mất ảnh động. ĐÚNG.
+   - WebP đã ≤2000px: return nguyên buffer, KHÔNG encode lại vô ích (dòng 119-121). ĐÚNG.
+   - Asset dedup thiếu thumbnail: tự vá khi gặp lại (dòng 275-281). ĐÚNG.
+   - Có log [media][perf] stage=storage_write đo thumbnailMs. ĐÚNG.
+
+B. Schema — schema.prisma:
+   - MediaAsset.thumbnailUrl (@map thumbnail_url) CÓ THẬT (dòng 3995).
+   - Các cột index migration cần (kind, last_used_at, archived_at, created_at, org_id)
+     đều tồn tại trên model. Migration hợp lệ.
+
+C. Upload trình duyệt — frontend/src/api/media.ts:
+   - Timeout mỗi tệp = 5*60_000 (5 phút). ĐÚNG.
+   - Tối đa 3 upload đồng thời: if (active.size >= 3) await Promise.race(active). ĐÚNG.
+   - Partial-success: trả { assets, failed }; 1 ảnh lỗi KHÔNG hủy cả batch;
+     chỉ throw khi TẤT CẢ lỗi. ĐÚNG (dòng 122-127).
+   - Giữ tên gốc qua originalFilenames. ĐÚNG.
+
+D. Bảo mật SSRF — chat-media-helpers.ts:
+   - assertSafeRemoteUrl: chặn protocol lạ, chặn user:pass trong URL, chặn localhost/.local,
+     resolve DNS rồi loại private/loopback/link-local/metadata IP. ĐÚNG.
+   - fetchRemoteMediaBuffer: redirect manual, tối đa 3 chặng, timeout 30s, byte cap. ĐÚNG.
+   - assertUserProvidedMediaUrlAllowed: host phải thuộc LOCAL_PUBLIC_URL / S3_PUBLIC_URL /
+     MEDIA_REMOTE_HOST_ALLOWLIST, có hỗ trợ wildcard *.domain. ĐÚNG.
+   - Guard áp cho MỌI đường tải media (kể cả send-block). Baseline vững.
+
+======================================================================
+2. TÔI TỰ CHẠY LẠI (KHÔNG DÙNG SỐ CỦA BÁO CÁO)
+======================================================================
+
+   - npx prisma validate .......... PASS ("schema is valid")
+   - npx tsc --noEmit (backend) .... PASS (0 lỗi type)
+   - 3 file test media backend ..... PASS (20/20)
+       media-dedup / chat-media-security / storage-driver
+   - Frontend DOM test xử lý ảnh ... PASS (4/4)
+       giữ GIF / resize JPEG→WebP / giữ alpha WebP / không dùng bản nén nếu lớn hơn gốc
+
+   Ghi chú: Báo cáo nói "54 test mục tiêu". Tôi chạy 3 file trọng tâm media = 20 test
+   (con số 54 của Codex là gộp nhiều nhóm khác: source nick/tags, trash GC, profile media...).
+   Không mâu thuẫn — chỉ khác cách đếm. Phần cốt lõi media tôi tự chạy: SẠCH.
+
+======================================================================
+3. CODEX TỰ THÚ NHẬN ĐIỂM YẾU — TÔI ĐỒNG Ý, ĐÁNH GIÁ CAO SỰ TRUNG THỰC
+======================================================================
+
+   - Full backend test suite CŨ chưa sạch (phụ thuộc EE module / DB test / mock Prisma).
+     Codex KHÔNG tính là PASS. Đúng — không giấu.
+   - Build frontend còn cảnh báo "chunk lớn" có sẵn, không thuộc phạm vi kho ảnh.
+
+   => Một báo cáo dám ghi rõ cái CHƯA sạch là báo cáo đáng tin hơn báo cáo toàn màu hồng.
+
+======================================================================
+4. RỦI RO CÒN LẠI — BẮT BUỘC LÀM TRƯỚC KHI YÊN TÂM
+======================================================================
+
+   Ba việc ghi dữ liệu thật CHƯA chạy (Codex cố ý dừng lại — đúng):
+     (1) Chạy migration index trên production.
+     (2) Backfill thumbnail --apply cho ảnh cũ.
+     (3) Sửa dữ liệu DB/storage thật.
+
+   CTO YÊU CẦU thứ tự an toàn:
+     1. BACKUP DB production + xác nhận đúng STORAGE_DRIVER.
+     2. Chạy migration index qua quy trình deploy hiện có.
+     3. Deploy backend + frontend.
+     4. Chạy DRY-RUN: npm run media:backfill-thumbnails (KHÔNG --apply).
+     5. Đọc số scanned/failed. Sạch mới chạy: -- --apply.
+     6. Thử tài khoản test: mở kho, upload 10-20 ảnh, gửi 1 ảnh + 1 album.
+     7. Theo dõi log [media][perf] + Server-Timing.
+
+   TUYỆT ĐỐI không chạy --apply trước khi backup.
+
+======================================================================
+5. QUYẾT ĐỊNH CỦA CTO
+======================================================================
+
+   [x] DUYỆT phần MÃ NGUỒN — build sạch, test mục tiêu pass, logic khớp mô tả,
+       bảo mật SSRF vững, không thổi phồng.
+   [ ] CHƯA DUYỆT thao tác ghi production — chờ backup + dry-run theo mục 4.
+
+   Việc còn phải làm của anh:
+     - Quyết thời điểm deploy + backup.
+     - Nếu tin nhắn mẫu có host ảnh ngoài, khai báo MEDIA_REMOTE_HOST_ALLOWLIST
+       (KHÔNG thêm IP nội bộ / private).
+
+   Tóm một câu: Codex làm thật, làm đúng, và trung thực về phần chưa xong.
+   Anh có thể tin bản báo cáo này — nhưng phải backup trước khi bấm --apply.

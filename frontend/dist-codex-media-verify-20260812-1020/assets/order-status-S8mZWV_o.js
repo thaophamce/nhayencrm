@@ -1,0 +1,1 @@
+var e=[{value:`demo`,label:`Chưa demo`,color:`#F57C00`},{value:`designing`,label:`Đang thiết kế`,color:`#2F80ED`},{value:`approved`,label:`Chốt in`,color:`#34A853`},{value:`cancelled`,label:`Khách huỷ`,color:`#E5484D`}];function t(t){return e.find(e=>e.value===t)?.label??t}function n(t){return e.find(e=>e.value===t)?.color??`grey`}export{n,t as r,e as t};

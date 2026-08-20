@@ -74,6 +74,7 @@ import { deliveryRoutes } from './modules/delivery/delivery-routes.js';
 import { attendanceRoutes } from './modules/hr/attendance-routes.js';
 import { leaveRoutes } from './modules/hr/leave-routes.js';
 import { payrollRoutes } from './modules/hr/payroll-routes.js';
+import { financeRoutes } from './modules/finance/finance-routes.js';
 import { orgRoutes } from './modules/auth/org-routes.js';
 import { zaloAccessRoutes } from './modules/zalo/zalo-access-routes.js';
 import { zaloSyncRoutes } from './modules/zalo/zalo-sync-routes.js';
@@ -301,6 +302,7 @@ async function bootstrap() {
   await app.register(attendanceRoutes); // HR: Chấm công (tự check-in) + cấu hình
   await app.register(leaveRoutes); // HR: Nghỉ phép (gửi + duyệt)
   await app.register(payrollRoutes); // HR: Lương (độc lập báo cáo lương designer)
+  await app.register(financeRoutes);
   await app.register(zaloRoutes);
   await app.register(chatRoutes);
   await app.register(folderRoutes);

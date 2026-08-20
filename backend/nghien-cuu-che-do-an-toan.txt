@@ -1,0 +1,86 @@
+NGHIÊN CỨU: "Chế độ an toàn" (Safe Mode) của Pancake — áp dụng cho ZaloCRM
+==========================================================================
+Đã đọc thẳng code, có số dòng, không đoán.
+
+1. LISTENER MẤT KẾT NỐI — ĐÃ CÓ SẴN GẦN ĐỦ
+----------------------------------------------
+File backend/src/modules/zalo/zalo-listener-factory.ts:
+- listener.on('disconnected') dòng 598-601: log + emit zalo:disconnected (phase=early).
+- listener.on('closed') dòng 973-977: gọi onDisconnected(accountId) + emit zalo:disconnected.
+- listener.on('error') dòng 979-981: chỉ log.
+- retryOnClose:true (dòng 983): retry tầng SDK zca-js, không phải logic app.
+
+Logic reconnect thật ở backend/src/modules/zalo/zalo-pool.ts, attachListener() dòng 478-546:
+- Set status='disconnected' in-memory (dòng 497).
+- Ghi disconnectReason='passive' + disconnectedAt vào DB (trừ khi đã 'manual') (dòng 502-505).
+- Circuit breaker: >5 lần disconnect/5 phút → dừng auto-reconnect, set qr_pending, bắt quét QR (dòng 520-534).
+- Bình thường: setTimeout tự reconnect sau 30s bằng cookie đã lưu (dòng 540, đọc sessionData dòng 747-759).
+
+Prisma schema.prisma:
+- ZaloAccount (dòng 371-453): status (connected|disconnected|qr_pending), disconnectedAt,
+  disconnectReason (manual|passive), lastConnectedAt, sessionData (Json — cookie/imei để
+  reconnect không cần quét QR lại).
+- ZaloAccountStatusLog (dòng 491-515): log đầy đủ transition, dùng tính % uptime.
+
+2. ĐỌC TIN NHẮN CŨ — KHÔNG PHỤ THUỘC LISTENER SỐNG (đây là tin quan trọng nhất)
+----------------------------------------------------------------------------
+- GET /conversations (chat-routes.ts dòng 514) và GET /conversations/:id/messages (dòng 1360)
+  chỉ query thẳng Postgres qua Prisma, KHÔNG kiểm tra zaloPool.getStatus().
+- requireZaloAccess('read') (zalo-access-middleware.ts dòng 64-107) chỉ kiểm quyền RBAC,
+  không kiểm trạng thái connected/disconnected.
+- Chặn hiện có DUY NHẤT là chặn GỬI tin khi nick bị archivedAt (chat-routes.ts dòng 1621-1629),
+  chưa thấy chặn gửi khi status != connected — cần rà lại kỹ đoạn gửi tin thật.
+
+=> Nói cách khác: ZaloCRM đã "có Safe Mode" về mặt đọc dữ liệu MẶC ĐỊNH, vì kiến trúc UI
+vốn tách rời hoàn toàn REST-đọc-DB khỏi listener-sống. Không cần code gì thêm để "cho phép xem".
+
+3. FRONTEND — CÓ BÁO TRẠNG THÁI NHƯNG CHƯA CÓ DIALOG KIỂU PANCAKE
+------------------------------------------------------------------
+- ChatView.vue dòng 45-48: banner "Mất kết nối realtime" — đây là socket CRM-server rớt
+  (browser-backend), KHÔNG phải nick Zalo mất kết nối. Không nhầm lẫn 2 cái này.
+- NickGridCards.vue dòng 60-92: hiển thị đúng trạng thái PER-NICK (viền màu, badge "Mất kết
+  nối {đếm tăng}", nút "Kết nối lại" dòng 76-92) — nhưng nằm ở trang riêng ZaloAccountsView,
+  KHÔNG hiện trong màn hình Chat.
+- KHÔNG tìm thấy dialog/banner mất-kết-nối xuất hiện ngay trong ChatView khi nick đang xem
+  bị disconnect. Sale vào /chat xem tin cũ mà không biết nick đã chết, trừ khi tự qua tab
+  Quản lý nick.
+
+4. KIẾN TRÚC MULTI-NICK
+-------------------------
+- ZaloAccount có orgId + ownerUserId, 1 org nhiều nick chạy song song trong ZaloAccountPool
+  (Map theo accountId, zalo-pool.ts dòng 81). Mất kết nối là PER-NICK, không phải toàn hệ
+  thống. /conversations filter theo accountIds cụ thể (chat-routes.ts dòng 521).
+
+5. RECONNECT — ĐÃ CÓ AUTO BẰNG COOKIE, KHÔNG CẦN QUÉT QR LẠI (trường hợp thường)
+----------------------------------------------------------------------------------
+- zalo-pool.ts reconnect() dòng 330-452: login lại bằng cookie/imei lưu sẵn (sessionData).
+- Tự trigger: 30s sau disconnect, health-check cron 5 phút, refresh 4h sáng hàng ngày.
+- Guard bắt quét QR thật: disconnectReason='manual' (sale tự ngắt), hoặc circuit breaker
+  >5 lần/5 phút (giống trường hợp Pancake nói "khóa vĩnh viễn").
+- Chưa có khái niệm "gói cước/subscription" trong schema — khác Pancake (Pancake gate Safe
+  Mode theo còn hạn gói cước, ZaloCRM chưa có mô hình này).
+
+TÓM TẮT — ĐÃ CÓ GÌ, THIẾU GÌ
+------------------------------
+ĐÃ CÓ (nền tảng quan trọng nhất, không cần sửa):
+  1. Đọc tin nhắn/hội thoại cũ hoàn toàn độc lập listener — mặc định đã là "Safe Mode".
+  2. Trạng thái kết nối per-nick đầy đủ trong DB + UI riêng (NickGridCards) có nút Kết nối lại.
+  3. Auto-reconnect bằng cookie, không cần quét QR lại cho trường hợp mất kết nối tạm thời.
+
+THIẾU (cần làm để đúng UX Pancake):
+  1. Không có banner/dialog "nick đang xem đã mất kết nối" NGAY trong màn hình Chat.
+  2. Không có nút "Chế độ an toàn" tường minh — thực ra không cần bật gì (đọc DB vốn không
+     phụ thuộc listener), chỉ cần UI communicate rõ: "đang xem dữ liệu cũ, tin mới sẽ không
+     tới cho tới khi kết nối lại".
+  3. Chưa có gate theo gói cước (ZaloCRM chưa có khái niệm subscription — có thể bỏ qua
+     phần này hoặc làm đơn giản hơn).
+  4. Cần xác nhận lại: khung soạn tin trong ChatView có tự động disable khi nick disconnect
+     chưa (mới thấy chặn cứng lúc archivedAt, chưa thấy chặn theo status != connected ở
+     route gửi tin thật — cần đọc thêm chat-routes.ts đoạn gửi Zalo SDK để chốt).
+
+KẾT LUẬN: Tính năng Pancake gọi là "Chế độ an toàn" thực chất KHÔNG PHẢI 1 cơ chế lưu-thêm
+dữ liệu (vì tin mới không thể tới nếu listener chết) — mà là 1 lớp UI/thông báo cho sale biết
+rõ trạng thái, để họ không hiểu lầm hệ thống "mất dữ liệu". Với ZaloCRM, phần lưu dữ liệu nền
+đã đúng sẵn (message được lưu DB ngay khi tới, trước khi emit socket). Việc cần làm chủ yếu là
+UI: banner cảnh báo trong ChatView + disable khung gửi tin khi nick disconnect + nút "Kết nối
+lại" ngay tại đó (không cần rời sang trang khác).

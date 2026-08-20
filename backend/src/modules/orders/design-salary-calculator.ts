@@ -80,14 +80,16 @@ export function calculateImportedMonthlySalaryStats(
 
   for (const order of orders) {
     if (!order.designerId) continue;
-    const stats = result.get(order.designerId) ?? {
-      orderCount: 0, totalFiles: 0, approvedCount: 0, designFeeCount: 0,
-    };
     const timestamps = timestampsOf(order.timestamps);
     const fileDelta = fileDeltaForMonth(order, targetMonth);
     const approved = order.status === 'approved' && monthOf(timestamps.approved) === targetMonth;
     const feeMonth = monthOf(order.designFeeTickedAt) ?? monthOf(timestamps.designing);
     const designFee = order.hasDesignFee && feeMonth === targetMonth;
+    if (fileDelta <= 0 && !approved && !designFee) continue;
+
+    const stats = result.get(order.designerId) ?? {
+      orderCount: 0, totalFiles: 0, approvedCount: 0, designFeeCount: 0,
+    };
 
     if (fileDelta > 0) {
       stats.totalFiles += fileDelta;

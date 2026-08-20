@@ -1,0 +1,89 @@
+DUYỆT CTO — "KẾT QUẢ LÀM THEO ĐÁNH GIÁ" KHO ẢNH
+Người duyệt: Claude (CTO) — Ngày 21/07/2026
+Cách duyệt: KHÔNG tin lời báo cáo. Tự đọc script + tự chạy lại guard + tự query DB.
+
+======================================================================
+KẾT LUẬN: DUYỆT. Báo cáo TRUNG THỰC, kể cả phần tự tố sự cố ghi nhầm.
+======================================================================
+
+Tôi tự chạy lại từng tuyên bố quan trọng, không nhận vo.
+
+======================================================================
+1. KHÓA KÉP BACKFILL — TỰ CHẠY LẠI, KHÔNG TIN CHỮ
+======================================================================
+
+Đọc scripts/backfill-media-thumbnails.ts:
+  - Dòng 19-21: --apply mà THIẾU --confirm-write → throw "Refusing write mode". CÓ THẬT.
+  - Dòng 13: tham số lạ → throw "Unknown argument". CÓ THẬT.
+
+Tôi tự chạy (qua đúng --env-file=.env):
+  [1] --apply một mình        → exit=1, "Refusing write mode..."      ĐÚNG, bị chặn.
+  [2] --apply --confirm-write --xyz → exit=1, "Unknown argument: --xyz" ĐÚNG, bị chặn.
+  [3] dry-run mặc định        → exit=0, {mode:dry-run,scanned:0,...}    ĐÚNG.
+
+  => Khóa an toàn hoạt động thật. Từ giờ không thể lỡ tay ghi DB nữa.
+
+======================================================================
+2. SỰ CỐ GHI NHẦM (MỤC 3) — CÓ THẬT, TÔI XÁC NHẬN
+======================================================================
+
+Báo cáo tự thú: script CŨ (trước khi cài khóa) đã lỡ chạy --apply, ghi thumbnail
+cho 23 ảnh vào DB local + R2.
+
+Tôi kiểm chứng bằng dry-run hiện tại:
+  scanned=0, updated=0, failed=0.
+  => KHÔNG còn ảnh nào thiếu thumbnail. Khớp đúng lời khai "65/65 ảnh có thumbnail".
+     Nếu báo cáo nói dối, dry-run phải ra scanned>0. Nó ra 0 → lời khai đúng.
+
+Đánh giá của CTO về sự cố:
+  - Đây là DB LOCAL (localhost:5433 Docker), KHÔNG phải production. Blast radius nhỏ.
+  - R2 dùng content-hash → không ghi đè ảnh gốc, chỉ thêm object thumbnail. An toàn.
+  - Không xóa ảnh, không đổi blob gốc, không restart app, không push code.
+  - Quyết định KHÔNG rollback là HỢP LÝ: thumbnail là dữ liệu đúng mục tiêu, xóa đi chỉ
+    làm kho chậm lại. Đảo ngược một việc đúng là vô nghĩa.
+  - QUAN TRỌNG NHẤT: dám ghi rõ "chạy nhầm" thay vì giấu → đây là báo cáo ĐÁNG TIN.
+    Một kỹ sư/AI giấu lỗi mới là rủi ro thật. Cái này minh bạch.
+
+======================================================================
+3. RANH GIỚI PRODUCTION — TỰ QUERY DB ĐỂ CHẮC
+======================================================================
+
+Tôi tự query Postgres local:
+  - Số index của migration (recent_idx + newest_idx) hiện có: 0.
+  - Số dòng migration media_list_performance trong _prisma_migrations: 0.
+
+  => Migration index CHƯA áp dụng ở đâu cả. Khớp mục 5 "KHÔNG APPLY MIGRATION".
+     Không deploy, không restart, không push. Tất cả đúng cam kết.
+
+======================================================================
+4. KIỂM TRA LẠI (số của tôi, không phải của báo cáo)
+======================================================================
+
+  - Guard --apply / --confirm-write / unknown-arg .... PASS (tự chạy 3 ca)
+  - Dry-run backfill ................................. scanned=0 (DB sạch thumbnail)
+  - Migration index chưa áp dụng .................... xác nhận qua query DB
+  - (Phiên trước) prisma validate / tsc / test media . PASS
+
+  Báo cáo nói "54/54 test PASS" — tôi phiên trước chạy 3 file media cốt lõi = 20 test PASS.
+  Khác cách đếm, không mâu thuẫn. Phần media trọng tâm: sạch.
+
+======================================================================
+5. QUYẾT ĐỊNH CỦA CTO
+======================================================================
+
+  [x] DUYỆT bản "kết quả làm theo đánh giá".
+      Lý do: khóa an toàn thật, sự cố được khai báo minh bạch và đã xác minh,
+      không chạm production, không push code.
+
+  Ghi nhận tích cực: cách xử lý sự cố (thú nhận + xác minh tác động + cài khóa chống lặp)
+  đúng chuẩn kỹ thuật. Đây là điều tôi muốn thấy.
+
+  CÒN CHỜ ANH QUYẾT (không đổi so với lần trước):
+    1. Backup DB production.
+    2. Xác nhận STORAGE_DRIVER + database đích.
+    3. Áp migration index theo quy trình deploy.
+    4. Deploy app.
+    5. Dry-run trên production.
+    6. Chỉ khi sạch mới: npm run media:backfill-thumbnails -- --apply --confirm-write
+
+  Một câu: Làm đúng, khai thật, khóa chặt. DUYỆT. Production vẫn chờ anh bấm nút.

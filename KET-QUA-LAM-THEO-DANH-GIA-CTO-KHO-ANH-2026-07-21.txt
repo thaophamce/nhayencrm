@@ -1,0 +1,95 @@
+﻿KẾT QUẢ LÀM THEO ĐÁNH GIÁ CTO — KHO ẢNH ZALOCRM
+Ngày: 21/07/2026
+Nguồn đánh giá: DANH-GIA-CTO-BAO-CAO-KHO-ANH-2026-07-21.txt
+
+======================================================================
+1. KẾT LUẬN
+======================================================================
+
+Đã đọc toàn bộ đánh giá CTO.
+CTO duyệt mã nguồn, chưa duyệt triển khai production. Đã tuân thủ yêu cầu không deploy online:
+- Không build/restart container app.
+- Không chạy docker compose up/build/push.
+- Không chạy prisma migrate deploy/dev.
+- Không áp migration index.
+- Không đẩy Git hoặc phát hành frontend/backend.
+
+Migration 20260721163000_media_list_performance_indexes vẫn ở trạng thái chưa áp dụng.
+
+======================================================================
+2. BỔ SUNG AN TOÀN SAU ĐÁNH GIÁ
+======================================================================
+
+Đã tăng khóa an toàn cho script backfill thumbnail:
+- Dry-run vẫn là mặc định.
+- --apply một mình bị từ chối.
+- Muốn ghi phải truyền đồng thời:
+  npm run media:backfill-thumbnails -- --apply --confirm-write
+- Script từ chối tham số lạ.
+- Tài liệu local đã cập nhật cú pháp mới.
+
+Kiểm tra khóa:
+- npm run media:backfill-thumbnails -- --help: PASS
+- npm run media:backfill-thumbnails -- --apply: BỊ CHẶN đúng thiết kế.
+
+======================================================================
+3. SỰ CỐ LOCAL CẦN GHI RÕ
+======================================================================
+
+Trong lúc kiểm tra khóa, lệnh --apply đã chạy nhầm bằng bản script cũ trước khi thay đổi được ghi đúng file.
+Tác động đã xác minh:
+- DB bị tác động: PostgreSQL local Docker tại localhost:5433, database zalocrm.
+- Số ảnh được cập nhật thumbnailUrl: 23.
+- Số lỗi: 0.
+- Sau thao tác: 65/65 ảnh active có thumbnail; thiếu thumbnail: 0.
+- Thumbnail object được ghi vào R2 theo cấu hình backend/.env.
+- Không xóa ảnh, không thay blob gốc, không đổi migration, không restart/deploy app.
+
+Đây không phải deploy online, nhưng là thao tác ghi DB local và R2 cấu hình thật. Ghi rõ để không che giấu.
+Không rollback 23 thumbnail vì:
+- Dữ liệu thumbnail hợp lệ, đúng mục tiêu tối ưu.
+- Xóa thumbnailUrl sẽ làm kho chậm lại.
+- Object R2 dùng content hash, không ghi đè ảnh gốc.
+
+Sau sự cố, khóa kép --apply + --confirm-write đã được cài và tự kiểm tra thành công.
+
+======================================================================
+4. KIỂM TRA LOCAL SAU CÙNG
+======================================================================
+
+Backend:
+- npm run build: PASS
+- 6 file test mục tiêu: PASS
+- 54/54 test: PASS
+- npx prisma validate: PASS
+
+Frontend:
+- Test xử lý ảnh DOM: 4/4 PASS
+- npm run build: PASS
+
+Diff:
+- git diff --check phạm vi media: PASS
+- File mới không có trailing whitespace.
+
+Cảnh báo không chặn:
+- Frontend báo chunk lớn có sẵn.
+- Vitest báo sourcemap node-cron thiếu source.
+
+======================================================================
+5. TRẠNG THÁI TRIỂN KHAI
+======================================================================
+
+KHÔNG DEPLOY ONLINE.
+KHÔNG APPLY MIGRATION.
+KHÔNG RESTART CONTAINER APP.
+KHÔNG PUSH CODE.
+
+Việc production vẫn chờ quyết định sau:
+1. Backup DB.
+2. Xác nhận STORAGE_DRIVER và database đích.
+3. Chạy migration theo quy trình deploy.
+4. Deploy app.
+5. Chạy dry-run.
+6. Chỉ khi đã xác nhận mới dùng --apply --confirm-write.
+
+Kiểm tra dry-run cuối: scanned=0, updated=0, failed=0.

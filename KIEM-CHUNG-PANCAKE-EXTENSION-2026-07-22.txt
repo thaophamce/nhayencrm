@@ -1,0 +1,56 @@
+KIỂM CHỨNG TIẾP: "PANCAKE DÙNG EXTENSION ĐÓNG VAI ZALO WEB CLIENT" — ĐÚNG KHÔNG?
+Người kiểm: Claude (CTO) — 22/07/2026
+Nguyên tắc: không rubber-stamp. Cái gì đọc được code thì khẳng định; cái gì không
+đọc được (nội bộ Pancake) thì nói rõ là SUY LUẬN, không phải sự thật đã kiểm.
+
+======================================================================
+KẾT LUẬN 1 DÒNG
+======================================================================
+Nguyên lý "hứng tin 24/7 → lưu DB riêng" = ĐÚNG (ZaloCRM làm đúng vậy, có code).
+NHƯNG chữ "extension" của Gemini là chi tiết CẦN DÈ CHỪNG: (1) tôi không đọc được
+nội bộ Pancake để xác nhận; (2) ZaloCRM của mình KHÔNG dùng extension.
+
+======================================================================
+1. HAI CÁCH "ĐÓNG VAI ZALO WEB CLIENT" (khác nhau ở chỗ chạy đâu)
+======================================================================
+Cùng mục tiêu "hứng tin real-time", nhưng có 2 cách dựng, khác nhau về hạ tầng:
+
+  (a) THƯ VIỆN HEADLESS chạy trên SERVER — dựng lại giao thức Zalo Web bằng code,
+      KHÔNG cần mở trình duyệt. => Đây là cái ZaloCRM dùng: zca-js.
+  (b) EXTENSION cắm vào TRÌNH DUYỆT THẬT đang mở Zalo Web — nhờ trình duyệt giữ
+      phiên, extension "nghe" tin trong tab đó rồi bắn về server.
+
+Gemini nói "extension" = mô tả cách (b).
+
+======================================================================
+2. ZALOCRM CỦA MÌNH LÀ CÁCH (a), KHÔNG PHẢI EXTENSION
+======================================================================
+- zalo-listener-factory.ts: api.listener.on('message', ...) (dòng 603),
+  listener.start({ retryOnClose: true }) (dòng 983) — đây là listener của zca-js
+  chạy TRONG BACKEND, không dính trình duyệt nào.
+- Đăng nhập bằng cookie/QR lưu server-side; nick sống trên server 24/7.
+=> Kết quả (bắt real-time, lưu kho riêng) GIỐNG mô tả Gemini, nhưng CƠ CHẾ là
+   thư viện server-side, KHÔNG phải browser extension. Đừng để chữ "extension"
+   làm anh tưởng mình đang chạy 40-50 tab Chrome — không hề.
+
+======================================================================
+3. PANCAKE THÌ SAO? (đây là SUY LUẬN, tôi KHÔNG đọc được code họ)
+======================================================================
+Tôi không có mã nguồn Pancake nên KHÔNG khẳng định họ dùng (a) hay (b). Nhưng suy
+luận kỹ thuật:
+- Pancake là SaaS phục vụ HÀNG NGHÌN shop, mỗi shop nhiều nick, chạy 24/7.
+- Cách (b) extension cần MỘT trình duyệt thật mở cho MỖI nick → tốn RAM/CPU khủng,
+  không scale nổi ở quy mô đó.
+- Cách (a) headless server-side nhẹ hơn nhiều, đúng kiểu SaaS.
+=> Khả năng cao Pancake cũng nghiêng về (a) server-side, và chữ "extension" của
+   Gemini là ĐƠN GIẢN HÓA/không chính xác về mặt hạ tầng — DÙ nguyên lý "hứng tin
+   real-time" thì vẫn đúng. Nhưng tôi nói rõ: đây là suy đoán, không phải bằng
+   chứng. Muốn chắc phải có người trong Pancake xác nhận, tôi không bịa.
+
+======================================================================
+4. Ý NGHĨA VỚI MÌNH
+======================================================================
+- Điều quan trọng: cả (a) và (b) đều là Zalo CÁ NHÂN không chính thức → rủi ro
+  "treo nick" như nhau. Chọn cách nào không đổi bản chất rủi ro đó.
+- Mình đang ở (a) — đúng lựa chọn cho backend chạy nhiều nick. Không cần đổi.
+- Không có việc gì phải sửa. Đây chỉ là làm rõ thuật ngữ để anh hiểu đúng.

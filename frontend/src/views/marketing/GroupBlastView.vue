@@ -54,7 +54,7 @@
       <div class="flex-1-1 overflow-auto px-4 pb-4 ny-content">
         <!-- ════════ TAB 1: Danh sách nhóm Zalo ════════ -->
         <v-card v-if="tab === 'groups'" variant="outlined" class="ny-card">
-          <div class="d-flex align-center gap-3 pa-3 border-b flex-wrap">
+          <div class="group-filter-toolbar pa-3 border-b">
             <v-text-field
               v-model="groupSearch"
               placeholder="Tìm theo tên nhóm..."
@@ -62,43 +62,48 @@
               variant="outlined"
               density="compact"
               hide-details
-              style="max-width: 260px"
               class="ny-input"
               @keyup.enter="loadGroups"
             />
             <v-select
-              v-model="groupTag"
-              :items="zaloLabelItems"
+              v-model="selectedStatuses"
+              :items="statusItems"
               item-title="title"
               item-value="value"
-              label="Phân loại"
+              label="Trạng thái trong tên"
               variant="outlined"
               density="compact"
               hide-details
-              clearable
-              style="max-width: 220px"
+              multiple
+              chips
               class="ny-input"
-              @update:model-value="loadGroups"
             >
               <template #prepend-inner>
-                <v-icon size="18" :color="selectedLabelColor">mdi-flag</v-icon>
+                <v-icon size="18">mdi-filter-variant</v-icon>
               </template>
-              <template #item="{ props: itemProps, item }">
+              <template #selection="{ index }">
+                <span v-if="index === 0" class="group-filter-toolbar__selection-count">{{ selectedStatuses.length }} trạng thái đã chọn</span>
+              </template>
+              <template #item="{ props: itemProps }">
                 <v-list-item v-bind="itemProps">
                   <template #prepend>
-                    <v-icon size="18" :color="(item as any).raw?.color">mdi-flag</v-icon>
+                    <v-icon size="18">mdi-tag-outline</v-icon>
                   </template>
                 </v-list-item>
               </template>
             </v-select>
+            <v-combobox v-model="customKeywords" label="Từ khóa khác" multiple chips clearable variant="outlined" density="compact" hide-details />
+            <v-text-field v-model="beforeDate" type="date" label="Nhóm trước ngày" variant="outlined" density="compact" hide-details />
+            <v-text-field v-model.number="inactiveDays" type="number" min="1" max="3650" label="Im lặng trên (ngày)" variant="outlined" density="compact" hide-details />
+            <v-select v-model="sortChoice" :items="sortItems" item-title="title" item-value="value" label="Sắp xếp" variant="outlined" density="compact" hide-details />
             <v-btn variant="flat" color="primary" prepend-icon="mdi-filter" @click="loadGroups">Lọc</v-btn>
-            <v-btn variant="outlined" prepend-icon="mdi-checkbox-multiple-marked-outline" :disabled="!filteredGroups.length" @click="selectedGroupRows = filteredGroups.map(g => g.id)">
-              Chọn tất cả
+            <v-btn variant="outlined" prepend-icon="mdi-checkbox-multiple-marked-outline" :disabled="!groups.length" @click="selectedGroupRows = groups.map(g => g.id)">
+              Chọn tất cả kết quả ({{ groups.length }})
             </v-btn>
             <v-btn variant="outlined" prepend-icon="mdi-checkbox-multiple-blank-outline" :disabled="!selectedGroupRows.length" @click="selectedGroupRows = []">
               Bỏ chọn tất cả
             </v-btn>
-            <v-spacer />
+            <div class="group-filter-toolbar__summary" role="status"><strong>{{ groups.length }}</strong> nhóm phù hợp · <strong>{{ selectedGroupRows.length }}</strong> đã chọn</div>
             <v-btn variant="flat" color="primary" prepend-icon="mdi-refresh" :loading="loadingGroups" @click="syncGroupsAndLabels">
               Cập nhật
             </v-btn>
@@ -116,7 +121,7 @@
           <v-data-table
             v-model="selectedGroupRows"
             :headers="groupHeaders"
-            :items="filteredGroups"
+            :items="groups"
             :loading="loadingGroups"
             item-value="id"
             show-select
@@ -125,13 +130,10 @@
             fixed-header
             class="ny-table"
           >
-            <template #item.tags="{ item }">
-              <div class="d-flex flex-wrap gap-1">
-                <v-chip v-for="t in item.crmTagsPerNick || item.tags || []" :key="t" size="x-small" color="primary" variant="tonal">
-                  {{ t }}
-                </v-chip>
-              </div>
-            </template>
+            <template #item.parsedCode.date="{ item }">{{ formatDate(item.parsedCode.date) }}</template>
+            <template #item.matchedKeywords="{ item }"><div class="d-flex flex-wrap gap-1"><v-chip v-for="keyword in item.matchedKeywords" :key="keyword" size="x-small" color="primary" variant="tonal">{{ keyword }}</v-chip></div></template>
+            <template #item.lastMessageAt="{ item }">{{ formatDateTime(item.lastMessageAt) }}</template>
+            <template #item.inactiveDays="{ item }">{{ item.inactiveDays }} ngày</template>
             <template #item.name="{ item }">
               <div class="d-flex align-center gap-3 py-1">
                 <div>
@@ -294,40 +296,38 @@ function notify(message: string, color = 'success') {
 
 /* ── tab 1: group list ── */
 const groupSearch = ref('');
-const groupTag = ref<string | null>(null);
-const groups = ref<Array<{ id: string; name: string; totalMember: number; tags?: string[]; crmTagsPerNick?: string[] }>>([]);
+const selectedStatuses = ref<string[]>(['designing', 'approved', 'shipping']);
+const customKeywords = ref<string[]>([]);
+const beforeDate = ref(new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok' }).format(new Date()));
+const inactiveDays = ref(60);
+const sortChoice = ref('groupDate:asc');
+const statusItems = [
+  { title: 'Đang thiết kế / Đang TK', value: 'designing' },
+  { title: 'Chốt in', value: 'approved' },
+  { title: 'Đang giao', value: 'shipping' },
+];
+const sortItems = [
+  { title: 'Ngày nhóm: cũ nhất trước', value: 'groupDate:asc' },
+  { title: 'Ngày nhóm: mới nhất trước', value: 'groupDate:desc' },
+  { title: 'Tương tác cuối: cũ nhất trước', value: 'lastMessageAt:asc' },
+  { title: 'Tương tác cuối: mới nhất trước', value: 'lastMessageAt:desc' },
+  { title: 'Tên nhóm: A → Z', value: 'name:asc' },
+  { title: 'Tên nhóm: Z → A', value: 'name:desc' },
+];
+interface GroupCandidate { id: string; name: string; totalMember: number; parsedCode: { date: string; sequence: number }; matchedKeywords: string[]; lastMessageAt: string; inactiveDays: number }
+const groups = ref<GroupCandidate[]>([]);
 const loadingGroups = ref(false);
 const selectedGroupRows = ref<string[]>([]);
+let loadController: AbortController | null = null;
 
 const groupHeaders = [
   { title: 'Tên nhóm Zalo', key: 'name', sortable: true },
-  { title: 'Thẻ tag', key: 'tags', sortable: false },
-  { title: 'Thành viên', key: 'totalMember', sortable: true },
+  { title: 'Ngày nhóm', key: 'parsedCode.date', sortable: false },
+  { title: 'Từ khóa khớp', key: 'matchedKeywords', sortable: false },
+  { title: 'Tương tác cuối', key: 'lastMessageAt', sortable: false },
+  { title: 'Đã im', key: 'inactiveDays', sortable: false },
+  { title: 'Thành viên', key: 'totalMember', sortable: false },
 ];
-
-/* ── Phân loại (Zalo native labels) ── */
-const MIRROR_PREFIX = '🔵 ';
-function normalizeColor(c?: string | null): string {
-  if (!c) return '#999999';
-  if (c.startsWith('#')) return c.slice(0, 7);
-  if (/^[0-9a-f]{6}$/i.test(c)) return '#' + c;
-  return c;
-}
-const zaloLabels = ref<Array<{ id: string; text: string; color: string }>>([]);
-const zaloLabelItems = computed(() =>
-  zaloLabels.value.map((l) => ({ title: l.text, value: `${MIRROR_PREFIX}${l.text}`, color: normalizeColor(l.color) })),
-);
-const selectedLabelColor = computed(() => zaloLabelItems.value.find((i) => i.value === groupTag.value)?.color ?? '#999999');
-
-async function loadZaloLabels(accountId: string) {
-  try {
-    const { data } = await api.get(`/zalo-accounts/${accountId}/labels`);
-    zaloLabels.value = (data?.labels ?? []).map((l: any) => ({ id: l.id, text: l.text, color: l.color }));
-  } catch (err) {
-    console.error('loadZaloLabels failed:', err);
-    zaloLabels.value = [];
-  }
-}
 
 async function syncGroupsAndLabels() {
   const acct = selectedAccountId.value;
@@ -335,12 +335,11 @@ async function syncGroupsAndLabels() {
   loadingGroups.value = true;
   try {
     await api.post(`/zalo-accounts/${acct}/labels/sync`);
-    await loadZaloLabels(acct);
     await loadGroups();
     notify('Đã cập nhật danh sách nhóm và thẻ tag');
-  } catch (err) {
+  } catch (err: any) {
     console.error('syncGroupsAndLabels failed:', err);
-    notify('Đồng bộ thất bại', 'error');
+    notify(err?.response?.data?.error || 'Đồng bộ thất bại', 'error');
   } finally {
     loadingGroups.value = false;
   }
@@ -349,34 +348,33 @@ async function syncGroupsAndLabels() {
 async function loadGroups() {
   const acct = selectedAccountId.value;
   if (!acct) return;
+  if (!selectedStatuses.value.length && !customKeywords.value.length) {
+    notify('Chọn ít nhất một trạng thái hoặc nhập từ khóa', 'warning');
+    return;
+  }
+  loadController?.abort();
+  loadController = new AbortController();
   loadingGroups.value = true;
   try {
-    const { data } = await api.get(`/zalo-accounts/${acct}/groups`);
+    const [sortBy, sortOrder] = sortChoice.value.split(':');
+    const params = new URLSearchParams({ beforeDate: beforeDate.value, inactiveDays: String(inactiveDays.value), search: groupSearch.value, sortBy, sortOrder });
+    selectedStatuses.value.forEach(value => params.append('statuses', value));
+    customKeywords.value.filter(Boolean).forEach(value => params.append('customKeywords', value));
+    const { data } = await api.get(`/zalo-accounts/${acct}/groups/leave-candidates?${params}`, { signal: loadController.signal });
     groups.value = data?.groups ?? [];
-  } catch (err) {
+    selectedGroupRows.value = [];
+    if (data?.summary?.membershipVerified === false) notify('Tài khoản đang mất kết nối — đang dùng danh sách nhóm đã xác minh gần nhất.', 'warning');
+  } catch (err: any) {
+    if ((err as any)?.code === 'ERR_CANCELED') return;
     console.error('loadGroups failed:', err);
-    notify('Không tải được danh sách nhóm Zalo', 'error');
+    notify(err?.response?.data?.error || 'Không tải được danh sách nhóm Zalo', 'error');
   } finally {
     loadingGroups.value = false;
   }
 }
 
-const filteredGroups = computed(() => {
-  let list = groups.value;
-
-  // Lọc theo tag
-  if (groupTag.value) {
-    const t = groupTag.value.replace(MIRROR_PREFIX, '').trim().toLowerCase();
-    list = list.filter((g) => {
-      const gtags = g.crmTagsPerNick || g.tags || [];
-      return gtags.some((tag) => tag.toLowerCase() === t);
-    });
-  }
-
-  const q = groupSearch.value.trim().toLowerCase();
-  if (!q) return list;
-  return list.filter((g) => g.name.toLowerCase().includes(q) || g.id.includes(q));
-});
+function formatDate(value: string) { return value ? new Intl.DateTimeFormat('vi-VN', { timeZone: 'Asia/Bangkok' }).format(new Date(`${value}T00:00:00+07:00`)) : '—'; }
+function formatDateTime(value: string) { return value ? new Intl.DateTimeFormat('vi-VN', { timeZone: 'Asia/Bangkok', dateStyle: 'short', timeStyle: 'short' }).format(new Date(value)) : '—'; }
 
 function stageSelected() {
   const chosen = groups.value.filter((g) => selectedGroupRows.value.includes(g.id));
@@ -546,7 +544,6 @@ watch(selectedAccountId, async (id, prevId) => {
   stopPolling();
   campaign.value = null;
   stagedRecipients.value = [];
-  await loadZaloLabels(id);
   await loadGroups();
 }, { immediate: true });
 
@@ -616,4 +613,39 @@ watch(imageFile, (_, prev) => {
 .gap-3 { gap: 12px; }
 .gap-4 { gap: 16px; }
 .border-b { border-bottom: 1px solid var(--ny-border); }
+
+.group-filter-toolbar {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 12px;
+  align-items: center;
+}
+.group-filter-toolbar > :nth-child(1) { grid-column: 1 / 4; }
+.group-filter-toolbar > :nth-child(2) { grid-column: 4 / 7; }
+.group-filter-toolbar > :nth-child(3) { grid-column: 7 / 10; }
+.group-filter-toolbar > :nth-child(10) { grid-column: 10 / 13; justify-self: end; }
+.group-filter-toolbar > :nth-child(4) { grid-column: 1 / 3; }
+.group-filter-toolbar > :nth-child(5) { grid-column: 3 / 5; }
+.group-filter-toolbar > :nth-child(6) { grid-column: 5 / 8; }
+.group-filter-toolbar > :nth-child(7) { grid-column: 8 / 9; }
+.group-filter-toolbar > :nth-child(11) { grid-column: 9 / 13; justify-self: end; }
+.group-filter-toolbar > :nth-child(8) { grid-column: 1 / 4; }
+.group-filter-toolbar > :nth-child(9) { grid-column: 4 / 7; }
+.group-filter-toolbar > :nth-child(12) { grid-column: 7 / 13; justify-self: end; }
+.group-filter-toolbar > * { min-width: 0; max-width: none !important; }
+.group-filter-toolbar__selection-count { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.group-filter-toolbar__summary { color: rgb(var(--v-theme-on-surface-variant)); font-size: 13px; }
+.group-filter-toolbar__summary strong { color: rgb(var(--v-theme-on-surface)); font-weight: 600; }
+
+@media (max-width: 1100px) {
+  .group-filter-toolbar { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+  .group-filter-toolbar > * { grid-column: span 2 !important; justify-self: stretch !important; }
+  .group-filter-toolbar__summary { grid-column: 1 / -1 !important; }
+}
+
+@media (max-width: 700px) {
+  .group-filter-toolbar { display: flex; flex-direction: column; align-items: stretch; }
+  .group-filter-toolbar > * { width: 100%; }
+  .group-filter-toolbar__summary { text-align: center; }
+}
 </style>

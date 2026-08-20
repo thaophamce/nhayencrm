@@ -1,0 +1,81 @@
+PHẦN B — KẾT QUẢ ĐO LƯỜNG THẬT (B1 + B2) TRÊN DB LOCAL
+Người đo: Claude (CTO) — 22/07/2026
+Nguyên tắc: KHÔNG tuyên bố "nhanh hơn" nếu không có số. Đây là số thật, đo bằng
+script read-only trên DB localhost:5433, org nặng nhất (321 hội thoại).
+
+======================================================================
+KẾT LUẬN 1 DÒNG (đọc cái này trước)
+======================================================================
+Cả B1 (bỏ count) lẫn B2 (đổi friend query) đo ra ĐỀU KHÔNG đáng làm — mỗi cái
+chỉ cắt được ~0–1ms. Quan trọng hơn: DB local KHÔNG tái hiện được triệu chứng
+"5–10 giây" mà anh gặp. Endpoint chạy local tổng ~19ms. Nghĩa là chỗ nặng thật
+KHÔNG nằm ở 3 query tôi nghi ban đầu — mình đang sửa nhầm chỗ. Tôi đề nghị DỪNG
+sửa code, đi tái hiện đúng ca nặng trước.
+
+======================================================================
+B1 — BỎ count MỖI TRANG
+======================================================================
+Đo: count vs findMany vs Promise.all([find,count]).
+  - count({where})              med ~1.9ms
+  - findMany(+include, 50 dòng)  med ~18.8ms
+  - Promise.all([find,count])   med ~ xấp xỉ find (vì chạy SONG SONG)
+=> count RẺ và chạy song song với find. Bỏ count TIẾT KIỆM ~0ms wall-clock
+   (chỉ lợi lý thuyết: nhả 1 connection + 1 round-trip). KHÔNG đáng đổi.
+
+======================================================================
+B2 — friend.findMany OR-of-AND 50 cặp  → nghi "planner quét index nhiều lần"
+======================================================================
+Đo A (OR-of-AND hiện tại) vs B (zaloAccountId IN + zaloUidInNick IN + lọc JS),
+6 lần, bỏ warm-up. Trang này có 11 user-pair / 2 account.
+
+  A) OR-of-AND (hiện tại)      min=2.7  med=3.2  max=4.6 ms   (11 row)
+  B) IN+IN + lọc JS (đề xuất)  min=2.5  med=2.6  max=3.2 ms   (11 row)
+  ✓ Cùng 11 row → hai cách tương đương kết quả.
+
+EXPLAIN ANALYZE — điểm mấu chốt bác bỏ nghi vấn ban đầu:
+  A) Bitmap Heap Scan: Execution 0.461ms. Mỗi cặp là 1 Bitmap Index Scan trên
+     unique index friends_zalo_account_id_zalo_uid_in_nick_key rồi BitmapOr gộp
+     lại. KHÔNG hề "quét full index nhiều lần" — mỗi nhánh chỉ chạm 3 buffer.
+  B) Index Scan cùng chính unique index đó: Execution 0.147ms.
+
+=> Nghi vấn "OR 50 nhánh khiến planner quét index nhiều lần → chậm" là SAI.
+   Postgres đã xử lý OR-of-AND rất gọn nhờ đã CÓ SẴN unique index ghép
+   (zalo_account_id, zalo_uid_in_nick). Chênh A↔B chỉ ~0.6ms và bản thân query
+   chỉ ~3ms — vô nghĩa so với 5–10s. Đổi sang IN+IN còn THÊM rủi ro (tích
+   Descartes phải lọc lại trong JS). KHÔNG đáng đổi.
+
+======================================================================
+SỰ THẬT KHÓ CHỊU: TÔI CHƯA TÁI HIỆN ĐƯỢC "5–10 GIÂY"
+======================================================================
+- Org local nặng nhất = 321 hội thoại. Trang 50 conv chỉ ra 11 user-pair,
+  2 account. Đây KHÔNG phải ca "admin gom 50 nick" thật của anh.
+- Tổng endpoint local ~19ms. Không có query nào chạm ngưỡng giây.
+- userPairs bị chặn bởi kích thước trang (≤50) và đã dedup → KHÔNG phình theo
+  số nick admin gom. Tức B2 càng không phải thủ phạm khi quy mô lớn.
+
+Nghĩa là: 3 chỗ tôi liệt kê trong báo cáo chẩn đoán trước (count, fan-out
+include, friend OR-batch) — đo thật thì KHÔNG cái nào gây chậm rõ rệt trên dữ
+liệu hiện có. Nếu tôi cứ sửa theo kế hoạch B1/B2, anh sẽ KHÔNG thấy nhanh lên,
+và tôi đã phí thời gian của anh.
+
+======================================================================
+ĐỀ NGHỊ (chờ anh chốt, CHƯA sửa gì)
+======================================================================
+Muốn tối ưu đúng, phải bắt được ca nặng thật. Chọn 1 trong 2:
+
+  (1) Cho tôi 1 bản snapshot DB production (hoặc quyền đo trên DB thật) — org có
+      admin thật sự gom 40–50 nick, hàng chục nghìn hội thoại. Tôi đo lại đúng
+      endpoint đó, EXPLAIN ANALYZE, chỉ ra query nào thật sự tốn giây rồi mới sửa.
+
+  (2) Nếu không tiện đụng production: bật log thời gian ngay trong endpoint
+      GET /conversations trên server thật (đo từng chặng: findMany, count,
+      friend, và nhánh $queryRaw LATERAL khi bật lọc "chưa trả lời"/sinh nhật),
+      log ra khi anh mở danh sách bị chậm. Con số thật sẽ chỉ đúng thủ phạm.
+
+Nghi vấn của tôi lúc này (chưa kiểm chứng, KHÔNG dám khẳng định): chậm 5–10s
+nhiều khả năng đến từ nhánh CÓ BẬT bộ lọc (chạy $queryRaw JOIN LATERAL — cái này
+tôi đã thấy trong code và nó MỚI là query nặng), hoặc từ enrichment gọi mạng,
+chứ không phải ca danh sách mặc định. Nhưng tôi cần số để nói chắc.
+
+Tôi CHƯA sửa một dòng code chat-routes.ts nào. Script đo là read-only, đặt ở
+backend/scripts/measure-conversations-b1.ts và -b2.ts, anh chạy lại được bất cứ lúc nào.

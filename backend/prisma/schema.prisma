@@ -78,6 +78,7 @@ model Organization {
   attendanceRecords           AttendanceRecord[]
   leaveRequests               LeaveRequest[]
   salaryRecords               SalaryRecord[]
+  hrCompensationPlans         HrEmployeeCompensation[]
   // Phase 6 — Lead Scoring Engine relations
   scoringConfig               ScoringConfig?
   scoreSignalRules            ScoreSignalRule[]
@@ -272,6 +273,7 @@ model User {
   lastLoginAt                  DateTime?            @map("last_login_at")
   isActive                     Boolean              @default(true) @map("is_active")
   payrollOrder                 Int                  @default(999) @map("payroll_order")
+  isPayrollHidden              Boolean              @default(false) @map("is_payroll_hidden")
   createdAt                    DateTime             @default(now()) @map("created_at")
   updatedAt                    DateTime             @updatedAt @map("updated_at")
 
@@ -338,6 +340,7 @@ model User {
   leaveRequests         LeaveRequest[]     @relation("LeaveRequester")
   reviewedLeaveRequests LeaveRequest[]     @relation("LeaveReviewer")
   salaryRecords         SalaryRecord[]
+  hrCompensationPlans   HrEmployeeCompensation[]
 
   @@map("users")
 }
@@ -4359,3 +4362,24 @@ model SalaryRecord {
   @@index([orgId, period])
   @@map("salary_records")
 }
+
+// Phase HR compensation 2026-08-20 — luong co ban theo ky (effective_from/to YYYY-MM).
+// effective_to null = con hieu luc. Backend chon dong effective_from <= period <= effective_to.
+model HrEmployeeCompensation {
+  id            String   @id @default(uuid())
+  orgId         String   @map("org_id")
+  userId        String   @map("user_id")
+  effectiveFrom String   @map("effective_from") // YYYY-MM
+  effectiveTo   String?  @map("effective_to")   // YYYY-MM, null = open-ended
+  baseSalary    Int      @map("base_salary")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  org  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, userId, effectiveFrom])
+  @@index([orgId, userId])
+  @@map("hr_employee_compensation")
+}
+

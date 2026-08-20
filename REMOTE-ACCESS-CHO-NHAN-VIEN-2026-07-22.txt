@@ -1,0 +1,122 @@
+HƯỚNG (1) — CHO NHÂN VIÊN VÀO CRM TỪ XA (NGOÀI CÔNG TY)
+Người viết: Claude (CTO) — 22/07/2026
+Nguyên tắc: KHÔNG vẽ lại. Repo mình ĐÃ có sẵn gần đủ. Mọi câu dưới đây tôi đã đọc
+thẳng file, có số dòng để anh tra. File căn cứ:
+  docs/HUONG-DAN-TRIEN-KHAI-PRODUCTION-COMMUNITY.md (§5)
+  scripts/zalocrm-deploy.sh
+  backend/src/app.ts
+  .env.example
+
+======================================================================
+KẾT LUẬN 1 DÒNG (đọc cái này trước)
+======================================================================
+KHÔNG phải viết code mới. Việc cần làm chỉ là: (1) deploy app lên 1 máy chạy 24/7
+bằng script SẴN CÓ → app nghe cổng 3080; (2) bọc HTTPS ra internet bằng Cloudflare
+Tunnel (repo đã hướng dẫn từng bước ở §5); (3) đổi vài biến URL trong .env cho
+đúng tên miền; (4) siết bảo mật tối thiểu trước khi công khai. Hết. Không đụng
+tới lõi CRM.
+
+======================================================================
+0. CÁI ẢNH ANH GỬI HÔM TRƯỚC — NHẮC LẠI 1 LẦN NỮA CHO CHẮC
+======================================================================
+Ảnh "Remote access · trycloudflare · full shell control" là REMOTE ACCESS CỦA
+CLAUDE CODE (công cụ tôi đang chạy), cho phép điều khiển TOÀN BỘ MÁY qua dòng lệnh.
+=> TUYỆT ĐỐI KHÔNG dùng link đó cho nhân viên vào CRM. Ai cầm link = chiếm máy.
+Hướng (1) dưới đây là con đường ĐÚNG và AN TOÀN cho nhân viên. Hai thứ khác nhau
+hoàn toàn.
+
+======================================================================
+1. "CỐ ĐỊNH PORT" LÀ VIỆC KHÔNG CẦN LÀM — ĐÃ CÓ RỒI
+======================================================================
+- Production đã 1-cổng-cố-định = 3080 (docker-compose.yml: "${APP_PORT:-3080}:3000").
+- Hơn nữa, script deploy còn tự né port trùng: zalocrm-deploy.sh có hàm
+  ensure_ports (dòng 61-97) — nếu 3080 bận thì tự nhảy sang port trống, GHI lại
+  vào .env, và cập nhật luôn URL cho khớp (dòng 74-75). Anh không phải lo tay.
+=> Nên: đừng bận tâm "cố định port" nữa. Tập trung vào 3 bước dưới.
+
+======================================================================
+2. BA BƯỚC ĐỂ NHÂN VIÊN VÀO ĐƯỢC TỪ XA
+======================================================================
+
+── BƯỚC 1: DEPLOY APP LÊN 1 MÁY CHẠY 24/7 ──────────────────────────
+Máy chủ = 1 VPS, hoặc 1 máy để bàn ở công ty bật liên tục, có Docker.
+Chạy đúng 1 lệnh (đã có sẵn trong repo):
+
+  ./scripts/zalocrm-deploy.sh
+
+Script tự: dựng .env nếu chưa có, né port trùng, backup DB, docker compose
+up -d --build, chạy prisma migrate deploy, health-check. Xong → app nghe
+http://localhost:3080 trên máy đó. Lần đầu vào /setup tạo tổ chức + tài khoản chủ.
+
+(Máy mới tinh chưa có Docker/Git thì dùng 1 lệnh cài trọn gói:
+  Linux/macOS/WSL2:  curl -fsSL .../scripts/install.sh | bash
+  Windows:           irm .../scripts/install.ps1 | iex
+Nguồn: docs §Quick Start.)
+
+── BƯỚC 2: BỌC HTTPS RA INTERNET — CLOUDFLARE TUNNEL ────────────────
+Đây là chỗ "cho người ngoài vào". Repo đã hướng dẫn chi tiết ở docs §5.
+Cần: 1 tên miền trỏ về Cloudflare (miễn phí). KHÔNG cần IP tĩnh, KHÔNG đục NAT
+router. Tạo Tunnel với ĐÚNG 2 Public Hostname:
+
+  crm.tenmien.com   →  http://localhost:3080   (app chính)
+  file.tenmien.com  →  http://localhost:9000   (MinIO — ảnh/đính kèm)
+
+Vì sao có thể yên tâm chạy sau tunnel: backend đã bật trustProxy (app.ts:154,
+comment ghi rõ "app chạy sau Cloudflare + reverse proxy"). Nhờ đó cookie Secure
+và WebSocket wss:// hoạt động đúng — nhân viên chat real-time vẫn mượt.
+
+── BƯỚC 3: ĐỔI URL TRONG .env CHO KHỚP TÊN MIỀN ────────────────────
+Sau khi có tên miền, sửa .env trên máy chủ (mẫu ở .env.example):
+
+  APP_URL=https://crm.tenmien.com
+  CRM_LOGIN_URL=https://crm.tenmien.com
+  S3_PUBLIC_URL=https://file.tenmien.com      (nếu dùng MinIO)
+
+Rồi: docker compose restart app. Lý do bắt buộc: CSP ghim wss:// theo APP_URL —
+đặt sai thì chat đứng; ảnh Zalo cần S3_PUBLIC_URL là HTTPS công khai mới hiện.
+
+======================================================================
+3. CẢNH BÁO MINIO (dễ vấp nhất — docs §5 + §8 ghi rõ)
+======================================================================
+Ảnh/sticker/logo lưu ở MinIO. Zalo CDN + trình duyệt nhân viên phải với tới được.
+- PHẢI để MinIO sau HTTPS (hostname file.tenmien.com ở Bước 2). ĐỪNG phơi trần
+  http://ip:9000 — Cloudflare không proxy cổng 9000, và mixed-content (http trong
+  trang https) sẽ chặn ảnh.
+- Bỏ quên hostname file.* → chat mất ảnh, mất logo. Đây là lỗi hay gặp nhất.
+- Không muốn tự lo MinIO: .env.example có sẵn lựa chọn STORAGE_DRIVER=r2
+  (Cloudflare R2) — nhẹ hơn cho shop nhỏ, ảnh phục vụ qua HTTPS của R2.
+
+======================================================================
+4. SIẾT BẢO MẬT TỐI THIỂU TRƯỚC KHI CÔNG KHAI (bắt buộc)
+======================================================================
+Trước khi đưa link cho nhân viên, làm cho xong mấy cái này trong .env:
+  - JWT_SECRET, ENCRYPTION_KEY: sinh mới bằng  openssl rand -hex 32  (ĐỪNG để trống).
+  - DB_PASSWORD: đặt mật khẩu mạnh NGAY LẦN ĐẦU (xem cảnh báo mục 5).
+  - MINIO_ROOT_USER / MINIO_ROOT_PASSWORD: đổi khỏi minioadmin/minioadmin mặc định.
+Sau khi chạy ổn định vài ngày, siết thêm (docs khuyến nghị):
+  - CSP_MODE: report-only → enforce.
+  - SOCKET_REQUIRE_ACCESS_TYP: false → true.
+  - TENANT_GUARD_MODE: off → warn → enforce.
+App đã có đăng nhập bắt buộc sẵn, nhân viên mỗi người 1 tài khoản — đừng dùng
+chung 1 tài khoản.
+
+======================================================================
+5. ĐIỀU CẤM KỴ — MẤT DỮ LIỆU (nhắc vì rất dễ chết)
+======================================================================
+KHÔNG BAO GIỜ chạy  docker compose down -v.
+Cờ -v xóa sạch volume (zalocrm_pg_data, zalocrm_minio_data, ...) → mất TOÀN BỘ
+DB → đăng nhập bị đá về /setup-password, coi như làm lại từ đầu. Mật khẩu DB/MinIO
+bị "đóng băng" vào volume ngay lần init đầu — nên phải đặt đúng ngay từ đầu (mục 4).
+Dừng app bình thường thì dùng  docker compose down  (KHÔNG có -v) hoặc
+docker compose stop.
+
+======================================================================
+6. TÓM TẮT LỰA CHỌN & TÔI CHƯA SỬA GÌ
+======================================================================
+- Cách nhẹ nhất cho shop mình: Cloudflare Tunnel (không cần mở cổng router, có
+  HTTPS sẵn). Nếu anh có VPS + thích tự chủ: docs §5 cũng có sẵn phương án Caddy
+  reverse-proxy (Let's Encrypt, mở cổng 80/443).
+- Toàn bộ đường đi đã có công cụ + tài liệu trong repo, tôi chỉ chắt lại cho gọn.
+- Tôi CHƯA đụng 1 dòng .env hay config nào. Khi anh sẵn sàng thực sự deploy remote,
+  tôi sẽ đứng cùng anh: dựng .env, tạo Tunnel, đổi URL, siết bảo mật, kiểm tra ảnh
+  Zalo hiện đúng. Cứ bảo tôi lúc anh muốn bắt đầu.

@@ -952,19 +952,31 @@ export function attachZaloListener(ctx: ListenerContext): void {
   // Group system events: member join/leave/kick, name change, etc.
   listener.on('group_event', (event: any) => {
     const eventType = event?.type ?? 'unknown';
+    const eventData = event?.data ?? event;
     logger.info(`[zalo:${accountId}] Group event: type=${eventType}`, {
-      groupId: event?.groupId,
-      actorId: event?.actorId,
-      members: event?.members,
+      groupId: eventData?.groupId,
+      actorId: eventData?.sourceId ?? eventData?.actorId,
+      members: eventData?.updateMembers ?? eventData?.members,
     });
+
+    if (eventType === 'leave' && eventData?.groupId && eventData?.sourceId) {
+      void (async () => {
+        const account = await prisma.zaloAccount.findUnique({ where: { id: accountId }, select: { zaloUid: true } });
+        if (!account?.zaloUid || String(account.zaloUid) !== String(eventData.sourceId)) return;
+        await prisma.conversation.updateMany({
+          where: { zaloAccountId: accountId, externalThreadId: String(eventData.groupId), threadType: 'group' },
+          data: { deletedAt: new Date() },
+        });
+      })().catch(err => logger.warn(`[zalo:${accountId}] self-leave sync failed:`, err));
+    }
     // PATH TỨC THÌ — avatar/tên/cấu hình nhóm đổi → refresh NGAY nhóm đó (mirror avatar mới
     // + emit live cho client đang mở), bỏ độ trễ ≤6h của cron. update_avatar=đổi ảnh,
     // update/update_setting=đổi tên/cấu hình. Cron 6h vẫn là lưới an toàn cho lúc offline.
-    if ((eventType === 'update_avatar' || eventType === 'update' || eventType === 'update_setting') && event?.groupId) {
+    if ((eventType === 'update_avatar' || eventType === 'update' || eventType === 'update_setting') && eventData?.groupId) {
       void (async () => {
         const orgId = await resolveOrgId();
         if (!orgId) return;
-        await refreshGroupInfoNow(accountId, orgId, String(event.groupId), io).catch((err) =>
+        await refreshGroupInfoNow(accountId, orgId, String(eventData.groupId), io).catch((err) =>
           logger.warn(`[zalo:${accountId}] group_event refresh failed:`, err),
         );
       })();

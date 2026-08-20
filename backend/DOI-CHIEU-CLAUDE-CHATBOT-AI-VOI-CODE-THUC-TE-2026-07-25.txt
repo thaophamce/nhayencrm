@@ -1,0 +1,402 @@
+﻿ĐỐI CHIẾU NHẬN ĐỊNH CỦA CLAUDE VỀ CHATBOT AI VỚI CODE THỰC TẾ
+Ngày đối chiếu: 25/07/2026
+Codebase: ZaloCRM
+
+======================================================================
+1. KẾT LUẬN NGẮN
+======================================================================
+
+Nhận định của Claude đúng phần lớn về hiện trạng chatbot AI, khoảng 85–90%.
+
+Kết luận chính đúng:
+- ZaloCRM hiện chưa có chatbot AI tự đọc tin nhắn Zalo mới rồi tự gửi câu trả lời cho khách.
+- AI hiện tại chủ yếu tạo bản nháp; nhân viên phải bấm gửi.
+- AI trong virtual chat chỉ phản hồi nội bộ trong CRM, không gửi ra Zalo.
+
+Tuy nhiên báo cáo Claude có hai kết luận quá rộng:
+- Nói “không có webhook nào” là sai nếu hiểu toàn hệ thống.
+- Nói “không có Zalo OA OpenAPI nào” là chưa chính xác tuyệt đối.
+
+Ngoài ra, báo cáo bỏ sót việc ZaloCRM đã có các chức năng automation khác gửi tin thật qua zca-js, dù chúng không phải chatbot AI auto-reply.
+
+======================================================================
+2. NHỮNG ĐIỂM CLAUDE NÓI ĐÚNG
+======================================================================
+
+2.1. AI gợi ý hiện tại không tự gửi Zalo
+
+Endpoint:
+
+POST /api/v1/ai/suggest
+
+File:
+
+backend/src/modules/ai/ai-routes.ts:160
+
+Route này chỉ gọi:
+
+generateAiOutput({
+  type: 'reply_draft'
+})
+
+Kết quả được lưu dưới dạng AiSuggestion và trả về frontend. Trong route không có lệnh gọi:
+
+zaloPool
+zaloOps.sendMessage
+api.sendMessage
+
+Frontend nhận gợi ý, đưa nội dung vào giao diện; nhân viên vẫn phải quyết định và bấm gửi.
+
+Kết luận của Claude ở điểm này: ĐÚNG.
+
+----------------------------------------------------------------------
+2.2. AI virtual chat không gửi ra Zalo
+----------------------------------------------------------------------
+
+File:
+
+backend/src/modules/ai/ai-virtual-chat-service.ts
+
+Dịch vụ này chỉ chạy khi hội thoại có:
+
+isVirtual: true
+
+Tin AI được lưu với:
+
+senderType: 'ai_assistant'
+isLocal: true
+sentVia: 'system'
+
+Nó chỉ thực hiện:
+- Lưu tin vào PostgreSQL.
+- Cập nhật Conversation.lastMessageAt.
+- Phát Socket.IO để giao diện cập nhật.
+- Lưu AiSuggestion để tính quota.
+- Ghi audit log.
+
+Không có lời gọi zca-js để gửi ra Zalo.
+
+Kết luận của Claude ở điểm này: ĐÚNG.
+
+----------------------------------------------------------------------
+2.3. Virtual chat là công cụ nội bộ, không phải chatbot trả lời khách thật
+----------------------------------------------------------------------
+
+Luồng thật hiện nay:
+
+Sale nhập một tin hoặc ghi chú trong virtual conversation
+→ CRM lưu tin nội bộ
+→ AI phản hồi trong CRM
+
+Không phải:
+
+Khách Zalo nhắn
+→ AI đọc tin
+→ AI tự gửi câu trả lời cho khách
+
+Nhánh virtual conversation nằm tại:
+
+backend/src/modules/chat/chat-routes.ts:1639 trở đi
+
+Nhánh này lưu Message trực tiếp vào DB và không gọi Zalo SDK.
+
+Kết luận của Claude: ĐÚNG.
+
+----------------------------------------------------------------------
+2.4. Có quota, throttle, capability guard và audit
+----------------------------------------------------------------------
+
+Trong ai-virtual-chat-service.ts có:
+
+THROTTLE_MS = 5_000
+config.maxDaily
+assertAiCapability('save_ai_message')
+auditAiAction(...)
+
+Trong ai-capabilities.ts có allowlist deny-by-default và danh sách hành động nguy hiểm:
+
+delete_contact
+export_data_bulk
+change_permission
+mass_message
+delete_conversation
+
+Các hành động ngoài AI_CAPABILITIES bị assertAiCapability() từ chối.
+
+Kết luận Claude: ĐÚNG, nhưng phạm vi bảo vệ có giới hạn; xem mục 5.
+
+----------------------------------------------------------------------
+2.5. Hệ thống chat chính dùng tài khoản Zalo cá nhân qua zca-js
+----------------------------------------------------------------------
+
+Codebase sử dụng:
+
+zca-js 2.1.2
+loginQR
+cookie/session reconnect
+api.sendMessage
+listener sự kiện tài khoản Zalo cá nhân
+
+Đây không phải kênh Zalo OA Messaging API chính thức.
+
+README cũng có cảnh báo rõ:
+
+“Using automation tools may violate Zalo's Terms of Service and could result in account suspension or restrictions.”
+
+Kết luận Claude: ĐÚNG.
+
+======================================================================
+3. NHỮNG ĐIỂM CLAUDE NÓI CHƯA CHÍNH XÁC
+======================================================================
+
+3.1. “Không có webhook nào trong code” là sai nếu hiểu toàn hệ thống
+
+ZaloCRM có webhook CRM tại:
+
+backend/src/modules/api/webhook-service.ts
+backend/src/modules/api/webhook-settings-routes.ts
+
+Message handler có thể phát các event như:
+
+message.received
+message.sent
+contact.created
+
+Hệ thống cũng có webhook hoặc cơ chế nhận lead Facebook/TikTok và webhook cấu hình cho hệ thống ngoài.
+
+Câu chính xác phải là:
+
+“Không có webhook nhận tin nhắn Zalo OA chính thức phục vụ chatbot hội thoại.”
+
+Không nên nói:
+
+“Không có webhook nào trong code.”
+
+----------------------------------------------------------------------
+3.2. “Không có Zalo OA OpenAPI nào” là quá tuyệt đối
+----------------------------------------------------------------------
+
+Schema đã có nền tảng Zalo OA cho lead quảng cáo/form:
+
+ZaloOaAppConfig
+ZaloOaConnection
+ZaloFormMapping
+ZaloLeadEvent
+
+Comment schema ghi rõ:
+
+“Lead từ quảng cáo Zalo Form qua OA OpenAPI (poll GET oa/form/get).”
+
+Tuy nhiên phần này phục vụ lead form, không phải nhắn tin OA và không phải chatbot.
+
+Câu chính xác:
+
+“Hệ thống chưa có Zalo OA Messaging API/webhook để nhận và gửi hội thoại OA. Hệ thống có schema hoặc nền tảng OA cho Zalo Form lead, nhưng đó không phải chatbot.”
+
+----------------------------------------------------------------------
+3.3. “Hệ thống tự giới hạn đúng phương án 1 cho mọi hội thoại Zalo thật” chưa hoàn toàn đúng
+----------------------------------------------------------------------
+
+Nếu chỉ nói riêng AI /ai/suggest thì đúng.
+
+Nhưng toàn hệ thống có các đường gửi thật qua zca-js:
+
+backend/src/modules/broadcast/broadcast-fire-worker.ts
+backend/src/modules/friend-blast/friend-blast-worker.ts
+backend/src/modules/scoring/scoring-routes.ts
+
+Các đường này có lời gọi dạng:
+
+zaloOps.sendMessage(...)
+instance.api.sendMessage(...)
+
+và tin có thể được đánh dấu:
+
+sentVia: 'automation'
+
+Ví dụ scoring-routes.ts có đường gửi NBA/template thật qua instance.api.sendMessage(). Broadcast worker và friend blast có thể tiếp tục chạy tự động sau khi chiến dịch được kích hoạt.
+
+Câu chính xác:
+
+“Chatbot AI hiện chưa tự trả lời tin mới. Tuy nhiên ZaloCRM đã có các chức năng automation khác có khả năng tự gửi tin thật qua zca-js.”
+
+======================================================================
+4. HIỆN TRẠNG CHATBOT AI THỰC SỰ
+======================================================================
+
+Hiện có hai cơ chế AI liên quan hội thoại:
+
+A. AI SOẠN NHÁP CHO HỘI THOẠI ZALO THẬT
+
+Khách nhắn Zalo
+→ Sale mở hội thoại
+→ Sale yêu cầu AI gợi ý
+→ Backend đọc ngữ cảnh
+→ AI tạo reply_draft
+→ Frontend hiển thị gợi ý
+→ Sale chọn dùng và bấm gửi
+
+AI không tự gọi zca-js ở bước này.
+
+B. AI PHẢN HỒI TRONG VIRTUAL CHAT
+
+Sale nhập nội dung trong hội thoại ảo
+→ CRM lưu tin local
+→ AI tạo phản hồi
+→ CRM lưu phản hồi local
+→ Socket cập nhật giao diện
+
+Không có khách Zalo thật nhận tin.
+
+Luồng chưa tồn tại:
+
+Khách gửi tin Zalo mới
+→ hệ thống tự trigger AI
+→ AI tự quyết định câu trả lời
+→ hệ thống tự gọi zca-js gửi khách
+
+======================================================================
+5. NHỮNG RÀO CHẮN HIỆN CÓ CHƯA ĐỦ CHO AUTO-REPLY THẬT
+======================================================================
+
+5.1. Capability guard chưa bao quanh mọi đường gửi
+
+assertAiCapability() hiện được gọi trực tiếp cho:
+
+assertAiCapability('save_ai_message')
+
+trong virtual chat.
+
+Nó không phải lớp bảo vệ toàn cục quanh:
+
+zaloOps.sendMessage
+instance.api.sendMessage
+broadcast worker
+friend blast worker
+NBA send
+
+Nếu lập trình viên thêm zaloOps.sendMessage() vào AI service nhưng quên gọi assertAiCapability(), capability guard hiện tại không tự chặn.
+
+Muốn an toàn phải tạo một gateway gửi AI riêng và cấm AI gọi trực tiếp SDK.
+
+----------------------------------------------------------------------
+5.2. Throttle virtual chat chỉ là bộ nhớ trong tiến trình
+----------------------------------------------------------------------
+
+Code thật dùng:
+
+const throttleMap = new Map<string, number>();
+
+Hệ quả:
+- Restart backend làm mất throttle.
+- Chạy nhiều backend instance thì mỗi instance có throttle riêng.
+- Không đủ chống gửi trùng trên hệ thống phân tán.
+
+Với virtual chat nội bộ có thể tạm chấp nhận. Với chatbot gửi Zalo thật thì không đủ; cần Redis/BullMQ và khóa idempotency.
+
+----------------------------------------------------------------------
+5.3. Audit là fire-and-forget
+----------------------------------------------------------------------
+
+auditAiAction() không được await. Nếu audit thất bại, hành động AI vẫn hoàn tất và code chỉ ghi warning.
+
+Với chatbot gửi thật, nên ghi audit/outbox bền vững trước hoặc cùng transaction với quyết định gửi.
+
+----------------------------------------------------------------------
+5.4. Chưa có human takeover lock hoàn chỉnh cho chatbot
+----------------------------------------------------------------------
+
+Auto-reply thật cần biết:
+- Nhân viên đang mở hội thoại hay không.
+- Nhân viên vừa gửi tin hay chưa.
+- Hội thoại đã được nhân viên tiếp quản chưa.
+- Bot phải dừng bao lâu sau khi nhân viên can thiệp.
+
+Capability và quota hiện tại không tự giải quyết các vấn đề này.
+
+----------------------------------------------------------------------
+5.5. Chưa có idempotency cho quyết định AI auto-reply
+----------------------------------------------------------------------
+
+Cần khóa duy nhất theo tin inbound, ví dụ:
+
+conversationId + inboundMessageId + botPolicyVersion
+
+Nếu worker retry, backend restart hoặc nhận duplicate event, bot không được gửi hai lần.
+
+======================================================================
+6. ĐÁNH GIÁ RỦI RO ZALO
+======================================================================
+
+AI soạn nháp, nhân viên bấm gửi:
+- Rủi ro thấp hơn auto-reply.
+- Tuy nhiên hệ thống vẫn dùng zca-js không chính thức nên không thể coi là không có rủi ro.
+
+AI tự trả lời qua tài khoản Zalo cá nhân:
+- Rủi ro cao.
+- Tự động quyết định và gửi qua API không chính thức.
+
+Broadcast/friend blast qua tài khoản cá nhân:
+- Rủi ro rất cao nếu gửi nhiều, gửi lặp hoặc gửi người chưa tương tác.
+
+AI chatbot qua Zalo OA Messaging API chính thức:
+- Rủi ro thấp hơn nếu triển khai đúng tài liệu và chính sách OA hiện hành.
+- Zalo Form OA hiện có trong schema không thay thế OA Messaging API.
+
+======================================================================
+7. HƯỚNG NÊN CHỌN
+======================================================================
+
+Khuyến nghị hiện tại:
+
+1. Giữ AI trên tài khoản Zalo cá nhân ở chế độ soạn nháp.
+2. Nhân viên kiểm tra và bấm gửi.
+3. Không nối AI trực tiếp với zaloOps.sendMessage() trên nick kinh doanh chính.
+4. Nếu cần auto-reply thật, ưu tiên Zalo OA Messaging API chính thức.
+5. Nếu buộc phải thử trên tài khoản cá nhân, chỉ dùng nick thử riêng, không dùng nick kinh doanh quan trọng.
+6. Chạy chế độ mô phỏng trước: AI quyết định nhưng không gửi thật.
+7. Đánh giá log để đo tỷ lệ đúng, bịa thông tin, gửi trùng và tranh quyền với nhân viên.
+
+Nếu sau này xây auto-reply thật, cần gateway gửi chuyên biệt gồm:
+
+- Cấu hình bật/tắt theo nick và hội thoại.
+- Chỉ phản hồi sau tin inbound hợp lệ.
+- Debounce gom nhiều tin liên tiếp.
+- Redis/BullMQ.
+- Idempotency bền vững.
+- Human takeover lock.
+- Confidence threshold.
+- Knowledge-base retrieval.
+- Kiểm tra giá, chính sách, khuyến mãi.
+- Rate limit và quota.
+- Audit/outbox bền vững.
+- Nút dừng khẩn cấp.
+- Chuyển nhân viên khi AI không chắc.
+
+======================================================================
+8. KẾT LUẬN CUỐI
+======================================================================
+
+Claude kết luận đúng về câu hỏi chính:
+
+ZaloCRM hiện chưa có chatbot AI tự đọc tin nhắn Zalo mới rồi tự gửi trả lời cho khách.
+
+Hiện chỉ có:
+- AI tạo bản nháp; nhân viên bấm gửi.
+- AI phản hồi nội bộ trong virtual chat; không gửi ra Zalo.
+
+Nhưng báo cáo Claude chưa chính xác hoàn toàn ở các điểm:
+- Hệ thống có webhook CRM; chỉ thiếu webhook Zalo OA Messaging.
+- Schema có nền tảng Zalo OA cho lead form; chỉ chưa có OA Messaging chatbot.
+- Toàn hệ thống vẫn có broadcast, friend blast và một số automation gửi thật qua zca-js.
+- Capability guard hiện chưa bao quanh mọi đường gửi.
+
+Đánh giá tổng thể:
+
+Claude đúng khoảng 85–90%.
+
+Hướng an toàn nhất:
+- Zalo cá nhân: AI soạn nháp, nhân viên gửi.
+- Auto-reply hoàn toàn: xây trên Zalo OA Messaging API chính thức.
+
+Tài liệu này là đánh giá kỹ thuật và rủi ro vận hành, không phải tư vấn pháp lý.

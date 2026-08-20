@@ -7,6 +7,7 @@
 import type { FastifyInstance } from 'fastify';
 import { authMiddleware } from '../auth/auth-middleware.js';
 import { zaloOps } from '../../shared/zalo-operations.js';
+import { prisma } from '../../shared/database/prisma-client.js';
 import { resolveAccount, checkAccess, handleError } from './zalo-route-helpers.js';
 
 export async function groupModerationRoutes(app: FastifyInstance) {
@@ -101,8 +102,23 @@ export async function groupModerationRoutes(app: FastifyInstance) {
     try {
       await resolveAccount(accountId, request.user!.orgId);
       if (!(await checkAccess(request, reply, accountId, 'admin'))) return;
-      return { result: await zaloOps.leaveGroup(accountId, groupId) };
-    } catch (err) { return handleError(reply, err, 'leaveGroup'); }
+      const result = await zaloOps.leaveGroup(accountId, groupId);
+      await prisma.conversation.updateMany({
+        where: { zaloAccountId: accountId, externalThreadId: groupId, threadType: 'group' },
+        data: { deletedAt: new Date() },
+      });
+      return { result };
+    } catch (err) {
+      // SDK documents code 166 as "not a group member". Remove this stale
+      // conversation from future candidate scans even though the leave call fails.
+      if (String((err as Error)?.message ?? err).includes('[zalo:166]')) {
+        await prisma.conversation.updateMany({
+          where: { zaloAccountId: accountId, externalThreadId: groupId, threadType: 'group' },
+          data: { deletedAt: new Date() },
+        });
+      }
+      return handleError(reply, err, 'leaveGroup');
+    }
   });
 
   app.post<{ Params: { accountId: string; groupId: string } }>(`${BASE}/:groupId/disperse`, async (request, reply) => {

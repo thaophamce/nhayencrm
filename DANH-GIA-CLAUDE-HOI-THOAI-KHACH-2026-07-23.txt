@@ -1,0 +1,132 @@
+ĐÁNH GIÁ CỦA CLAUDE VỀ "ĐỀ XUẤT TÍNH NĂNG TẤT CẢ HỘI THOẠI CỦA KHÁCH" (2026-07-23)
+Ngày đối chiếu: 23/07/2026
+Cách làm: đọc trực tiếp schema.prisma, cockpit-routes.ts, MessageThread.vue, ChatView.vue để
+xác minh các giả định dữ liệu và kiểm tra có tính năng nào trùng lặp chưa. KHÔNG suy đoán.
+Trạng thái: CHỈ ĐÁNH GIÁ — CHƯA SỬA CODE GÌ.
+
+======================================================================
+1. KẾT LUẬN CHUNG
+======================================================================
+
+Đề xuất ĐÚNG về mặt kiến trúc dữ liệu và hướng đi hợp lý. Khác với báo cáo Codex về kho
+ảnh (nơi tôi phải bổ sung khá nhiều), lần này tôi kiểm tra kỹ và KHÔNG tìm thấy sai lệch
+kỹ thuật nào trong các giả định của đề xuất so với schema thật. Phần bổ sung của tôi chủ
+yếu là: xác nhận không có tính năng trùng, chỉ ra 2 chỗ có thể tận dụng lại cái đã có sẵn
+để giảm việc phải làm, và 1 cảnh báo đặt tên tránh nhầm lẫn UI.
+
+======================================================================
+2. NHỮNG GÌ TÔI XÁC NHẬN ĐÚNG 100% (đọc trực tiếp schema.prisma)
+======================================================================
+
+✅ Conversation.contactId là FK nullable tới Contact — hội thoại cá nhân của cùng một
+   khách qua nhiều nick Zalo khác nhau đều có thể tìm bằng cùng contactId. Đúng như mục 5
+   đề xuất.
+
+✅ Friend model có đúng 3 trường contactId + zaloAccountId + zaloUidInNick, đây chính là
+   bảng ánh xạ khách ↔ UID-theo-từng-nick mà mục 6 đề xuất dựa vào.
+
+✅ GroupMember có unique constraint [zaloAccountId, groupId, memberUid] và index
+   [zaloAccountId, groupId] — đúng cấu trúc cần để join: lấy Friend.zaloUidInNick của
+   khách theo từng zaloAccountId, so với GroupMember.memberUid CÙNG zaloAccountId đó, rồi
+   lấy GroupMember.groupId nối với Conversation.externalThreadId cùng zaloAccountId. Luồng
+   5 bước ở mục 6 đề xuất khớp chính xác với cấu trúc bảng.
+
+✅ Đã có GroupScan model với state machine queued/running/completed/failed/partial và
+   resumeCursor — đây CHÍNH LÀ cơ chế theo dõi "quét đến đâu" mà mục 7 đề xuất cần. Không
+   phải khái niệm mới, hệ thống đã có sẵn.
+
+✅ ZaloAccount có field status — dùng được ngay cho badge "nick đang kết nối / mất kết
+   nối" ở mục 3 (xác nhận qua cockpit-routes.ts dòng ~224 và ~254, nơi field này đã được
+   trả ra cho một endpoint khác).
+
+======================================================================
+3. KIỂM TRA CÓ TÍNH NĂNG TRÙNG CHƯA — KHÔNG CÓ
+======================================================================
+
+Tôi đã đọc cockpit-routes.ts (endpoint GET /contacts/:id/teammates) vì đây là ứng viên gần
+nhất có thể trùng đề xuất. Kết luận: KHÔNG trùng.
+
+- /teammates trả về danh sách Friend (từng nick đang chăm khách này) để hiển thị trong tab
+  CRM cột phải — mục đích là biết "ai/nick nào đang chăm khách", không phải để mở hội
+  thoại.
+- Endpoint này còn gộp theo "family" (parentContactId + con), rộng hơn phạm vi contactId
+  đơn của đề xuất — không thể dùng lại nguyên trạng, cần endpoint riêng đúng như mục 8 đề
+  xuất (GET /contacts/:contactId/conversations).
+
+Không tìm thấy route, component hay biến nào khác implement đúng ý "chuyển cột trái sang
+hội thoại của khách" trong toàn bộ codebase hiện tại.
+
+======================================================================
+4. NHỮNG ĐIỂM TÔI BỔ SUNG
+======================================================================
+
+🟢 [CÓ THỂ TẬN DỤNG — giảm việc phải làm] MessageThread.vue đã nhận prop `allConversations`
+   (đang dùng cho ForwardDialog, dòng ~942 và khai báo props dòng ~1206). Nghĩa là ChatView
+   đã quản lý toàn bộ danh sách hội thoại của nick hiện tại ở tầng cha. Với riêng phần hội
+   thoại CÁ NHÂN (đã có Conversation.contactId), có thể lọc ngay từ list đang có ở FE theo
+   contactId, KHÔNG cần gọi API mới cho phần này. API mới ở mục 8 chỉ thật sự cần thiết cho
+   phần NHÓM (phải join qua GroupMember, dữ liệu FE chưa có sẵn). Gợi ý: API tổng hợp vẫn
+   nên làm để trả cả hai loại gộp sẵn theo lastMessageAt (đơn giản hơn, tránh 2 nguồn dữ
+   liệu lệch pha ở FE) — nhưng biết trước rằng nửa "cá nhân" là việc nhẹ, nửa "nhóm" mới là
+   phần cần code thật.
+
+🟢 [CÓ THỂ TẬN DỤNG — giảm phạm vi giai đoạn 2] Đề xuất mục 7 muốn có 4 trạng thái hiển thị
+   ("đã kiểm tra đầy đủ", "có thể còn thiếu", "nick mất kết nối", "chưa quét"). GroupScan.
+   state hiện có (completed/partial/failed/queued/running) map gần như 1-1 với 4 trạng thái
+   này theo từng zaloAccountId. Nên tái dùng field này trực tiếp làm nguồn cho
+   `groupCoverage`, không cần tạo bảng hoặc khái niệm "coverage" song song mới — giảm việc
+   ở Giai đoạn 2 của kế hoạch triển khai (mục 11).
+
+🟡 [CẢNH BÁO ĐẶT TÊN — tránh nhầm lẫn UI] MessageThread.vue header hiện có menu "More"
+   (v-menu, dòng ~331-345) với sẵn 1 mục "Lịch sử hội thoại" (dòng 343) đang gắn
+   `@click="toast.push('Lịch sử: chưa implement')"` — nghĩa là CHƯA code, chỉ là placeholder.
+   Tên "Lịch sử hội thoại" rất dễ gây nhầm với tên đề xuất "Tất cả hội thoại của khách này":
+   - "Lịch sử hội thoại" (placeholder có sẵn) nhiều khả năng nghĩa là tìm/xem lại tin nhắn
+     CŨ TRONG CHÍNH hội thoại đang mở.
+   - "Tất cả hội thoại của khách này" (đề xuất mới) là chuyển sang DANH SÁCH CÁC hội thoại
+     khác nhau của cùng khách.
+   Đây là 2 khái niệm khác nhau hoàn toàn. Khi triển khai, giữ tên nút mới đúng như đề xuất
+   ("Tất cả hội thoại của khách này") và đừng tái dùng hoặc đổi tên mục "Lịch sử hội thoại"
+   sẵn có, để tránh người dùng lẫn hai chức năng.
+
+======================================================================
+5. RỦI RO KHI TRIỂN KHAI THEO GIAI ĐOẠN (mục 11 của đề xuất)
+======================================================================
+
+Giai đoạn 1 (API cá nhân theo contactId + chế độ danh sách + nút header):
+  Rủi ro THẤP. Không đổi schema. Phần hội thoại cá nhân có thể làm nhanh nhờ FE đã có
+  allConversations sẵn (xem mục 4).
+
+Giai đoạn 2 (nhóm từ GroupMember + trạng thái complete/partial):
+  Rủi ro TRUNG BÌNH. Logic join 5 bước ở mục 6 đúng nhưng cần viết cẩn thận (nhiều
+  zaloAccountId, tránh nhầm UID giữa các nick). Nên tái dùng GroupScan.state như mục 4 nêu
+  thay vì tạo cơ chế mới.
+
+Giai đoạn 3 (nút "kiểm tra lại nhóm chung" + cache + rate limiter):
+  Rủi ro THẤP-TRUNG BÌNH, phụ thuộc rate limiter Zalo hiện có đã đủ chặt chưa — nên tái
+  dùng zaloRateLimiter đang có, không viết limiter riêng.
+
+Giai đoạn 4 (nhóm chưa có Conversation + lưu URL + phân trang):
+  Đồng ý xếp cuối như đề xuất, chỉ cần khi có nhu cầu thực tế.
+
+======================================================================
+6. ĐỀ XUẤT CỦA TÔI VỀ THỨ TỰ LÀM VIỆC THỰC TẾ
+======================================================================
+
+Nếu chỉ chọn việc làm trước để thấy hiệu quả nhanh, rủi ro thấp nhất:
+
+1. Nút header + chế độ lọc cột trái CHO PHẦN CÁ NHÂN trước — tận dụng allConversations đã
+   có ở ChatView, lọc theo contactId, chưa cần API mới. Thấy được giá trị UX ngay.
+2. Thêm API GET /contacts/:contactId/conversations như mục 8, ban đầu chỉ trả phần cá
+   nhân (để thống nhất 1 nguồn dữ liệu, tránh 2 cách lấy dữ liệu khác nhau về sau).
+3. Bổ sung phần nhóm vào API trên qua join GroupMember, dùng GroupScan.state có sẵn làm
+   groupCoverage — không tạo khái niệm mới.
+4. Nút "Kiểm tra lại nhóm chung" + cache 5-15 phút theo đúng mục 9.
+
+======================================================================
+TRẠNG THÁI
+======================================================================
+Đây là bản đối chiếu/đánh giá — CHƯA SỬA CODE. Đề xuất gốc của anh chính xác về kiến trúc
+dữ liệu, không có sai lệch nào cần sửa. Nếu anh đồng ý với thứ tự ở mục 6, tôi sẽ bắt đầu
+code từng việc một, giải thích rõ trước/sau mỗi thay đổi, và dừng lại xin xác nhận nếu phát
+sinh rủi ro.

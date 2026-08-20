@@ -3,7 +3,7 @@
 <template>
   <div class="mobile-chat" :class="{ 'mobile-chat--thread-open': !!selectedConvId }">
     <!-- Conversation list (shown when no conversation selected) -->
-    <div v-if="!selectedConvId" style="height: 100%;">
+    <div v-if="!selectedConvId" class="mobile-chat__list">
       <ConversationList
         :conversations="conversations"
         :selected-id="selectedConvId"
@@ -29,20 +29,20 @@
     </div>
 
     <!-- Message thread (shown when conversation selected) -->
-    <div v-else style="height: 100%; display: flex; flex-direction: column;">
+    <div v-else class="mobile-chat__thread">
       <!-- Back button bar / Slim Messenger-style header -->
-      <div class="d-flex align-center pa-2 cl-chat-header" style="flex-shrink: 0;">
+      <div class="d-flex align-center pa-2 cl-chat-header">
         <v-btn icon variant="text" size="small" @click="goBack" class="mr-1">
           <v-icon>mdi-arrow-left</v-icon>
         </v-btn>
 
         <!-- Contact info triggers Profile Bottom Sheet -->
-        <div class="d-flex align-center cursor-pointer flex-1" @click="openProfileSheet" style="min-width: 0;">
+        <div class="d-flex align-center cursor-pointer flex-1 cl-chat-contact" @click="openProfileSheet">
           <v-avatar size="34" class="mr-2">
             <v-img v-if="selectedConv && (selectedConv.contact as any)?.avatar" :src="(selectedConv.contact as any).avatar" alt="Avatar" />
             <v-icon v-else size="28" color="grey-darken-1">mdi-account-circle</v-icon>
           </v-avatar>
-          <div class="d-flex flex-column text-left mr-2" style="min-width: 0;">
+          <div class="d-flex flex-column text-left mr-2 cl-chat-contact__copy">
             <span class="text-body-2 font-weight-bold text-slate-900 text-truncate">
               {{ selectedConv?.contact?.fullName || 'Chat' }}
             </span>
@@ -73,7 +73,7 @@
         :ai-suggestion-error="(null as any)"
         @send="handleSend"
         @refresh-thread="selectedConvId && fetchMessages(selectedConvId)"
-        style="flex: 1; min-height: 0;"
+        class="mobile-chat__messages"
       />
     </div>
 
@@ -311,25 +311,22 @@ watch(
 
 <style scoped>
 .cl-chat-header {
-  border-bottom: 1px solid rgba(226, 232, 240, 0.8);
-  background: #FFFFFF;
-}
-.theme--dark .cl-chat-header {
-  border-bottom: 1px solid rgba(51, 65, 85, 0.8);
-  background: #0F172A;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
 }
 .cl-online-indicator {
   display: inline-flex;
   align-items: center;
   gap: 4px;
   font-size: 11px;
-  color: #22C55E;
+  color: var(--success);
   font-weight: 500;
 }
 .cl-dot {
   width: 6px;
   height: 6px;
-  background: #22C55E;
+  background: var(--success);
   border-radius: 50%;
   display: inline-block;
 }
@@ -339,11 +336,20 @@ watch(
 .cl-profile-sheet-trigger {
   flex: 0 0 auto;
   margin-left: auto;
-  color: #64748b !important;
+  color: var(--ink-3) !important;
 }
 .mobile-chat {
   height: calc(100dvh - 120px);
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink);
+  background: var(--surface-2);
+  font-family: var(--font);
 }
+.mobile-chat__list { width: 100%; height: 100%; min-width: 0; overflow: hidden; }
+.mobile-chat__thread { display: flex; height: 100%; min-width: 0; flex-direction: column; }
+.mobile-chat__messages { min-height: 0; flex: 1; }
+.cl-chat-contact, .cl-chat-contact__copy { min-width: 0; }
 .mobile-chat--thread-open {
   position: fixed;
   inset: 0 0 56px 0;
@@ -351,10 +357,26 @@ watch(
   height: auto;
   min-height: 0;
   overflow: hidden;
-  background: #fff;
+  background: var(--surface);
 }
 .mobile-chat--thread-open :deep(.input-editor .tiptap-input p.is-editor-empty:first-child::before) {
   content: none !important;
+}
+
+/* The shared inbox is desktop-first. Keep every row inside narrow phone viewports. */
+.mobile-chat :deep(.conversation-list),
+.mobile-chat :deep(.conversation-list-container) { width: 100% !important; min-width: 0 !important; max-width: 100% !important; }
+.mobile-chat :deep(.cl-header) { min-width: 0; }
+.mobile-chat :deep(.cfb-tabs.main-tab-style) { margin-inline: 8px; }
+.mobile-chat :deep(.cfb-tabs.main-tab-style .cfb-tab) { min-width: 0; padding-inline: 4px; font-size: 11px; }
+.mobile-chat :deep(.cfb-mini) { gap: 6px; padding-inline: 10px; overflow-x: auto; scrollbar-width: none; }
+.mobile-chat :deep(.cfb-mini::-webkit-scrollbar) { display: none; }
+.mobile-chat :deep(.mini-count),
+.mobile-chat :deep(.mini-sorts) { flex: none; }
+
+@media (max-width: 340px) {
+  .mobile-chat :deep(.cfb-tabs.main-tab-style) { margin-inline: 6px; }
+  .mobile-chat :deep(.cfb-tabs.main-tab-style .cfb-tab) { padding-inline: 2px; font-size: 10px; letter-spacing: -.2px; }
 }
 </style>
 
@@ -363,14 +385,14 @@ body.cl-profile-open .v-bottom-navigation {
   display: none !important;
 }
 
-.cl-mobile-sheet-overlay { position: fixed; inset: 0; z-index: 12000; display: flex; align-items: flex-end; justify-content: center; background: rgba(15,23,42,.46); animation: cl-sheet-fade-in .16s ease-out; }
-.cl-mobile-sheet { width: 100%; max-width: 768px; height: min(90dvh, 90vh); display: flex; flex-direction: column; overflow: hidden; border-radius: 18px 18px 0 0; background: #fff; box-shadow: 0 -12px 36px rgba(15,23,42,.22); animation: cl-sheet-slide-up .2s ease-out; }
-.cl-mobile-sheet-header { min-height: 50px; padding: 8px 10px 8px 16px; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; border-bottom: 1px solid #e2e8f0; color: #1e293b; font-size: 14px; font-weight: 700; }
-.cl-mobile-sheet-close { width: 36px; height: 36px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 50%; color: #475569; background: transparent; }
-.cl-mobile-sheet-close:active { background: #e2e8f0; }
+.cl-mobile-sheet-overlay { position: fixed; inset: 0; z-index: 12000; display: flex; align-items: flex-end; justify-content: center; background: color-mix(in srgb, var(--ink) 46%, transparent); animation: cl-sheet-fade-in .16s ease-out; }
+.cl-mobile-sheet { width: 100%; max-width: 768px; height: min(90dvh, 90vh); display: flex; flex-direction: column; overflow: hidden; border-radius: 18px 18px 0 0; background: var(--surface); box-shadow: var(--sh-lg); animation: cl-sheet-slide-up .2s ease-out; }
+.cl-mobile-sheet-header { min-height: 50px; padding: 8px 10px 8px 16px; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; border-bottom: 1px solid var(--line); color: var(--ink); font-size: 14px; font-weight: 700; }
+.cl-mobile-sheet-close { width: 40px; height: 40px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 50%; color: var(--ink-2); background: transparent; }
+.cl-mobile-sheet-close:active { background: var(--surface-3); }
 .cl-mobile-sheet-body { flex: 1; min-height: 0; display: flex; overflow: hidden; padding-bottom: env(safe-area-inset-bottom); }
 .cl-mobile-contact-panel { flex: 1; min-width: 0; min-height: 0; display: flex !important; flex-direction: column; }
-.cl-mobile-sheet-empty { margin: auto; color: #64748b; font-size: 13px; }
+.cl-mobile-sheet-empty { margin: auto; color: var(--ink-3); font-size: 13px; }
 @keyframes cl-sheet-fade-in { from { opacity: 0; } }
 @keyframes cl-sheet-slide-up { from { transform: translateY(100%); } }
 </style>

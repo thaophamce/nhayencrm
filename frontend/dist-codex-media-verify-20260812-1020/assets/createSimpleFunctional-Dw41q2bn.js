@@ -1,0 +1,1 @@
+import{S as e,bt as t,yt as n}from"./runtime-core.esm-bundler-DEHAgJlx.js";import{p as r,y as i}from"./color-ChaPBHrq.js";function a(a,o=`div`,s){return r()({name:s??t(n(a.replace(/__/g,`-`))),props:{tag:{type:String,default:o},...i()},setup(t,{slots:n}){return()=>e(t.tag,{class:[a,t.class],style:t.style},n.default?.())}})}export{a as t};

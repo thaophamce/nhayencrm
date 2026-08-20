@@ -715,10 +715,13 @@
               v-for="(a, idx) in pendingMediaAssets"
               :key="a.id"
               class="pmb-thumb"
+              :class="{ 'pmb-thumb--video': a.kind === 'video' }"
               :title="a.name"
             >
-              <img :src="a.thumbnailUrl || a.url || ''" loading="lazy" alt="" />
-              <button class="pmb-remove" @click="removePendingMedia(idx)" title="Bỏ ảnh này">
+              <img v-if="a.thumbnailUrl || a.kind === 'image'" :src="a.thumbnailUrl || a.url || ''" loading="lazy" alt="" />
+              <v-icon v-else size="22">mdi-video-outline</v-icon>
+              <span v-if="a.kind === 'video'" class="pmb-video-mark"><v-icon size="13">mdi-play</v-icon></span>
+              <button class="pmb-remove" @click="removePendingMedia(idx)" :title="a.kind === 'video' ? 'Bỏ video này' : 'Bỏ ảnh này'">
                 <XIcon :size="10" :stroke-width="2.5" />
               </button>
             </div>
@@ -871,6 +874,19 @@
             <v-icon size="20">mdi-folder-image</v-icon>
           </v-btn>
 
+          <v-btn
+            icon
+            variant="text"
+            size="small"
+            title="Thư viện video"
+            aria-label="Mở thư viện video"
+            @click="showVideoPicker = true"
+            class="text-slate-500 flex-shrink-0"
+            style="min-width: 32px;"
+          >
+            <v-icon size="20">mdi-video-outline</v-icon>
+          </v-btn>
+
           <!-- Sticker Nhà Yến nhanh — sát nút Gửi -->
           <NhaYenStickerQuick @select="onSendSticker" />
 
@@ -878,7 +894,7 @@
           <button
             class="send-btn"
             :class="{ 'send-btn-virtual': isVirtualConv }"
-            :disabled="(!inputText.trim() && pendingMediaAssets.length === 0 && pendingImageFiles.length === 0) || sending || isArchivedNick || isNickOffline || rateLimitSeconds > 0"
+            :disabled="(!inputText.trim() && pendingMediaAssets.length === 0 && pendingImageFiles.length === 0) || sending || sendingPendingMedia || isArchivedNick || isNickOffline || rateLimitSeconds > 0"
             @click="handleSend"
             :title="isArchivedNick ? 'Nick đã xóa — không gửi được.' : isNickOffline ? 'Nick mất kết nối — không gửi được.' : isVirtualConv ? 'Lưu nội bộ (Enter) — KHÔNG gửi đi Zalo' : 'Gửi (Enter)'"
           >
@@ -1021,6 +1037,12 @@
     <ChatMediaPickerModal
       :visible="showMediaPicker"
       @close="showMediaPicker = false"
+      @pick="onMediaPickerConfirm"
+    />
+
+    <ChatVideoPickerModal
+      :visible="showVideoPicker"
+      @close="showVideoPicker = false"
       @pick="onMediaPickerConfirm"
     />
 
@@ -1240,6 +1262,7 @@ import TypingIndicator from '@/components/chat/typing-indicator.vue';
 import ReplyPreviewBar from '@/components/chat/reply-preview-bar.vue';
 import ForwardDialog from '@/components/chat/forward-dialog.vue';
 import ChatMediaPickerModal from '@/components/chat/ChatMediaPickerModal.vue';
+import ChatVideoPickerModal from '@/components/chat/ChatVideoPickerModal.vue';
 import RichTextEditor from '@/components/chat/rich-text-editor.vue';
 import TagCrmBar from '@/components/chat/TagCrmBar.vue';
 import AppointmentEditor from '@/components/appointments/AppointmentEditor.vue';
@@ -2798,6 +2821,8 @@ const fileInputRef = ref<HTMLInputElement | null>(null);
 import { sendMediaToConversation } from '@/api/media';
 import type { MediaAssetItem } from '@/api/media';
 const showMediaPicker = ref(false);
+const showVideoPicker = ref(false);
+const sendingPendingMedia = ref(false);
 const pendingMediaAssets = ref<MediaAssetItem[]>([]);
 
 function onMediaPickerConfirm(assets: MediaAssetItem[]) {
@@ -3525,6 +3550,7 @@ async function dispatchBlockComponents(blockId: string) {
 
 // ── Send ────────────────────────────────────────────────────────────────────
 async function handleSend() {
+  if (sendingPendingMedia.value) return;
   if (Number(props.rateLimitSeconds || 0) > 0) return;
   if (showTemplatePopup.value) { showTemplatePopup.value = false; return; }
   if (isArchivedNick.value) return;
@@ -3533,7 +3559,7 @@ async function handleSend() {
   const hasPasteImages = pendingImageFiles.value.length > 0;
   if (!hasText && !hasPending && !hasPasteImages) return;
 
-  // Gửi ảnh pending trước (từng ảnh gọi sendMediaToConversation)
+  // Video phải gửi tuần tự và hoàn tất TRƯỚC nội dung chữ (anh chốt 2026-08-16).
   if (hasPending && props.conversation?.id) {
     const assetsToSend = [...pendingMediaAssets.value];
     pendingMediaAssets.value = [];
@@ -3542,16 +3568,38 @@ async function handleSend() {
     // thì đổi hội thoại giữa chừng sẽ khiến ảnh còn lại nhảy sang hội thoại mới.
     const targetConvId = props.conversation.id;
     const targetConvName = headerName.value;
-    toast.success(`Đang gửi ${assetsToSend.length} ảnh vào ${targetConvName}…`);
-    // Chạy ngầm tiến trình gửi ảnh (không await để tránh treo luồng gửi text)
-    void (async () => {
+    const videosToSend = assetsToSend.filter(asset => asset.kind === 'video');
+    const imagesToSend = assetsToSend.filter(asset => asset.kind !== 'video');
+
+    if (videosToSend.length) {
+      sendingPendingMedia.value = true;
+      toast.push(`Đang gửi ${videosToSend.length} video vào ${targetConvName}…`);
+      let failedVideos = 0;
+      for (const video of videosToSend) {
+        try {
+          await sendMediaToConversation(video.id, targetConvId, undefined, undefined, video.url || undefined);
+        } catch (err) {
+          failedVideos += 1;
+          console.error('[send-video-library]', video.id, err);
+        }
+      }
+      sendingPendingMedia.value = false;
+      if (failedVideos) toast.warning(`${videosToSend.length - failedVideos}/${videosToSend.length} video đã gửi; ${failedVideos} video thất bại`);
+      else toast.success(`Đã gửi ${videosToSend.length} video`);
+      if (props.conversation?.id === targetConvId) emit('refresh-thread');
+    }
+
+    if (imagesToSend.length) {
+      toast.success(`Đang gửi ${imagesToSend.length} ảnh vào ${targetConvName}…`);
+      // Ảnh giữ cơ chế gửi nền hiện tại; video ở trên đã hoàn tất trước khi đi tiếp.
+      void (async () => {
       try {
-        if (assetsToSend.length === 1) {
-          const a = assetsToSend[0];
+        if (imagesToSend.length === 1) {
+          const a = imagesToSend[0];
           await sendMediaToConversation(a.id, targetConvId, undefined, undefined, a.url || undefined);
         } else {
-          const ids = assetsToSend.map(a => a.id);
-          const urls = assetsToSend.map(a => a.url || '');
+          const ids = imagesToSend.map(a => a.id);
+          const urls = imagesToSend.map(a => a.url || '');
           const { sendAlbumToConversation } = await import('@/api/media');
 
           // Tự động chia nhỏ danh sách ảnh thành các album con tối đa 12 ảnh/lượt
@@ -3582,7 +3630,8 @@ async function handleSend() {
       } catch (err: any) {
         toast.error(err?.response?.data?.error || 'Gửi ảnh thất bại');
       }
-    })();
+      })();
+    }
   }
 
   if (hasPasteImages) {
@@ -3724,6 +3773,8 @@ watch(() => props.editingMessage?.id, async (id) => {
   border: 2px solid #7c3aed;
 }
 .pmb-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.pmb-thumb--video { display: grid; place-items: center; border-color: #2563eb; background: #e2e8f0; color: #64748b; }
+.pmb-video-mark { position: absolute; inset: 0; display: grid; place-items: center; color: #fff; background: rgba(15, 23, 42, .2); }
 .pmb-remove {
   position: absolute; top: 2px; right: 2px;
   width: 16px; height: 16px; border-radius: 50%;

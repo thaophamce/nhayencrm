@@ -8,11 +8,13 @@ import { mockUser, mockZaloOps } from './test-helpers.js';
 
 // ── Hoisted mock state ────────────────────────────────────────────────────────
 const zaloOpsMock = mockZaloOps();
+const friendFindManyMock = vi.fn();
 
 vi.mock('../src/shared/database/prisma-client.js', () => ({
   prisma: {
     zaloAccount: { findFirst: vi.fn() },
     zaloAccountAccess: { findFirst: vi.fn() },
+    friend: { findMany: friendFindManyMock },
   },
 }));
 vi.mock('../src/shared/zalo-operations.js', () => ({
@@ -54,7 +56,10 @@ function buildApp(): FastifyInstance {
   return app;
 }
 
-beforeEach(() => { vi.clearAllMocks(); });
+beforeEach(() => {
+  vi.clearAllMocks();
+  friendFindManyMock.mockResolvedValue([]);
+});
 
 // ── Friend Queries ─────────────────────────────────────────────────────────────
 describe('Friend Queries', () => {
@@ -121,6 +126,47 @@ describe('Friend Requests', () => {
       expect.objectContaining({ userId: 'incoming-1', displayName: 'Khách A', message: 'Kết bạn nhé' }),
     ]);
     expect(zaloOpsMock.getFriendRecommendations).toHaveBeenCalledWith('za-1');
+  });
+
+  it('GET /friends/requests/received — includes pending requests captured by the listener', async () => {
+    zaloOpsMock.getFriendRecommendations.mockResolvedValue({ recommItems: [] });
+    friendFindManyMock.mockResolvedValueOnce([{
+      zaloUidInNick: 'db-pending-1',
+      zaloDisplayName: 'Khách DB',
+      zaloAvatarUrl: 'db.jpg',
+      updatedAt: new Date('2026-08-16T07:00:00.000Z'),
+    }]);
+
+    const res = await buildApp().inject({ method: 'GET', url: `${BASE}/requests/received` });
+
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body).data).toEqual([
+      expect.objectContaining({ userId: 'db-pending-1', displayName: 'Khách DB' }),
+    ]);
+    expect(friendFindManyMock).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        orgId: 'org-1',
+        zaloAccountId: 'za-1',
+        friendshipStatus: 'pending_received',
+      }),
+    }));
+  });
+
+  it('GET /friends/requests/received — falls back to persisted requests when live read is rate-limited', async () => {
+    zaloOpsMock.getFriendRecommendations.mockRejectedValueOnce(new Error('friend_read quota reached'));
+    friendFindManyMock.mockResolvedValueOnce([{
+      zaloUidInNick: 'db-pending-quota',
+      zaloDisplayName: 'Khách chờ',
+      zaloAvatarUrl: null,
+      updatedAt: new Date('2026-08-16T07:00:00.000Z'),
+    }]);
+
+    const res = await buildApp().inject({ method: 'GET', url: `${BASE}/requests/received` });
+
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body).data).toEqual([
+      expect.objectContaining({ userId: 'db-pending-quota', displayName: 'Khách chờ' }),
+    ]);
   });
   it('GET /friends/requests/sent — returns sent requests', async () => {
     zaloOpsMock.getSentFriendRequests.mockResolvedValue([{ userId: 'u6' }]);

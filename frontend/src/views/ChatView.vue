@@ -71,7 +71,7 @@
 
     <!-- COL 3: message thread (giữ nguyên — handles header/messages/input bên trong) -->
     <MessageThread
-      :conversation="selectedConv"
+      :conversation="selectedConvWithLiveStatus"
       :messages="messages"
       :loading="loadingMsgs"
       :sending="sendingMsg"
@@ -191,6 +191,7 @@ import { useWorkScope } from '@/composables/use-work-scope';
 import { shouldAdoptNickScope } from '@/composables/work-scope-logic';
 import MobileChatView from '@/views/MobileChatView.vue';
 import { useMobile } from '@/composables/use-mobile';
+import { resolveZaloLiveStatus } from '@/utils/zalo-live-status';
 
 const { isMobile } = useMobile();
 const route = useRoute();
@@ -288,6 +289,27 @@ const {
   loginAccount, qrImage, qrScanned, scannedName, qrError, qrSessionDead, cancelQR,
   setupSocket: setupZaloQrSocket,
 } = useZaloAccounts();
+
+// Hội thoại được tải từ DB có thể còn status cũ nếu tab bỏ lỡ sự kiện socket reconnect.
+// Danh sách tài khoản trả liveStatus từ zaloPool, nên dùng nó làm nguồn chân lý cho banner
+// và khóa ô soạn tin. Khi danh sách chưa tải xong vẫn giữ status cũ để không mở khóa sai.
+const selectedConvWithLiveStatus = computed<Conversation | null>(() => {
+  const conversation = selectedConv.value;
+  const account = conversation?.zaloAccount;
+  if (!conversation || !account) return conversation;
+
+  const status = resolveZaloLiveStatus(
+    account.id,
+    account.status,
+    zaloAccounts.value || [],
+  );
+  if (!status || status === account.status) return conversation;
+
+  return {
+    ...conversation,
+    zaloAccount: { ...account, status },
+  };
+});
 
 // Chế độ an toàn (2026-07-23): banner/overlay "mất kết nối" trong MessageThread bấm
 // "Kết nối lại" → mở đúng wizard QR (clone pattern openQrForReconnect ở ZaloAccountsView).

@@ -62,7 +62,7 @@ async function notifyAdminsNewLeave(
       `${applicantName} vừa gửi đơn ${typeLabel.toLowerCase()} (${sessionLabel}).\n` +
       `Thời gian: ${leaveDateRange(leave.startDate, leave.endDate)}\n` +
       `Lý do: ${leave.reason}\n` +
-      `Vào tab "Duyệt nghỉ phép" để xử lý.`;
+      `Vào tab "Duyệt đơn" để xử lý.`;
     await Promise.allSettled(
       admins.map((a) =>
         sendSystemNotificationToUser({

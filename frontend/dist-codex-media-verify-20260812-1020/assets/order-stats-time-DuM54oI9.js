@@ -1,0 +1,1 @@
+import{r as e}from"./auth-CYk0xeuf.js";function t(t=new Date){let n=e(t);return n?`${n.year}-${String(n.month).padStart(2,`0`)}`:t.toISOString().slice(0,7)}function n(e){return{...e,total:e.monthlyTotal??e.total,byStatus:e.monthlyByStatus??e.byStatus}}export{n,t};

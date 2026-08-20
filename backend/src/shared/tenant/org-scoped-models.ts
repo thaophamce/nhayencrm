@@ -29,7 +29,7 @@ export const ORG_SCOPED_MODELS: ReadonlySet<string> = new Set([
   'LeadPoolConfig', 'LeadPoolBonusQuota', 'FacebookPageAccount',
   'FacebookLeadgenForm', 'WebhookLog', 'MetaCampaignCache', 'NotifyDedupState',
   'ZaloOaAppConfig', 'ZaloOaConnection', 'ZaloFormMapping', 'ZaloLeadEvent',
-  'AttendanceRecord', 'LeaveRequest', 'SalaryRecord', 'PancakeOrderLink',
+  'AttendanceRecord', 'LeaveRequest', 'SalaryRecord', 'HrEmployeeCompensation', 'PancakeOrderLink',
   'Order', 'FriendBlastCampaign', 'FriendBlacklist', 'PinnedMessage',
   'DeliveryOrder',
 ]);

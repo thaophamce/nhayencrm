@@ -71,7 +71,7 @@ const visibleTabs = computed(() =>
     { value: 'mine', icon: 'mdi-history', label: 'Lịch sử của tôi', show: true },
     { value: 'company', icon: 'mdi-account-group-outline', label: 'Toàn công ty', show: canViewAll },
     { value: 'leave', icon: 'mdi-calendar-minus-outline', label: 'Nghỉ phép', show: true },
-    { value: 'leaveAdmin', icon: 'mdi-calendar-check-outline', label: 'Duyệt nghỉ phép', show: canReviewLeave },
+    { value: 'leaveAdmin', icon: 'mdi-calendar-check-outline', label: 'Duyệt đơn', show: canReviewLeave },
     { value: 'config', icon: 'mdi-cog-outline', label: 'Cấu hình', show: canConfig },
   ].filter((t) => t.show),
 );
