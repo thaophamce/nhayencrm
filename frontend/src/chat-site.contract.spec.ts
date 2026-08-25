@@ -5,6 +5,7 @@ import router from './router/chat.ts?raw';
 import config from '../vite.chat.config.ts?raw';
 import nginx from '../deploy/chat-site.nginx.conf?raw';
 import compose from '../deploy/docker-compose.chat.yml?raw';
+import layout from './layouts/ChatSiteLayout.vue?raw';
 
 describe('Nhà Yến Chat standalone site contract', () => {
   it('has a dedicated HTML entry and build command', () => {
@@ -25,6 +26,13 @@ describe('Nhà Yến Chat standalone site contract', () => {
   it('builds to an isolated directory so the CRM bundle is not overwritten', () => {
     expect(config).toContain("outDir: 'dist-chat'");
     expect(config).toContain("emptyOutDir: true");
+  });
+
+  it('owns the standalone header dimensions instead of relying on scoped CRM CSS', () => {
+    expect(layout).toMatch(/\.chat-site-header\s*\{[\s\S]*height:\s*52px/);
+    expect(layout).toMatch(/\.header-wordmark img\s*\{[\s\S]*width:\s*132px/);
+    expect(layout).toMatch(/\.header-wordmark img\s*\{[\s\S]*height:\s*34px/);
+    expect(layout).toMatch(/\.chat-site-main\s*\{[\s\S]*overflow:\s*hidden/);
   });
 
   it('ships as an isolated static service that proxies the existing backend', () => {
