@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:chat": "vite --config vite.chat.config.ts --open /chat.html",
     "build": "vue-tsc -b && vite build",
+    "build:chat": "vue-tsc -b && vite build --config vite.chat.config.ts",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest"
