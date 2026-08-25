@@ -39,9 +39,44 @@ function logout() {
 
 <style scoped>
 .chat-site-header {
+  background: #1a6fd4;
+  box-sizing: border-box;
   display: flex;
   align-items: center;
   gap: 12px;
+  height: 52px;
+  max-height: 52px;
+  min-height: 52px;
+  overflow: hidden;
+  padding: 0 16px;
+  position: sticky;
+  top: 0;
+  width: 100%;
+  z-index: 100;
+}
+
+.header-wordmark {
+  align-items: center;
+  display: flex;
+  flex: 0 0 148px;
+  height: 34px;
+  justify-content: center;
+  overflow: hidden;
+  width: 148px;
+}
+
+.header-wordmark img {
+  display: block;
+  height: 34px;
+  max-height: 34px;
+  max-width: 132px;
+  object-fit: contain;
+  width: 132px;
+}
+
+.chat-site-main {
+  min-height: 0;
+  overflow: hidden;
 }
 
 .chat-site-name {
