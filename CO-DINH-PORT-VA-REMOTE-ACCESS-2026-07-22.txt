@@ -1,0 +1,96 @@
+CỐ ĐỊNH 1 CỔNG ĐỂ SAU NÀY LÀM REMOTE ACCESS — CÓ NÊN KHÔNG?
+Người kiểm: Claude (CTO) — 22/07/2026
+Nguyên tắc: đọc thẳng config, không nói mò. File đã đọc:
+  frontend/vite.config.ts, docker-compose.yml, docker-compose.dev.yml
+
+======================================================================
+KẾT LUẬN 1 DÒNG (đọc cái này trước)
+======================================================================
+KHÔNG cần sửa gì để "cố định cổng". Production CỦA MÌNH ĐÃ cố định sẵn 1 cổng
+duy nhất = 3080 (cả frontend + backend chung 1 cổng). Mấy cổng trôi 5173/5174/5176
+chỉ là cổng DEV của Vite trên máy anh — vô can với remote access. Muốn cho người
+ngoài vào CRM thì nhắm vào 3080, KHÔNG phải sửa Vite.
+
+======================================================================
+1. ĐÍNH CHÍNH CÁI ẢNH ANH GỬI (quan trọng — dễ hiểu nhầm nguy hiểm)
+======================================================================
+Ảnh "Remote access · on / Internet (tunnel) / extended-through-...trycloudflare"
+là tính năng REMOTE ACCESS CỦA CLAUDE CODE (công cụ tôi đang chạy), KHÔNG phải
+của app ZaloCRM.
+
+- Dòng chữ dưới ảnh: "Anyone with this URL gets full shell control of this machine"
+  = ai có link đó là ĐIỀU KHIỂN TOÀN BỘ MÁY này qua dòng lệnh (full shell).
+- Đây là để tôi/anh điều khiển máy dev từ xa, KHÔNG phải để nhân viên đăng nhập CRM.
+- => TUYỆT ĐỐI đừng dùng link này cho nhân viên vào CRM. Ai cầm link = chiếm máy.
+  Xong việc thì bấm "Stop remote access". Đừng chia sẻ link cho ai.
+
+Nói cách khác: cái ảnh và cái anh muốn ("sau này thêm remote access cho CRM") là
+HAI thứ khác nhau hoàn toàn. Dưới đây là đường đúng cho CRM.
+
+======================================================================
+2. SỰ THẬT VỀ PORT HIỆN TẠI (đọc config, không suy diễn)
+======================================================================
+Có 2 chế độ chạy, port khác nhau:
+
+A) DEV (đang chạy trên máy anh — cái hay trôi 5173→5174→5176):
+   - vite.config.ts dòng 28: server.port = 5173 (mặc định).
+   - KHÔNG có strictPort → nếu 5173 bận, Vite tự nhảy 5174, 5175... Đó là lý do
+     anh thấy port trôi. Đây là bình thường, chỉ ảnh hưởng lúc dev.
+   - dòng 29: host: true → đã mở ra LAN sẵn (máy khác trong mạng nội bộ gọi được
+     http://<ip-máy-anh>:5173). Nhưng dev server KHÔNG phải để chạy thật/公开.
+
+B) PRODUCTION (khi deploy bằng Docker — cái để dùng thật):
+   - docker-compose.yml dòng 11: "${APP_PORT:-3080}:3000".
+   - Tức TOÀN BỘ app (frontend đã build + backend) gói trong 1 container, phơi ra
+     host qua ĐÚNG 1 CỔNG cố định = 3080 (đổi được bằng biến APP_PORT trong .env).
+   - Đây CHÍNH LÀ "1 cổng cố định" mà anh đang muốn — đã có sẵn từ lâu, không cần
+     tôi tạo mới.
+
+=> Kết: production đã 1-cổng-cố-định. "Cố định port" cho remote access = KHÔNG
+   phải việc phải làm, nó có rồi.
+
+======================================================================
+3. MUỐN "SAU NÀY THÊM REMOTE ACCESS" CHO CRM THÌ LÀM ĐÚNG LÀ THẾ NÀO
+======================================================================
+Mục tiêu thật (đoán): cho nhân viên/anh ngồi nhà, ngoài công ty vẫn mở được CRM.
+Đường chuẩn (KHÔNG dùng dev Vite, KHÔNG dùng shell-tunnel ở ảnh):
+
+  Bước 1 — Deploy production: chạy docker-compose.yml → app nghe cổng 3080 trên
+           máy chủ (VPS hoặc máy để bàn ở công ty chạy 24/7).
+  Bước 2 — Cho ra internet an toàn, chọn 1 trong 2:
+    (a) Có tên miền + VPS: đặt reverse proxy HTTPS (Caddy/nginx) trước cổng 3080,
+        ví dụ crm.nhayen.vn → 3080. Có khóa TLS, có thể chặn IP, có log.
+    (b) Không muốn mở cổng router: dùng Cloudflare Tunnel (cloudflared) trỏ vào
+        127.0.0.1:3080. Không cần IP tĩnh, không đục NAT, có HTTPS sẵn. Đây là
+        cách nhẹ nhàng an toàn cho shop nhỏ.
+  Bước 3 — Bảo mật tối thiểu trước khi公开: đổi mọi mật khẩu mặc định, bật đăng
+           nhập bắt buộc (app đã có auth), giới hạn IP admin nếu được.
+
+Lưu ý: hiện MinIO (cổng 9000, ảnh/đính kèm) phải cho Zalo CDN với tới → khi公开
+phải để sau reverse proxy HTTPS, đừng phơi trần (đã ghi rõ trong compose dòng
+128-135). Cái này tôi sẽ nhắc kỹ lúc anh thực sự deploy remote.
+
+======================================================================
+4. CÒN NẾU CHỈ MUỐN DEV KHÔNG TRÔI PORT NỮA (5173 cố định)?
+======================================================================
+Thêm 1 dòng vào vite.config.ts: strictPort: true.
+NHƯNG có ĐÁNH ĐỔI, phải cân:
+  - Lợi: dev luôn ở đúng 5173, không nhảy lung tung.
+  - Hại: nếu 5173 đang bận (máy anh đã từng chạy 2 frontend cùng lúc — 5173 VÀ
+    5174 đều sống), bật strictPort sẽ khiến cái thứ 2 BÁO LỖI chết luôn thay vì
+    nhảy sang 5174. Với thói quen mở nhiều cửa sổ của anh, cái này dễ gây khó chịu.
+=> Đề nghị: KHÔNG bật strictPort trừ khi anh chắc chỉ chạy 1 frontend/lần. Port
+   dev trôi không hại gì — nó không liên quan remote access.
+
+======================================================================
+5. TÔI CHƯA SỬA GÌ — CHỜ ANH CHỐT HƯỚNG
+======================================================================
+3 file trên chỉ ĐỌC, không đụng. Anh cho biết ý thật để tôi làm đúng:
+
+  (1) "Remote access cho nhân viên vào CRM" → tôi hướng dẫn deploy 3080 + tunnel/
+      proxy khi anh sẵn sàng (chưa cần bây giờ). KHÔNG phải sửa port.
+  (2) "Chỉ muốn dev đứng yên ở 5173" → tôi thêm strictPort (kèm rủi ro mục 4).
+  (3) "Cái ảnh Remote access kia là gì, có nên bật" → nó là shell máy anh; chỉ bật
+      khi cần tôi vào máy từ xa, xong TẮT ngay. Không dùng cho CRM.
+
+Anh chọn hướng nào tôi làm hướng đó.

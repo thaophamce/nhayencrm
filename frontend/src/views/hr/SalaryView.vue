@@ -7,7 +7,7 @@
    • Member: chỉ xem phiếu lương của mình theo kỳ.
 -->
 <template>
-  <div class="sl-shell">
+  <div class="sl-shell sl-shell--minimal">
     <div class="sl-body">
       <!-- Cột tab dọc bên trái -->
       <aside class="sl-sidebar">
@@ -119,7 +119,7 @@ const canViewPayroll = authStore.canAccess('payroll', 'view_all');
 const visibleTabs = computed(() =>
   [
     { value: 'checkin', icon: 'mdi-clock-check-outline', label: 'Chấm công', show: canUseAttendance },
-    { value: 'leaveAdmin', icon: 'mdi-calendar-check-outline', label: 'Duyệt nghỉ phép', show: canReviewLeave },
+    { value: 'leaveAdmin', icon: 'mdi-calendar-check-outline', label: 'Duyệt đơn', show: canReviewLeave },
     { value: 'config', icon: 'mdi-cog-outline', label: 'Cấu hình chấm công', show: canConfigAttendance },
     { value: 'table', icon: 'mdi-table-account', label: 'Bảng lương', show: canViewPayroll },
     { value: 'salaryMine', icon: 'mdi-file-document-outline', label: 'Phiếu lương của tôi', show: canUsePayroll },
@@ -129,13 +129,14 @@ const visibleTabs = computed(() =>
 import { useRoute } from 'vue-router';
 
 const route = useRoute();
-const activeTab = ref((route.query.tab as string) || visibleTabs.value[0]?.value || 'checkin');
+const requestedTab = (route.query.tab as string) || 'table';
+const activeTab = ref(visibleTabs.value.some((t) => t.value === requestedTab) ? requestedTab : (visibleTabs.value[0]?.value ?? 'checkin'));
 
 watch(
   () => route.query.tab,
   (newTab) => {
     if (newTab && typeof newTab === 'string') {
-      activeTab.value = newTab;
+      if (visibleTabs.value.some((t) => t.value === newTab)) activeTab.value = newTab;
     }
   },
 );
@@ -230,6 +231,9 @@ onMounted(() => {
   border-top-left-radius: 24px;
 }
 @media (max-width: 768px) {
+  .sl-shell--minimal .sl-sidebar { display: none; }
+  .sl-shell--minimal .sl-body { display: block; }
+  .sl-shell--minimal .sl-content { border-top-left-radius: 0; padding: 14px 12px; }
   .sl-content { padding: 14px 12px; border-top-left-radius: 0; }
   .sl-body {
     flex-direction: column;

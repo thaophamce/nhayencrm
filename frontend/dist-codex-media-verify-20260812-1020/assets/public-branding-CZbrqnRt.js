@@ -1,0 +1,1 @@
+import{h as e}from"./auth-CYk0xeuf.js";async function t(){try{return(await e.get(`/api/v1/public/org-branding`,{timeout:5e3})).data}catch{return null}}export{t};

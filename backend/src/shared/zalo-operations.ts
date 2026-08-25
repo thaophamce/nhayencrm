@@ -290,6 +290,21 @@ async function exec<T>(opts: ExecOptions, fn: (api: any) => Promise<T>): Promise
     );
   }
 
+  if (operation === 'leaveGroup' && zaloCode === 166) {
+    throw new ZaloOpError(
+      'Tài khoản Zalo không còn là thành viên của nhóm này. [zalo:166]',
+      'API_ERROR',
+      409,
+    );
+  }
+  if (operation === 'leaveGroup' && zaloCode === 167) {
+    throw new ZaloOpError(
+      'Zalo không cho phép rời nhóm này qua API. Hãy thử rời trực tiếp trên ứng dụng Zalo. [zalo:167]',
+      'API_ERROR',
+      409,
+    );
+  }
+
   throw new ZaloOpError(
     `${operation} failed: ${msg}${zaloCode != null ? ` [zalo:${zaloCode}]` : ''}`,
     'API_ERROR',
@@ -559,7 +574,9 @@ async function unblockGroupMember(accountId: string, userId: string, groupId: st
 
 async function leaveGroup(accountId: string, groupId: string) {
   return exec({ accountId, category: 'group_admin', operation: 'leaveGroup' },
-    (api) => api.leaveGroup(groupId));
+    // The bulk workflow promises a silent leave. zca-js defaults this flag to
+    // false, so it must be explicit here.
+    (api) => api.leaveGroup(groupId, true));
 }
 
 async function disperseGroup(accountId: string, groupId: string) {

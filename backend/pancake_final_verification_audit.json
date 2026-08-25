@@ -1,0 +1,41 @@
+{
+  "account": {
+    "displayName": "Thiệp Cưới",
+    "zaloUid": "419868129653264162",
+    "status": "connected"
+  },
+  "totalPancakeMessagesInDB": 132582,
+  "messagesBeforeCutoff": 0,
+  "messagesInExcludedGroups": 0,
+  "duplicatePancakeMsgIds": 0,
+  "totalConversationsInDB": 9363,
+  "userConversations": 6575,
+  "groupConversations": 2788,
+  "contentTypeBreakdown": [
+    {
+      "type": "file",
+      "count": 45328
+    },
+    {
+      "type": "image",
+      "count": 41895
+    },
+    {
+      "type": "text",
+      "count": 44836
+    },
+    {
+      "type": "video",
+      "count": 497
+    },
+    {
+      "type": "voice",
+      "count": 26
+    }
+  ],
+  "earliestMessageSentAtUTC": "2026-04-29T07:41:02.783Z",
+  "latestMessageSentAtUTC": "2026-07-14T07:48:53.508Z",
+  "excludedGroupsMatchedCount": 62,
+  "excludedGroupsUnmatchedCount": 0,
+  "unmatchedGroupNames": []
+}

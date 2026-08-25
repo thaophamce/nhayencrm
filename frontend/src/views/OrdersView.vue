@@ -1,10 +1,13 @@
 <template>
-  <div v-if="isMobile">
+  <div v-if="isMobile && activeTab !== 'overview'">
     <MobileOrdersView
       ref="mobileOrdersRef"
       @create="showCreateModal = true"
       @edit="onMobileEdit"
     />
+  </div>
+  <div v-else-if="isMobile && activeTab === 'overview'">
+    <OrdersOverviewTab @edit="editOrder" />
   </div>
   <div class="orders-shell" v-else>
     <aside class="orders-sidebar">

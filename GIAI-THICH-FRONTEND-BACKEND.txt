@@ -1,0 +1,122 @@
+﻿GIẢI THÍCH FRONTEND VÀ BACKEND TRONG ZALO CRM
+================================================
+
+1. HIỂU NGẮN GỌN
+
+FRONTEND là phần nhân viên nhìn thấy và thao tác:
+- Màn hình đăng nhập
+- Danh sách khách hàng
+- Khung chat
+- Nút gửi tin
+- Màu sắc và bố cục
+- Địa chỉ hiện tại: http://localhost:5173
+
+BACKEND là phần xử lý dữ liệu phía sau:
+- Kiểm tra tài khoản và mật khẩu
+- Đọc, ghi dữ liệu khách hàng vào DB
+- Gửi tin Zalo
+- Đồng bộ hội thoại
+- Kiểm tra quyền admin, sale
+- Chạy tác vụ tự động
+- Cung cấp API cho frontend
+- Địa chỉ hiện tại: http://localhost:3901
+
+Có thể hiểu:
+- Frontend giống quầy tiếp khách.
+- Backend giống nhân sự, kho hồ sơ và máy xử lý phía sau.
+
+
+2. VÍ DỤ KHI NHÂN VIÊN BẤM “GỬI TIN”
+
+Bước 1: Frontend nhận nội dung nhân viên nhập.
+Bước 2: Frontend gửi yêu cầu API đến backend.
+Bước 3: Backend kiểm tra quyền nhân viên.
+Bước 4: Backend gọi dịch vụ Zalo để gửi tin.
+Bước 5: Backend lưu tin nhắn vào DB.
+Bước 6: Backend trả kết quả thành công hoặc lỗi.
+Bước 7: Frontend hiển thị kết quả cho nhân viên.
+
+
+3. VÌ SAO FRONTEND VÀ BACKEND KHÁC NHAU NHIỀU?
+
+Frontend:
+- Chạy trong trình duyệt.
+- Tạo giao diện bằng Vue và Vuetify.
+- Không được kết nối DB trực tiếp.
+- Không được chứa mật khẩu DB, JWT secret hoặc token Zalo.
+- Gọi API do backend cung cấp.
+
+Backend:
+- Chạy bằng Node.js trên máy chủ.
+- Kết nối DB.
+- Kết nối Zalo.
+- Chứa nghiệp vụ CRM.
+- Kiểm tra đăng nhập và phân quyền.
+- Bảo vệ thông tin bí mật.
+- Trả dữ liệu cho frontend qua API.
+
+
+4. CẤU TRÚC SOURCE
+
+D:\CTY TNHH THIEP CUOI\CLAUDE\ZaloCRM\
+|
+|-- frontend\    Giao diện Vue
+|
+|-- backend\     API, DB, Zalo và nghiệp vụ CRM
+
+
+5. CÁCH HAI PHẦN KẾT NỐI
+
+Frontend chạy tại:
+http://localhost:5173
+
+Backend chạy tại:
+http://localhost:3901
+
+Frontend có cấu hình chuyển tiếp:
+/api        sang http://localhost:3901
+/socket.io  sang http://localhost:3901
+
+Ví dụ trình duyệt gọi:
+http://localhost:5173/api/v1/public/org-branding
+
+Vite chuyển yêu cầu này đến:
+http://localhost:3901/api/v1/public/org-branding
+
+Nhân viên chỉ cần mở frontend tại cổng 5173. Frontend tự giao tiếp với backend.
+
+
+6. VÌ SAO PHẢI CHẠY CẢ HAI?
+
+Chỉ chạy frontend:
+- Có thể thấy giao diện.
+- Đăng nhập, tải khách hàng, gửi tin và đồng bộ có thể lỗi 502.
+
+Chỉ chạy backend:
+- API hoạt động.
+- Không có giao diện để nhân viên sử dụng.
+
+Chạy cả frontend và backend:
+- CRM hoạt động đầy đủ.
+
+
+7. CỔNG 3080 LÀ GÌ?
+
+Cổng 3080 thuộc bản Docker production.
+Bản Docker đóng gói frontend và backend để dùng chung địa chỉ:
+http://localhost:3080
+
+Nhưng container hiện có được build từ source cũ ngày 18/07/2026.
+
+Bản source dev chạy ngày 24/07/2026 dùng:
+- Frontend: cổng 5173
+- Backend: cổng 3901
+
+Vì vậy link đúng của source hôm qua là:
+- Local: http://localhost:5173
+- Cloudflare: https://etc-protect-grey-receivers.trycloudflare.com
+
+
+8. LƯU Ý BẢO MẬT
+
+Không đưa DATABASE_URL, mật khẩu DB, JWT secret hoặc token Zalo vào frontend. Trình duyệt có thể đọc mã frontend. Mọi thông tin bí mật phải nằm trong backend.

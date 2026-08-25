@@ -1,0 +1,78 @@
+CTO CHẨN ĐOÁN: TẠI SAO GỬI TIN NHẮN / LOAD HỘI THOẠI CHẬM
+Người điều tra: Claude (CTO dự án) — 22/07/2026
+Cách làm: đọc trực tiếp source đường truyền chat (backend + SDK + frontend), KHÔNG suy đoán.
+
+======================================================================
+TÓM TẮT 1 DÒNG
+======================================================================
+Có HAI thứ chậm khác nhau, đừng gộp làm một:
+  (A) GỬI 1 tin  → chậm vì phải chờ server Zalo trả lời (SDK zca-js đồng bộ).
+  (B) LOAD danh sách hội thoại (admin 50 nick) → chậm vì 1 query nặng gom quá nhiều thứ.
+Frontend KHÔNG phải thủ phạm — đã tối ưu sẵn (vẽ từ cache trước, chạy song song).
+
+======================================================================
+A. GỬI TIN CHẬM — NÚT THẮT NẰM Ở ĐÂU
+======================================================================
+File: backend/src/modules/chat/chat-routes.ts
+
+Dòng 1789:  const sendResult = await instance.api.sendMessage(sendPayload, threadId, threadType);
+
+Đây là 1 lần GỌI MẠNG THẬT tới server Zalo và ĐỨNG CHỜ tới khi Zalo trả kết quả.
+Toàn bộ thời gian anh thấy "quay quay" khi bấm gửi gần như = thời gian Zalo phản hồi:
+  - Mạng nhà/VPS tới Zalo nhanh  → ~0.3–0.8 giây.
+  - Mạng chập chờn / Zalo bận    → 2–5 giây, thỉnh thoảng lâu hơn.
+Đây là bản chất của zca-js (SDK không chính thức): gửi = chờ đồng hồ mạng Zalo,
+KHÔNG có cách nào trong code làm Zalo trả nhanh hơn. Không phải lỗi CRM.
+
+Các bước còn lại trong tuyến gửi TÔI ĐÃ ĐO/ĐỌC — đều RẺ, không đáng kể:
+  - Kiểm tra giới hạn gửi (checkLimits): trần đọc từ DB đã cache 60 giây → gần như tức thì.
+  - Lưu tin vào DB (message.create) + cập nhật hội thoại: 1 insert + 1 update, nhanh.
+  - Cập nhật thống kê contact/friend: đã để CHẠY NGẦM (void, fire-and-forget) → KHÔNG chặn.
+  - emitChatMessage (bắn socket realtime), dòng 1909: với nick THƯỜNG chỉ bắn socket
+    trong RAM rồi return ngay, KHÔNG đụng DB. Chỉ nick RIÊNG TƯ mới có 1 lần check phiên
+    mở khóa (bọc try/catch, lỗi cũng không rớt gửi). → ảnh hưởng gần như 0 với nick thường.
+
+KẾT LUẬN A: gửi chậm = độ trễ mạng Zalo, không phải code. Cải thiện cảm giác nhanh chỉ có
+cách "optimistic UI": hiện tin ngay khi bấm (trạng thái đang gửi), có kết quả thì xác nhận.
+Frontend ĐÃ chèn tin lạc quan (insertMessageSorted) — nếu anh vẫn thấy khựng lúc bấm, ta chỉnh
+để hiện bong bóng "đang gửi" TRƯỚC khi chờ server, thay vì chờ server xong mới hiện.
+
+======================================================================
+B. LOAD DANH SÁCH HỘI THOẠI CHẬM (đúng triệu chứng "admin 50 nick 5–10s")
+======================================================================
+File: backend/src/modules/chat/chat-routes.ts — endpoint GET /api/v1/conversations
+
+Một lần mở danh sách chạy 3 CHẶNG query nối nhau, mỗi chặng gánh nhiều dữ liệu:
+  1) conversation.findMany + count: kèm rất nhiều include lồng nhau (contact + quyền truy cập,
+     zaloAccount, pins, tin nhắn mới nhất, reactions...) cho TỪNG hội thoại.
+  2) friend.findMany: 1 query gộp lấy ~20 cột cho mọi cặp (nick × người) hiện trên trang.
+  3) (khi lọc theo trạng thái trả lời) thêm 1 $queryRaw LATERAL — subquery nặng.
+
+Với admin gom 50 nick, số hội thoại/bạn bè rất lớn → 3 chặng này cộng dồn thành 5–10 giây.
+Đây MỚI là chỗ đáng tối ưu, và tối ưu được (khác với phần A là giới hạn nền tảng).
+
+Hướng xử lý đề xuất (CHƯA làm — chờ anh duyệt):
+  - Cắt bớt include không cần cho danh sách (chỉ lấy đủ để vẽ dòng hội thoại; chi tiết để lúc
+    mở hội thoại mới tải).
+  - Phân trang/È tải theo trang thật sự thay vì kéo cả cụm lớn.
+  - Xem lại subquery LATERAL cho bộ lọc "chưa trả lời" — cân nhắc precompute cờ isReplied.
+  - Kiểm tra index cho friend.findMany theo (zaloAccountId, externalThreadId).
+
+======================================================================
+C. FRONTEND — KHÔNG PHẢI THỦ PHẠM (đã tối ưu sẵn)
+======================================================================
+- Mở hội thoại: vẽ ngay từ cache (messagesCache) rồi mới đồng bộ realtime.
+- selectConversation: chờ fetchMessages để vẽ khung, sau đó chạy SONG SONG chi tiết + đánh dấu
+  đã đọc (Promise.all) — không nối tiếp gây chậm.
+- Gửi: 1 request duy nhất, chèn tin lạc quan tại chỗ.
+=> Không có vòng lặp thừa, không N+1 phía client.
+
+======================================================================
+D. VIỆC CẦN ANH QUYẾT
+======================================================================
+1. Phần A (gửi chậm): có phải anh muốn "bấm là hiện tin ngay" (optimistic rõ ràng hơn),
+   chấp nhận tin có nhãn "đang gửi" cho tới khi Zalo xác nhận? Nếu đồng ý tôi chỉnh nhẹ frontend.
+2. Phần B (load danh sách 50 nick): đây là nơi tối ưu thật sự đáng làm. Anh cho phép tôi
+   giảm tải endpoint GET /conversations (cắt include + phân trang) thì tôi làm và đo lại trước/sau.
+
+Tôi CHƯA sửa dòng code nào — đây là báo cáo chẩn đoán, chờ anh chốt hướng trước khi động vào.

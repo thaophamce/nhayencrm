@@ -60,4 +60,30 @@ describe('design salary calculator', () => {
 
     expect(stats).toEqual({ orderCount: 2, totalFiles: 5, approvedCount: 1, designFeeCount: 1 });
   });
+
+  it('excludes designers without salary activity in the selected month', () => {
+    const stats = calculateImportedMonthlySalaryStats([{
+      ...base,
+      fileCount: 5,
+      timestamps: { designing: '2026-06-01T00:00:00.000Z' },
+    }], '2026-07');
+
+    expect(stats.has('designer-1')).toBe(false);
+  });
+
+  it('includes designers whose only salary activity is a design fee', () => {
+    const stats = calculateImportedMonthlySalaryStats([{
+      ...base,
+      fileCount: 0,
+      hasDesignFee: true,
+      designFeeTickedAt: '2026-07-15T00:00:00.000Z',
+    }], '2026-07');
+
+    expect(stats.get('designer-1')).toEqual({
+      orderCount: 0,
+      totalFiles: 0,
+      approvedCount: 0,
+      designFeeCount: 1,
+    });
+  });
 });

@@ -1,0 +1,749 @@
+﻿# PROMPT CHUẨN V2 — AUDIT, TỐI ƯU VÀ CHỐT KẾ HOẠCH DEPLOY NHÀ YẾN CRM
+
+Bạn là Principal Engineer, Security Reviewer, SRE, DBA và QA Lead. Hãy kiểm tra repository hiện tại cùng kế hoạch triển khai trong file:
+
+```text
+D:\CTY TNHH THIEP CUOI\CLAUDE\ZaloCRM\KE-HOACH-DEPLOY-NHAYENCRM.html
+```
+
+Mục tiêu: xác minh từng nhận định trong kế hoạch bằng trạng thái thực tế hiện tại, audit web app trước production, tối ưu có bằng chứng, rồi viết lại kế hoạch deploy an toàn và có rollback. Không được coi nội dung HTML cũ là sự thật nếu chưa kiểm tra lại.
+
+---
+
+## 1. Bối cảnh cố định
+
+- Sản phẩm: **Nhà Yến CRM**
+- Doanh nghiệp: **Thiệp Cưới Nhà Yến**
+- Domain dự kiến: `https://nhayencrm.com`
+- Phương án dự kiến: Cloudflare Named Tunnel đến app production
+- Máy chủ dự kiến hiện tại: máy Windows đang chạy Docker Desktop
+- Stack:
+  - Frontend: Vue 3, TypeScript, Vuetify, Pinia, Vite, PWA
+  - Backend: Node.js, Fastify, TypeScript, Prisma
+  - DB: PostgreSQL 16
+  - Cache/queue: Redis/BullMQ
+  - Realtime: Socket.IO
+  - Storage hiện được báo cáo là `local`; lịch sử có MinIO và Cloudflare R2
+  - Zalo: `zca-js`
+  - Tích hợp: Telegram, Pancake POS, public API và webhook
+  - Deploy: Docker Compose
+- License: AGPL-3.0. Phải giữ `LICENSE`, `NOTICE`, SPDX header và attribution upstream.
+- Repository đang có nhiều thay đổi song song và nhiều file untracked. Không được giả định toàn bộ diff thuộc cùng task.
+
+---
+
+## 2. Quy tắc an toàn bắt buộc
+
+1. Chỉ audit và sửa code/config local khi an toàn. **Không deploy thật, không thay DNS, không tạo tunnel, không restart production, không sửa `.env` thật, không chạy migration production, không xóa DB/file, không commit, không push** nếu chưa được chủ dự án xác nhận riêng.
+2. Không chạy:
+
+```text
+git reset --hard
+git clean
+git checkout -- .
+docker compose down -v
+docker volume rm
+force push
+```
+
+3. Không reset, stash, revert hoặc ghi đè thay đổi của người khác.
+4. Không in secret ra terminal/báo cáo. Chỉ báo biến có/thiếu/yếu, giá trị phải redact.
+5. Không tự đổi:
+   - `JWT_SECRET`
+   - `ENCRYPTION_KEY`
+   - DB password/name
+   - Redis credentials
+   - Zalo session/credentials
+   - Telegram/Pancake/API secrets
+   - bucket name
+   - localStorage keys
+   - API key prefix
+   - iOS appId
+   - migration đã chạy
+6. Không xóa 8 bản ghi media hoặc bất kỳ dữ liệu nào trong audit. Chỉ tạo truy vấn kiểm tra, kế hoạch cleanup và câu lệnh có transaction/rollback sau khi được duyệt.
+7. Không tuyên bố PASS nếu chưa chạy lệnh và đọc exit code.
+8. Không “fix” bằng `any`, `@ts-ignore`, catch rỗng, tắt test, bỏ validation hoặc nới CORS/CSP.
+9. Mọi sửa code phải nhỏ, có test/build, dễ review và dễ rollback.
+10. Nếu phát hiện hành động có thể gây mất dữ liệu hoặc gián đoạn, dừng trước hành động đó và ghi `REQUIRES APPROVAL`.
+
+---
+
+## 3. Đầu tiên: kiểm tra chính file kế hoạch cũ
+
+Đọc toàn bộ `KE-HOACH-DEPLOY-NHAYENCRM.html`, trích từng claim và lập bảng:
+
+| Claim trong kế hoạch cũ | Bằng chứng hiện tại | Đúng/Sai/Không đủ bằng chứng | Rủi ro | Sửa kế hoạch |
+
+Bắt buộc xác minh tối thiểu các claim sau:
+
+1. Stack Docker thực sự đang chạy trên máy này.
+2. Container và port đúng:
+   - app `3080 -> 3000`
+   - PostgreSQL `127.0.0.1:5433`
+   - Redis `127.0.0.1:6379`
+   - MinIO `0.0.0.0:9000`
+3. `NODE_ENV=production` thật sự có trong container app, không chỉ trong file.
+4. `APP_URL`, `CRM_LOGIN_URL`, `STORAGE_DRIVER`, `LOCAL_PUBLIC_URL`, `S3_PUBLIC_URL`, `CSP_MODE` hiện tại — chỉ báo trạng thái/redact, không in secret.
+5. `trustProxy: true` có thật và có đúng ngữ cảnh Cloudflare Tunnel không.
+6. App có dùng cookie `Secure` hay token header/localStorage; không được suy diễn “trustProxy làm cookie Secure chạy đúng”.
+7. Socket.IO có cấu hình CORS/origin đúng domain và hoạt động qua tunnel.
+8. Route `/files` có công khai thật không; có path traversal, directory listing, MIME, cache và privacy risk không.
+9. `LOCAL_PUBLIC_URL` có thật sự fallback từ `APP_URL + /files` trong code không.
+10. 92 media R2 còn HTTP 200 — chỉ dùng HEAD/GET giới hạn và không log URL nhạy cảm đầy đủ.
+11. 8 media local mất file thật — kiểm tra DB và volume read-only; không xóa.
+12. Local storage thực tế có 244 file/329 MB hay đã thay đổi.
+13. MinIO thật sự không được dùng trước khi đề xuất đóng port/dừng service.
+14. Quick tunnel cũ có đang chạy, PID/command line/service nào sở hữu nó.
+15. Named Tunnel đã tồn tại hay chưa; DNS apex có record xung đột không.
+16. `cloudflared service install` trên Windows có đủ chưa, hay cần token/config path/service account.
+17. Recreate app bằng `docker compose up -d app` có đọc đúng compose/project/env hiện tại không.
+18. Có migration pending không.
+19. Có asset/file untracked mà production build đang phụ thuộc không.
+20. Claim “code không cần sửa gì” có còn đúng sau audit build/security/function không.
+
+Không dùng số liệu ngày 26/07/2026 như số liệu hiện tại nếu chưa đo lại.
+
+---
+
+## 4. Điểm yếu cần đặc biệt sửa trong kế hoạch cũ
+
+### 4.1 Backup chưa đủ
+
+Kế hoạch cũ chỉ dump PostgreSQL bằng:
+
+```powershell
+docker exec zalo-crm-db pg_dump -U crmuser zalocrm > backup-truoc-deploy-2026-07-26.sql
+```
+
+Không mặc định dùng cách này trên Windows PowerShell vì redirection có thể gây vấn đề encoding và không kiểm chứng restore. Hãy thiết kế backup an toàn gồm:
+
+- PostgreSQL custom format;
+- kiểm tra backup bằng `pg_restore --list`;
+- lưu checksum SHA-256;
+- backup volume/file local vì `STORAGE_DRIVER=local`;
+- backup `.env` theo cách bảo mật, không đưa vào repo/báo cáo;
+- backup compose/config Cloudflare Tunnel;
+- ghi dung lượng, thời gian, nơi lưu;
+- thử restore vào DB/container test riêng nếu tài nguyên cho phép;
+- không dùng production DB làm nơi thử restore.
+
+Mẫu an toàn cần xem xét:
+
+```powershell
+docker exec zalo-crm-db pg_dump -Fc -U crmuser -d zalocrm -f /tmp/nhayencrm-predeploy.dump
+docker cp zalo-crm-db:/tmp/nhayencrm-predeploy.dump .\backups\nhayencrm-predeploy.dump
+docker exec zalo-crm-db pg_restore --list /tmp/nhayencrm-predeploy.dump
+Get-FileHash .\backups\nhayencrm-predeploy.dump -Algorithm SHA256
+```
+
+Đây chỉ là mẫu. Phải xác minh container name, DB user/name và quyền trước. Không tự chạy nếu chưa được duyệt.
+
+### 4.2 Phải backup media local
+
+DB backup không chứa file trong `/var/lib/zalo-crm/files`. Xác định chính xác named volume/bind mount và tạo quy trình backup read-only. Không dùng chuỗi lệnh xóa/move. Có checklist restore DB + media cùng mốc thời gian.
+
+### 4.3 Public port app và MinIO
+
+Cloudflare Tunnel không yêu cầu app lắng nghe `0.0.0.0`. Xác minh có thể bind app production về:
+
+```text
+127.0.0.1:3080:3000
+```
+
+Nếu tunnel chạy trên host Windows. Kiểm tra Docker Desktop networking trước khi chốt. Tương tự MinIO:
+
+- nếu không dùng: cân nhắc profile/stop sau xác minh dependency;
+- nếu vẫn cần admin/internal: bind loopback;
+- thay compose phải recreate đúng service;
+- kiểm tra Windows Firewall và router port-forward, không chỉ Docker bind.
+
+Không khẳng định “MinIO hở internet” chỉ vì bind `0.0.0.0`; phải kiểm tra firewall/NAT. Nhưng vẫn đánh dấu bind rộng là exposure risk.
+
+### 4.4 Named Tunnel trên Windows
+
+Phải phân biệt hai cách:
+
+- tunnel quản lý bằng token từ dashboard;
+- locally-managed tunnel dùng credential JSON + `config.yml`.
+
+Xác minh cách dùng trước khi đưa lệnh. Kế hoạch phải ghi:
+
+- nơi lưu credential/config;
+- quyền NTFS;
+- Windows service account;
+- service startup/recovery;
+- log path và log rotation;
+- kiểm tra service sau reboot;
+- cách uninstall/rollback service;
+- không ghi tunnel token vào repo hoặc command history nếu tránh được.
+
+Kiểm tra DNS apex đã có A/AAAA/CNAME hay record xung đột. Không tự ghi đè DNS.
+
+### 4.5 Cloudflare và cache
+
+Đưa checklist:
+
+- SSL/TLS mode phù hợp với Tunnel;
+- Always Use HTTPS;
+- `www` redirect nếu chọn;
+- không cache `/api/*` và `/socket.io/*`;
+- cân nhắc cache `/files/*` chỉ khi nội dung immutable và không chứa private media;
+- WebSocket được phép;
+- upload/body size và timeout;
+- WAF/rate limit cho login/public endpoints;
+- không bật Cloudflare Access trước app nếu Zalo webhook/CDN/public media cần truy cập;
+- kiểm tra IPv6/DNS propagation;
+- kiểm tra origin chỉ vào được qua loopback/tunnel nếu mục tiêu là private origin.
+
+### 4.6 Public `/files` và quyền riêng tư
+
+Kế hoạch cũ coi public `/files` là lợi ích nhưng chưa audit privacy. Kiểm tra:
+
+- URL có đủ entropy không;
+- có đoán được tên file không;
+- có directory traversal/listing không;
+- có file nhạy cảm không;
+- response có `X-Content-Type-Options: nosniff` không;
+- MIME đúng không;
+- cache-control có phù hợp không;
+- xóa media có thật sự ngừng truy cập không;
+- có cần signed URL hay authorization không;
+- Zalo CDN cần public URL tới mức nào.
+
+Nếu media khách hàng nhạy cảm, nêu rõ tradeoff local public static so với signed URL/R2 private. Không tự đổi kiến trúc storage trong cùng deployment nếu chưa duyệt.
+
+### 4.7 Không xóa 8 DB records trực tiếp
+
+Tạo quy trình:
+
+1. Query xác định record.
+2. Kiểm tra foreign keys/references đến message/media/content/thumbnail.
+3. Export record ra JSON/CSV để rollback.
+4. Backup DB.
+5. Cleanup trong transaction.
+6. Kiểm tra row count chính xác.
+7. Commit hoặc rollback.
+
+Cleanup phải là task riêng sau deploy ổn định, không nằm trên critical path đưa domain lên production.
+
+### 4.8 Không gộp theme refactor với deploy
+
+Kế hoạch cũ ghi theme thay quá phạm vi. Audit diff:
+
+- `frontend/src/assets/hs-crm-theme.css`
+- `frontend/src/plugins/vuetify.ts`
+- layout/chat widths/radius/font/message width/shadows
+
+Phân loại:
+
+- branding thuần;
+- behavior/layout change;
+- accessibility/responsive regression.
+
+Không tự revert vì workspace có thay đổi người khác. Đưa thành quyết định riêng, không chặn domain nếu build và smoke test đạt, trừ khi gây lỗi UI thực tế.
+
+---
+
+## 5. Audit Git và dependency trước mọi sửa
+
+Chạy:
+
+```powershell
+git status --short
+git diff --stat
+git diff --check
+git branch --show-current
+git remote -v
+git log -1 --oneline
+node --version
+npm --version
+docker version
+docker compose version
+cloudflared --version
+```
+
+Phân nhóm modified/untracked:
+
+- code production bắt buộc;
+- asset bắt buộc;
+- tests;
+- docs;
+- feature đang làm dở;
+- runtime/temp/secret;
+- backup/dump;
+- file không rõ chủ sở hữu.
+
+Đặc biệt xác minh các file import nhưng untracked. Production build có thể chạy local nhưng CI/deploy fail nếu quên commit.
+
+Không đưa token, cookie, `.env`, `.runtime/`, `.tmp-*`, DB dump hoặc payload khách hàng vào Git.
+
+---
+
+## 6. Build, test và static checks
+
+Chạy đúng scripts hiện có:
+
+```powershell
+git diff --check
+
+Push-Location backend
+npm run build
+Pop-Location
+
+Push-Location frontend
+npm run build
+npm test -- --run
+Pop-Location
+```
+
+Backend full test:
+
+```powershell
+Push-Location backend
+npm test -- --run
+Pop-Location
+```
+
+Nếu full suite lỗi:
+
+- báo tổng file/test pass/fail/skip;
+- phân nhóm: module EE thiếu, DB test, Prisma mock cũ, regression thật;
+- chạy targeted test cho mọi file đã sửa;
+- không coi targeted test thay cho full suite;
+- không sửa hàng loạt test ngoài phạm vi chỉ để xanh.
+
+Chạy thêm:
+
+```powershell
+Push-Location backend
+npm audit --omit=dev
+Pop-Location
+
+Push-Location frontend
+npm audit --omit=dev
+Pop-Location
+
+docker compose config
+```
+
+Không chạy `npm audit fix --force`.
+
+Kiểm tra:
+
+- JSON/YAML parse;
+- package-lock đồng bộ;
+- unused import/dead code;
+- route import file untracked;
+- encoding/BOM;
+- source map;
+- chunk >500 kB;
+- PWA/service worker update strategy;
+- frontend asset kích thước;
+- production image chứa source hoặc secret ngoài ý muốn.
+
+---
+
+## 7. Security audit bắt buộc
+
+### Auth/session
+
+- access/refresh token rotation và revoke;
+- force password change;
+- login/setup rate limit;
+- secret strength nhưng không in giá trị;
+- CORS exact origins cho apex và quyết định với `www`;
+- CSRF nếu dùng cookie;
+- Secure/HttpOnly/SameSite nếu có cookie;
+- logout và session Zalo không bị ảnh hưởng ngoài dự kiến.
+
+### RBAC/tenant isolation
+
+- mọi DB query scope `orgId`;
+- mọi Zalo operation kiểm tra account access;
+- Socket.IO room theo org/user;
+- public API key đúng tenant;
+- IDOR trên `/:id`;
+- raw SQL có tenant condition;
+- report/export/batch route không rò tenant.
+
+### Input/media/webhook
+
+- SSRF;
+- path traversal;
+- upload MIME/size;
+- XSS/rich text;
+- CSV formula injection;
+- HMAC constant-time + replay protection;
+- webhook retry/idempotency;
+- Telegram/Pancake/Zalo secrets backend-only;
+- log redaction.
+
+### Lời mời kết bạn Zalo
+
+Xác minh fix mới:
+
+- popup web đọc live `getFriendRecommendations()`;
+- chỉ lấy `recommType = 2`;
+- không lấy suggestion `recommType = 1`;
+- scope `[]` mở rộng thành tất cả nick có quyền;
+- Đồng ý/Từ chối dùng đúng accountId và UID;
+- route có ACL;
+- không tạo request storm với nhiều nick;
+- cần concurrency limit nếu số nick lớn;
+- lỗi một nick không làm mất dữ liệu nick khác;
+- danh sách web khớp Zalo điện thoại.
+
+---
+
+## 8. Audit DB, migration và storage
+
+1. Chạy kiểm tra Prisma phù hợp nhưng không migrate production.
+2. Liệt kê migration pending/applied bằng phương pháp read-only.
+3. Không sửa migration lịch sử.
+4. Kiểm tra volume:
+   - PostgreSQL;
+   - local media;
+   - Redis nếu có dữ liệu cần giữ;
+   - MinIO nếu còn object;
+   - config/credential Zalo.
+5. Kiểm tra dung lượng ổ đĩa, tăng trưởng media/log, ngưỡng cảnh báo.
+6. Kiểm tra backup retention và nơi lưu ngoài máy chủ duy nhất.
+7. Thiết kế restore drill.
+8. Kiểm tra startup order, healthcheck, graceful shutdown.
+9. Xác minh recreate app không recreate/xóa DB volume.
+10. Xác minh schema app hiện tại tương thích DB hiện tại.
+
+---
+
+## 9. Audit Docker production
+
+Kiểm tra Dockerfile/compose thực tế:
+
+- image build reproducible;
+- non-root nếu khả thi;
+- `.dockerignore` không đưa `.env`, backup, token, runtime file vào image;
+- app/db/redis/minio port bindings;
+- healthcheck;
+- restart policy;
+- resource limits;
+- volume mounts;
+- network isolation;
+- `depends_on` không bị hiểu nhầm là readiness;
+- log rotation;
+- timezone;
+- production command;
+- dev server không bị expose;
+- build artifact đúng brand và source revision;
+- container environment đúng sau recreate.
+
+Nếu thử Docker, dùng project name/volume test riêng. Không dùng production volume. Không `down -v`.
+
+---
+
+## 10. Performance audit có đo lường
+
+### Frontend
+
+- bundle/chunk size;
+- lazy routes;
+- ExcelJS/chat chunk lớn;
+- ảnh/logo/PWA icon;
+- duplicate API calls;
+- popup lời mời gọi nhiều nick cần giới hạn concurrency/cache ngắn;
+- search debounce;
+- stale request/race;
+- list pagination/virtualization;
+- accessibility, keyboard/focus/contrast;
+- mobile responsive;
+- service worker cache busting sau deploy.
+
+### Backend
+
+- N+1 query;
+- unbounded `findMany`;
+- timeout/retry/backoff cho Zalo/Telegram/Pancake/webhook;
+- cron duplicate khi nhiều replica;
+- queue idempotency;
+- DB pool;
+- Redis reconnect;
+- Socket.IO reconnect;
+- graceful shutdown;
+- health/readiness;
+- request ID và structured log;
+- rate limit key đúng sau `trustProxy`.
+
+Chỉ tối ưu khi có bằng chứng. Không bỏ validation/ACL để tăng tốc.
+
+---
+
+## 11. Kế hoạch deploy chuẩn cần viết lại
+
+Tạo kế hoạch theo pha, mỗi pha có:
+
+- người thực hiện;
+- lệnh chính xác;
+- điều kiện trước;
+- kết quả mong đợi;
+- cách xác minh;
+- điểm dừng;
+- rollback;
+- mức gián đoạn dự kiến.
+
+### Pha A — Preflight, không thay đổi hệ thống
+
+- audit Git/build/test;
+- Docker/container/port/env read-only;
+- DNS/tunnel/service read-only;
+- disk/memory/backup capacity;
+- migration status;
+- files/assets cần commit;
+- chốt `GO/NO-GO`.
+
+### Pha B — Backup và restore verification
+
+- DB custom-format backup;
+- media volume backup;
+- config backup bảo mật;
+- checksum;
+- restore test riêng;
+- ghi Recovery Point Objective và Recovery Time Objective thực tế.
+
+### Pha C — Chuẩn bị Cloudflare trước cutover
+
+- Named Tunnel/token hoặc config rõ ràng;
+- service setup;
+- DNS conflict check;
+- hostname tới `http://localhost:3080`;
+- chưa đổi app URL cho tới khi tunnel health đạt;
+- kiểm tra bằng hostname tạm nếu có thể;
+- security rules/cache exclusions.
+
+### Pha D — Cutover
+
+- maintenance window;
+- ghi thời điểm bắt đầu;
+- cập nhật chính xác `APP_URL` và `CRM_LOGIN_URL`;
+- quyết định explicit `LOCAL_PUBLIC_URL=https://nhayencrm.com/files` hay verified fallback;
+- recreate app bằng compose command đúng project/env;
+- không đổi secret;
+- kiểm tra container env đã nhận giá trị mới;
+- kiểm tra health trước mở traffic.
+
+### Pha E — Smoke test
+
+Tối thiểu:
+
+1. DNS và TLS.
+2. Trang login.
+3. Login/refresh/logout.
+4. Dashboard.
+5. Socket.IO/WSS realtime.
+6. Chat gửi/nhận text.
+7. Upload/gửi một ảnh bằng tài khoản test; Zalo điện thoại nhận được.
+8. URL `/files` trả MIME/header đúng.
+9. Ảnh local cũ.
+10. 92 ảnh R2 cũ.
+11. Lời mời kết bạn web khớp Zalo điện thoại.
+12. Đồng ý/Từ chối lời mời bằng tài khoản test.
+13. Telegram/Pancake/webhook nếu production dùng.
+14. PWA install/update.
+15. Mobile.
+16. CORS từ domain thật.
+17. Không còn request đến IP LAN/localhost/5173.
+18. Log không có secret/stack bất thường.
+
+### Pha F — Hardening sau ổn định
+
+Không gộp vào cutover nếu không cần:
+
+- bind app/MinIO loopback;
+- CSP report-only quan sát ít nhất một khoảng thời gian rồi mới enforce;
+- cleanup 8 media record;
+- R2 migration;
+- theme/layout refactor;
+- VPS migration;
+- Cloudflare rate limit/WAF tinh chỉnh.
+
+### Pha G — Theo dõi 24 giờ và 7 ngày
+
+- uptime;
+- CPU/RAM/disk;
+- DB connections;
+- Redis/queue;
+- Socket reconnect;
+- 4xx/5xx;
+- login errors;
+- upload/media errors;
+- Zalo reconnect;
+- tunnel service;
+- CSP reports;
+- backup job.
+
+---
+
+## 12. Rollback phải cụ thể
+
+Kế hoạch rollback cần phân tầng:
+
+### Rollback domain/config
+
+- phục hồi `.env` cũ từ bản backup bảo mật;
+- recreate app;
+- kiểm tra IP/LAN access cũ nếu còn cần;
+- rollback DNS/tunnel route;
+- không đổi secret.
+
+### Rollback container/image
+
+- lưu image digest/tag trước deploy;
+- deploy lại image cũ;
+- không build đè tag duy nhất;
+- kiểm tra schema compatibility.
+
+### Rollback DB
+
+- chỉ restore khi có thay đổi DB gây lỗi và được phê duyệt;
+- restore DB có thể làm mất dữ liệu phát sinh sau backup, phải cảnh báo rõ;
+- ưu tiên rollback app nếu schema backward-compatible;
+- media và DB phải đồng bộ mốc.
+
+### Rollback Cloudflare service
+
+- stop/disable service mới;
+- khôi phục quick tunnel chỉ nếu thật sự cần và biết URL thay đổi;
+- gỡ DNS route đúng cách;
+- không xóa tunnel/credential trước khi hệ thống ổn định.
+
+Đặt tiêu chí rollback tự động/manual, ví dụ:
+
+- login fail liên tục;
+- 5xx vượt ngưỡng;
+- Socket.IO không kết nối;
+- media gửi Zalo lỗi;
+- DB migration lỗi;
+- tenant/security issue;
+- healthcheck không đạt sau thời gian giới hạn.
+
+---
+
+## 13. Tiêu chí NO-GO
+
+Đánh dấu `NO-GO` nếu còn một trong các điều kiện:
+
+- backend/frontend build fail;
+- targeted test cho thay đổi mới fail;
+- migration pending/không rõ;
+- backup DB hoặc media chưa kiểm chứng;
+- restore plan không có;
+- secret/default credential yếu hoặc lộ;
+- auth/RBAC/tenant isolation lỗi;
+- production build phụ thuộc file untracked;
+- DNS/tunnel config chưa rõ hoặc record xung đột;
+- origin/app/DB/Redis/MinIO exposure không được hiểu rõ;
+- Docker production không health;
+- login/chat/realtime/media fail;
+- public `/files` có path traversal hoặc lộ dữ liệu nghiêm trọng;
+- không có rollback image/config;
+- ổ đĩa không đủ;
+- máy chủ không bảo đảm uptime tối thiểu mà chủ dự án yêu cầu.
+
+`GO WITH CONDITIONS` chỉ dùng khi không có security/data-loss blocker và mọi điều kiện còn lại có owner + deadline rõ.
+
+---
+
+## 14. Đầu ra bắt buộc
+
+Không chỉ trả lời chat. Tạo đủ 4 file:
+
+```text
+PRE_DEPLOY_AUDIT_NHAYENCRM.md
+PRE_DEPLOY_AUDIT_NHAYENCRM.html
+KE-HOACH-DEPLOY-NHAYENCRM-V2.md
+KE-HOACH-DEPLOY-NHAYENCRM-V2.html
+```
+
+### Báo cáo audit phải có
+
+```markdown
+# Pre-deploy Audit — Nhà Yến CRM
+
+## Verdict
+- GO / GO WITH CONDITIONS / NO-GO
+- Blocker/High/Medium/Low count
+
+## Claim verification từ kế hoạch cũ
+
+## Git và artifact status
+
+## Build/test/audit results
+
+## Security findings
+
+## DB/storage/backup findings
+
+## Docker/network/Cloudflare findings
+
+## Functional findings
+
+## Performance findings
+
+## Files bắt buộc commit
+
+## Files tuyệt đối không commit
+
+## Thay đổi đã sửa
+
+## Việc cần chủ dự án phê duyệt
+
+## Quyết định cuối
+```
+
+### Kế hoạch deploy V2 phải có
+
+- kiến trúc cuối;
+- preflight;
+- backup DB + media + config;
+- Cloudflare Named Tunnel trên Windows;
+- cutover;
+- smoke tests;
+- monitoring;
+- rollback từng lớp;
+- cleanup/hardening tách khỏi cutover;
+- command chính xác nhưng không chứa secret;
+- ô checkbox và cột người chịu trách nhiệm;
+- thời gian gián đoạn dự kiến;
+- tiêu chí GO/NO-GO.
+
+HTML phải dễ đọc, có:
+
+- đỏ cho blocker;
+- vàng cho điều kiện;
+- xanh cho PASS;
+- bảng claim cũ đúng/sai;
+- checklist deploy;
+- checklist rollback;
+- lệnh copy được;
+- cảnh báo hành động irreversible viết rõ bằng tiếng Việt.
+
+Không ghi đè file kế hoạch cũ. Tạo file `V2` mới.
+
+---
+
+## 15. Cách làm việc
+
+1. Bắt đầu bằng plan.
+2. Đọc report cũ và trạng thái Git.
+3. Kiểm tra read-only trước.
+4. Báo sớm nếu có blocker bảo mật/mất dữ liệu.
+5. Chỉ sửa blocker high-confidence, không sửa lan man.
+6. Sau mỗi sửa, chạy targeted test và build.
+7. Không dừng ở “build pass”; phải kiểm tra deploy/runtime plan.
+8. Cuối cùng trả lời ngắn:
+   - Verdict hiện tại?
+   - Claim nào trong kế hoạch cũ sai/nguy hiểm?
+   - Blocker nào còn?
+   - File nào đã tạo/sửa?
+   - Chủ dự án phải làm gì?
+   - Khi nào mới được cutover?
+
+Bắt đầu ngay bằng việc đọc `KE-HOACH-DEPLOY-NHAYENCRM.html`, `git status`, compose, Dockerfile, `.env.example`, cấu hình runtime và code liên quan. Không thực hiện deploy thật.

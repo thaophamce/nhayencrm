@@ -1,0 +1,19 @@
+# VPS trial override. Keep every published service on the VPS loopback interface;
+# operators reach the app through an SSH tunnel until Cloudflare Tunnel is ready.
+services:
+  app:
+    ports: !override
+      - "127.0.0.1:${APP_PORT:-3080}:3000"
+
+  db:
+    ports: !override
+      - "127.0.0.1:${DB_PORT:-5433}:5432"
+
+  redis:
+    ports: !override
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+
+  minio:
+    ports: !override
+      - "127.0.0.1:${MINIO_PORT:-9000}:9000"
+      - "127.0.0.1:${MINIO_CONSOLE_PORT:-9001}:9001"

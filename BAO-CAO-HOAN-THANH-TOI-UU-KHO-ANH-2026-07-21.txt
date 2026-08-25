@@ -1,0 +1,181 @@
+﻿BÁO CÁO HOÀN THÀNH TỐI ƯU KHO ẢNH ZALOCRM
+Ngày thực hiện: 21/07/2026
+Phạm vi: tải ảnh lên kho, mở kho, gửi ảnh từ kho, gửi album, lưu trữ, bảo mật URL media.
+
+======================================================================
+1. KẾT LUẬN
+======================================================================
+
+Đã sửa trực tiếp mã nguồn. Không còn dừng ở mức đánh giá/phương án.
+
+Kết quả đo thumbnail trên 23 ảnh đang có tại máy:
+- Tổng ảnh chính: 3.819.351 byte
+- Tổng thumbnail: 193.090 byte
+- Giảm dữ liệu tải lưới ảnh: 94,9%
+- Thumbnail trung bình: 8,2 KB
+- Tổng thời gian tạo 23 thumbnail: 407 ms
+
+Tác động chính:
+- Mở kho ảnh nhanh hơn rõ rệt vì lưới dùng thumbnail WebP 400px thay ảnh chính 2000px.
+- Upload nhanh hơn vì trình duyệt nén trước khi truyền và chỉ giữ tối đa 3 upload đang chạy.
+- Một tệp upload lỗi không làm mất các tệp đã thành công.
+- Gửi ảnh từ kho bớt vòng tải HTTP và ghi file tạm không cần thiết.
+- Album chuẩn bị tối đa 3 ảnh song song.
+- URL media do client gửi được chặn SSRF và giới hạn dung lượng.
+
+======================================================================
+2. CÁC PHẦN ĐÃ SỬA
+======================================================================
+
+A. ẢNH VÀ THUMBNAIL
+- Ảnh chính: WebP, cạnh tối đa 2000px, quality 82.
+- Thumbnail: WebP, cạnh tối đa 400px, quality 70.
+- GIF giữ nguyên để không mất ảnh động.
+- WebP đã nhỏ hơn hoặc bằng 2000px không bị encode lại vô ích ở backend.
+- MediaAsset.thumbnailUrl chứa URL thumbnail mới.
+- Asset trùng dữ liệu nhưng thiếu thumbnail được tự vá thumbnail khi gặp lại.
+- Có script backfill thumbnail cho ảnh cũ; dry-run mặc định.
+
+B. UPLOAD TỪ TRÌNH DUYỆT
+- JPEG, PNG, WebP được nén trước khi upload.
+- PNG và WebP giữ kênh trong suốt.
+- Chỉ giải mã/nén một ảnh lớn mỗi thời điểm để tránh treo tab vì RAM.
+- Tối đa 3 request upload đồng thời.
+- Timeout mỗi tệp: 5 phút.
+- Giữ tên tệp gốc dù dữ liệu upload đã đổi sang WebP.
+- Trả kết quả thành công một phần; một ảnh lỗi không hủy toàn bộ batch.
+- UI báo tiến độ và số tệp lỗi/thành công.
+- Backend giới hạn 30 tệp mỗi request và tổng 1 GB mỗi request.
+
+C. GỬI ẢNH/ALBUM
+- Storage local: gửi bằng path local trực tiếp.
+- Storage R2: gửi ảnh bằng Buffer tương thích zca-js.
+- File tài liệu vẫn dùng temp path để giữ đúng tên tệp người nhận nhìn thấy.
+- Video R2 vẫn dùng temp path vì ffmpeg cần đường dẫn local.
+- Album chuẩn bị tối đa 3 ảnh song song.
+- Gửi file đính kèm chat bắt đầu ngay khi file local sẵn sàng; mirror CRM chạy song song.
+
+D. STORAGE VÀ DEDUP
+- Đuôi object ưu tiên theo MIME của bytes thật; ảnh WebP không còn lưu key .jpg sai nội dung.
+- DB dedup chạy trước kiểm tra object R2, tránh HeadObject không cần thiết khi dữ liệu đã tồn tại.
+- Local write dùng tên temp UUID và rename an toàn khi upload trùng đồng thời.
+- R2 trả nguồn Buffer có filename, totalSize, width, height đúng contract zca-js.
+
+E. BẢO MẬT
+- URL fallback từ client chỉ được phép thuộc LOCAL_PUBLIC_URL, S3_PUBLIC_URL hoặc MEDIA_REMOTE_HOST_ALLOWLIST.
+- Chặn username/password trong URL.
+- Chặn localhost, IP loopback, private network, link-local, metadata IP và multicast/reserved IPv4 chính.
+- DNS được kiểm tra trước fetch.
+- Redirect được kiểm tra lại từng chặng, tối đa 3 redirect.
+- Có timeout 30 giây và giới hạn byte khi đọc response.
+- URL ảnh ngoài được kiểm tra MIME và kiểm tra bytes thật là ảnh.
+- Thêm biến cấu hình MEDIA_REMOTE_HOST_ALLOWLIST vào .env.example.
+
+F. HIỆU NĂNG DB VÀ ĐO ĐẠC
+- Thêm partial index cho danh sách asset active theo recent/newest.
+- Index không chứa asset trong thùng rác.
+- Thêm log timing cho xử lý ảnh, ghi storage, upload tổng, chuẩn bị gửi và gửi album.
+- Thêm Server-Timing cho upload/gửi media.
+
+======================================================================
+3. KIỂM TRA ĐÃ CHẠY
+======================================================================
+
+Backend:
+- npm run build: PASS
+- Prisma validate: PASS
+- 6 file test mục tiêu: PASS
+- 54 test mục tiêu: PASS
+  + media dedup/thumbnail
+  + SSRF/allowlist/redirect/byte cap/image validation
+  + storage extension
+  + source nick/tags
+  + trash GC
+  + profile media
+
+Frontend:
+- Test xử lý ảnh DOM: 4/4 PASS
+  + giữ GIF
+  + resize JPEG sang WebP
+  + giữ alpha WebP
+  + không dùng bản nén nếu lớn hơn file gốc
+- vue-tsc: PASS
+- npm run build: PASS
+
+Diff:
+- git diff --check cho toàn bộ file thuộc phạm vi tối ưu media: PASS
+
+Lưu ý trung thực:
+- Full backend test suite cũ chưa sạch. Nhiều test ngoài phạm vi media phụ thuộc EE module, DB test và mock Prisma chưa đủ. Không tính full suite là PASS.
+- Build frontend còn cảnh báo chunk lớn có sẵn; không chặn build và không thuộc lỗi kho ảnh.
+
+======================================================================
+4. FILE CHÍNH ĐÃ THAY ĐỔI
+======================================================================
+
+Backend:
+- backend/src/modules/media/media-service.ts
+- backend/src/modules/media/media-routes.ts
+- backend/src/modules/chat/chat-media-helpers.ts
+- backend/src/modules/chat/chat-attachment-routes.ts
+- backend/src/shared/storage/types.ts
+- backend/src/shared/storage/local-driver.ts
+- backend/src/shared/storage/r2-driver.ts
+- backend/src/shared/storage/minio-client.ts
+- backend/src/shared/zalo-operations.ts
+- backend/scripts/backfill-media-thumbnails.ts
+- backend/prisma/migrations/20260721163000_media_list_performance_indexes/migration.sql
+- backend/tests/media-dedup.test.ts
+- backend/tests/chat-media-security.test.ts
+- backend/tests/storage-driver.test.ts
+- .env.example
+
+Frontend:
+- frontend/src/api/media-image-processing.ts
+- frontend/src/api/media-image-processing.dom.spec.ts
+- frontend/src/api/media.ts
+- frontend/src/views/MediaView.vue
+
+======================================================================
+5. VIỆC CHƯA CHẠY TRÊN PRODUCTION
+======================================================================
+
+Chưa chạy migration production.
+Chưa chạy thumbnail backfill --apply.
+Chưa sửa dữ liệu DB/storage production.
+
+Lý do: migration và --apply là thao tác ghi dữ liệu thật; cần backup và chọn thời điểm triển khai.
+
+Thứ tự triển khai an toàn:
+1. Backup DB và xác nhận STORAGE_DRIVER/cấu hình storage production.
+2. Chạy migration index bằng quy trình deploy hiện có.
+3. Deploy backend và frontend.
+4. Chạy dry-run trong thư mục backend:
+   npm run media:backfill-thumbnails
+5. Kiểm tra số scanned/failed và dung lượng storage.
+6. Khi dry-run sạch, chạy ghi thật:
+   npm run media:backfill-thumbnails -- --apply --confirm-write
+7. Mở kho ảnh, upload 10-20 ảnh, gửi 1 ảnh và 1 album trên tài khoản thử.
+8. Theo dõi log [media][perf] và Server-Timing.
+
+Cảnh báo: không chạy lệnh --apply trước khi backup/xác nhận đúng DB và storage production.
+
+======================================================================
+6. CẤU HÌNH URL NGOÀI
+======================================================================
+
+Mặc định không cần cấu hình thêm nếu ảnh chỉ nằm ở LOCAL_PUBLIC_URL hoặc S3_PUBLIC_URL.
+Nếu mẫu tin nhắn dùng host ảnh khác, khai báo host cụ thể:
+
+MEDIA_REMOTE_HOST_ALLOWLIST=cdn.example.com,*.static.example.com
+
+Không thêm localhost, IP nội bộ, dải private hoặc host không kiểm soát.
+
+======================================================================
+7. ĐÁNH GIÁ CUỐI
+======================================================================
+
+Nút thắt lớn nhất đã xử lý: thumbnail thật, nén trước upload, upload tách từng tệp, gửi trực tiếp từ storage, album concurrency, dedup trước R2 HEAD, và SSRF guard.
+
+Mức giảm payload lưới ảnh đo được: 94,9%.
+Mã nguồn build được. Test mục tiêu pass. Production data chưa bị thay đổi.

@@ -2,7 +2,7 @@
 param(
     [string]$BackupRoot = '',
     [string]$RcloneDestination = $env:ZALOCRM_BACKUP_REMOTE,
-    [int]$LocalRetentionDays = 14,
+    [int]$LocalRetentionDays = 3,
     [int]$RemoteRetentionDays = 90,
     [string]$DbContainer = 'zalo-crm-db',
     [string]$AppContainer = 'zalo-crm-app'

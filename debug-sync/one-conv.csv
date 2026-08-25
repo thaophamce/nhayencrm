@@ -1,0 +1,2 @@
+id,org_id,zalo_account_id,contact_id,threadType,external_thread_id,last_message_at,unread_count,is_replied,created_at,tab,group_avatar_url,group_members_count,group_name,is_virtual,deleted_at,silence_label,last_inbound_message_at,last_self_message_at,last_sale_message_at,message_reply_state
+e43a6fb7-fdaf-43cc-9dba-9a9005dde7e9,4189574a-f0f9-46a5-be49-e5119dcc7376,2ba842fc-bee1-43b8-8d68-59211788570f,2b1c0976-b57d-4f25-93bd-5fc2ff453ee7,user,536725364599942463,2026-08-16 12:53:13.571,4,f,2026-08-16 12:52:23.001,main,,,,f,,,2026-08-16 12:53:13.571,,,unanswered

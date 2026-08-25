@@ -1,0 +1,65 @@
+ĐỐI CHIẾU BÁO CÁO "ĐÁNH GIÁ CHATBOT AI TỰ ĐỘNG TRẢ LỜI ZALO" VỚI CODE THỰC TẾ
+================================================================================
+Ngày: 24/07/2026. Đọc thẳng code, không đoán.
+
+PHẦN ĐÚNG (xác nhận qua code)
+------------------------------
+1. `backend/package.json:54` — dependency "zca-js": "^2.1.2" — đúng như báo cáo nêu.
+2. Đăng nhập QR + duy trì session cá nhân qua zca-js — đúng, xác nhận ở
+   `zalo-pool.ts` (login, saveCredentials, reconnect bằng cookie).
+3. Gửi tin qua `api.sendMessage` — đúng, `zalo-operations.ts:277-287`
+   (`sendMessage`, `sendMediaMessage` đều gọi `api.sendMessage` của zca-js).
+4. KHÔNG có webhook hoặc Zalo OA OpenAPI nào trong code — đã grep toàn bộ
+   `backend/src` với các từ khóa liên quan, không ra kết quả nào. Đúng như
+   báo cáo kết luận: hệ thống 100% dùng API cá nhân không chính thức.
+5. README dòng 510 có đúng câu cảnh báo: "Using automation tools may violate
+   Zalo's Terms of Service and could result in account suspension..." — báo
+   cáo trích dẫn chính xác.
+
+PHẦN BÁO CÁO CHƯA THẤY — VÌ CHƯA ĐỌC HẾT CODE
+------------------------------------------------
+Báo cáo lo hệ thống đang/sẽ vận hành theo phương án 2-4 (AI tự quyết định gửi
+thật qua zca-js). Đọc code cho thấy hệ thống HIỆN TẠI đã tự giới hạn đúng theo
+"phương án 1" (rủi ro trung bình) mà báo cáo đề xuất — cho MỌI hội thoại Zalo
+THẬT:
+
+- `backend/src/modules/ai/ai-routes.ts:160` — `POST /api/v1/ai/suggest` CHỈ
+  tạo gợi ý (lưu `AiSuggestion`, trả về JSON cho FE hiển thị). Không có dòng
+  code nào trong route này gọi `zaloPool`/`sendMessage`.
+- Grep toàn bộ `backend/src/modules/ai/` cho `sendMessage`/`zaloPool` —
+  KHÔNG có kết quả. AI không có đường nào để tự gọi zca-js gửi tin qua nick
+  thật. Nhân viên luôn phải tự bấm gửi qua UI (MessageThread.vue → chat-routes
+  POST /messages, do người dùng gọi, không phải AI tự gọi).
+
+Tính năng DUY NHẤT hiện có mà AI "tự lưu tin, không cần người duyệt" là
+`ai-virtual-chat-service.ts` (M53, 2026-05-30). Nhưng tính năng này CHỈ chạy
+cho "virtual conversation" — hội thoại của khách KHÔNG CÓ Zalo (cột
+`Conversation.isVirtual=true`, schema.prisma:792, dùng làm nhật ký chăm sóc
+nội bộ khi KH chưa/không dùng Zalo). Nhánh xử lý này (chat-routes.ts:1639-1690):
+- Lưu Message thẳng vào Postgres (`prisma.message.create`).
+- KHÔNG gọi `zaloPool`, KHÔNG gọi `api.sendMessage`, KHÔNG đụng tới zca-js.
+- Không có tin nào thật sự "rời khỏi" hệ thống qua Zalo — vì khách này không
+  có Zalo, nên bản chất đây là công cụ ghi log + gợi ý nội bộ cho sale, không
+  phải "chatbot tự động trả lời khách trên Zalo" như báo cáo đang đánh giá.
+
+Ngoài ra tính năng này đã có rào chắn kỹ khác báo cáo chưa nhắc tới:
+- Quota/ngày theo org (`ai-virtual-chat-service.ts:81`).
+- Throttle 5 giây/hội thoại (dòng 29, 61-66).
+- Allowlist quyền AI kiểu deny-by-default (`ai-capabilities.ts:23-31`) — các
+  hành động nguy hiểm (`mass_message`, `delete_contact`...) bị chặn tường
+  minh dù không nằm trong allowlist.
+- Audit log mọi hành động AI (`auditAiAction`, actorType='bot').
+
+KẾT LUẬN ĐỐI CHIẾU
+-------------------
+Đánh giá rủi ro và khuyến nghị kỹ thuật/pháp lý của báo cáo là ĐÚNG và nên
+giữ làm nguyên tắc cho MỌI phát triển sau này. Nhưng về hiện trạng hệ thống:
+ZaloCRM CHƯA hề bật auto-reply thật qua zca-js cho bất kỳ nick Zalo thật nào —
+chỉ có (a) AI gợi ý, sale bấm gửi (đúng phương án 1, rủi ro trung bình, đã
+đang dùng) và (b) AI tự trả lời cho khách KHÔNG có Zalo (không chạm zca-js,
+không có rủi ro ToS Zalo vì không phải hành vi trên Zalo).
+
+Nếu sau này muốn mở rộng auto-reply thật cho hội thoại Zalo có nick thật, lộ
+trình 3 giai đoạn báo cáo đề xuất (soạn nháp → mô phỏng → Zalo OA chính thức)
+là hướng đúng nên theo, và các allowlist/quota/audit đã có sẵn trong
+`ai-capabilities.ts` là nền tảng tốt để mở rộng an toàn.

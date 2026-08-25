@@ -98,6 +98,27 @@ async function autoWorkDays(orgId: string, userId: string, period: string): Prom
   return records.length;
 }
 
+
+/** Lấy lương cơ bản theo cấu hình hr_employee_compensation cho kỳ YYYY-MM.
+ *  Ưu tiên dong effective_from <= period và (effective_to null hoặc >= period).
+ *  Fallback 0 nếu chưa cấu hình.
+ */
+async function getBaseSalary(orgId: string, userId: string, period: string): Promise<number> {
+  const plans = await prisma.hrEmployeeCompensation.findMany({
+    where: {
+      orgId,
+      userId,
+      effectiveFrom: { lte: period },
+      OR: [{ effectiveTo: null }, { effectiveTo: { gte: period } }],
+    },
+    orderBy: { effectiveFrom: 'desc' },
+    take: 1,
+    select: { baseSalary: true },
+  });
+  return plans[0]?.baseSalary ?? 0;
+}
+
+
 function numOr(v: unknown, fallback: number): number {
   const n = Number(v);
   return Number.isFinite(n) ? n : fallback;
@@ -114,9 +135,10 @@ function toPayload(rec: any, config: HrConfig): any {
 /** Tạo phiếu auto (chưa lưu) từ chấm công cho user chưa có bản ghi period. */
 async function buildAutoRecord(orgId: string, userId: string, period: string, config: HrConfig): Promise<SalaryComputed> {
   const workDays = await autoWorkDays(orgId, userId, period);
+  const baseSalary = await getBaseSalary(orgId, userId, period);
   return computeSalary(
     {
-      baseSalary: 0,
+      baseSalary,
       workDays,
       workingDays: config.workingDaysPerMonth,
       overtimeHours: 0,
@@ -144,9 +166,10 @@ export async function listPayroll(request: FastifyRequest, reply: FastifyReply):
     const config = await loadHrConfig(user.orgId);
 
     // Mọi user active trong org, sort theo payrollOrder (admin set) rồi fullName.
+    // isPayrollHidden = true → ẩn khỏi Bảng lương (admin + Phiếu lương của tôi).
     const users = await prisma.user.findMany({
-      where: { orgId: user.orgId, isActive: true },
-      select: { id: true, fullName: true, email: true },
+      where: { orgId: user.orgId, isActive: true, isPayrollHidden: false },
+      select: { id: true, fullName: true, email: true, username: true },
       orderBy: [{ payrollOrder: 'asc' }, { fullName: 'asc' }],
     });
     const saved = await prisma.salaryRecord.findMany({
@@ -177,6 +200,14 @@ export async function myPayroll(request: FastifyRequest, reply: FastifyReply): P
     const user = request.user!;
     const { period } = (request.query ?? {}) as { period?: string };
     if (!isValidPeriod(period)) return reply.status(400).send({ error: 'period_invalid', hint: 'period = YYYY-MM' });
+
+    const me = await prisma.user.findFirst({
+      where: { id: user.id, orgId: user.orgId },
+      select: { isPayrollHidden: true },
+    });
+    if (me?.isPayrollHidden) {
+      return reply.status(404).send({ error: 'payslip_hidden', hint: 'Tài khoản này không hiển thị phiếu lương' });
+    }
 
     const config = await loadHrConfig(user.orgId);
     const rec = await prisma.salaryRecord.findFirst({
@@ -235,7 +266,7 @@ export async function upsertPayroll(request: FastifyRequest, reply: FastifyReply
           hasInsurance: existing.hasInsurance,
         }
       : {
-          baseSalary: 0,
+          baseSalary: await getBaseSalary(user.orgId, userId, period),
           workDays: await autoWorkDays(user.orgId, userId, period),
           workingDays: config.workingDaysPerMonth,
           overtimeHours: 0,

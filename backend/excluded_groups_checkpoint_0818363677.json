@@ -1,0 +1,431 @@
+{
+  "pageId": "pzl_2132817647513376826",
+  "totalConversations": 5940,
+  "excludedConversationIds": [
+    "pzl_g_2132817647513376826_4032214689422859862",
+    "pzl_g_2132817647513376826_4008144874339382332",
+    "pzl_g_2132817647513376826_3943265853229568794",
+    "pzl_g_2132817647513376826_3572479622839942704",
+    "pzl_g_2132817647513376826_3638149275092014046",
+    "pzl_g_2132817647513376826_2949813326896323404",
+    "pzl_g_2132817647513376826_2710578554423092286",
+    "pzl_g_2132817647513376826_2799229474437882491",
+    "pzl_g_2132817647513376826_2565461692764726585",
+    "pzl_g_2132817647513376826_1956630041564684420",
+    "pzl_g_2132817647513376826_966857315759651785",
+    "pzl_g_2132817647513376826_823579946937318094",
+    "pzl_g_2132817647513376826_6080869837323774912",
+    "pzl_g_2132817647513376826_4340197215393749912",
+    "pzl_g_2132817647513376826_5015945896877901119",
+    "pzl_g_2132817647513376826_6815669790370649141",
+    "pzl_g_2132817647513376826_6450303137285423399",
+    "pzl_g_2132817647513376826_7325696122264310537",
+    "pzl_g_2132817647513376826_7273347384936302675",
+    "pzl_g_2132817647513376826_6954859330973693991",
+    "pzl_g_2132817647513376826_2930674612441128712",
+    "pzl_g_2132817647513376826_6436651118711609072",
+    "pzl_g_2132817647513376826_6370242113723442116",
+    "pzl_g_2132817647513376826_8471710698369611826",
+    "pzl_g_2132817647513376826_6081312377274904006",
+    "pzl_g_2132817647513376826_8749090203238600392",
+    "pzl_g_2132817647513376826_1215794729776927612",
+    "pzl_g_2132817647513376826_6873942082586355398",
+    "pzl_g_2132817647513376826_2890142804616818616",
+    "pzl_g_2132817647513376826_2396722166253322209",
+    "pzl_g_2132817647513376826_6022771708329351734",
+    "pzl_g_2132817647513376826_3198494243892908992",
+    "pzl_g_2132817647513376826_7490782831002914647",
+    "pzl_g_2132817647513376826_6924051917206350772",
+    "pzl_g_2132817647513376826_1078260503824786517",
+    "pzl_g_2132817647513376826_9163003822902299274",
+    "pzl_g_2132817647513376826_671123050827761139",
+    "pzl_g_2132817647513376826_3734456453913279600",
+    "pzl_g_2132817647513376826_3377806279909200451",
+    "pzl_g_2132817647513376826_4986341794159094416",
+    "pzl_g_2132817647513376826_1996178853766116368",
+    "pzl_g_2132817647513376826_771749437905314582"
+  ],
+  "stats": {
+    "totalExcludedList": 72,
+    "matchedCount": 42,
+    "unmatchedCount": 30,
+    "ambiguousCount": 0
+  },
+  "matchedGroups": [
+    {
+      "index": 1,
+      "targetName": "FILE IN HỒNG NGA",
+      "conversationId": "pzl_g_2132817647513376826_4032214689422859862",
+      "actualName": "FILE IN HỒNG NGA"
+    },
+    {
+      "index": 2,
+      "targetName": "FILE IN DƯƠNG",
+      "conversationId": "pzl_g_2132817647513376826_4008144874339382332",
+      "actualName": "FILE IN DƯƠNG"
+    },
+    {
+      "index": 3,
+      "targetName": "FILE IN ĐỨC",
+      "conversationId": "pzl_g_2132817647513376826_3943265853229568794",
+      "actualName": "FILE IN ĐỨC"
+    },
+    {
+      "index": 4,
+      "targetName": "FILE QUANG",
+      "conversationId": "pzl_g_2132817647513376826_3572479622839942704",
+      "actualName": "FILE QUANG"
+    },
+    {
+      "index": 6,
+      "targetName": "FILE ẢNH NHÀ YẾN",
+      "conversationId": "pzl_g_2132817647513376826_3638149275092014046",
+      "actualName": "FILE ẢNH NHÀ YẾN"
+    },
+    {
+      "index": 7,
+      "targetName": "File Tuấn",
+      "conversationId": "pzl_g_2132817647513376826_2949813326896323404",
+      "actualName": "File Tuấn"
+    },
+    {
+      "index": 8,
+      "targetName": "FILE THẮNG THIẾT KẾ",
+      "conversationId": "pzl_g_2132817647513376826_2710578554423092286",
+      "actualName": "FILE THẮNG THIẾT KẾ"
+    },
+    {
+      "index": 9,
+      "targetName": "FILE IN HỒNG NHUNG",
+      "conversationId": "pzl_g_2132817647513376826_2799229474437882491",
+      "actualName": "FILE IN HỒNG NHUNG"
+    },
+    {
+      "index": 11,
+      "targetName": "FILE IN DUYÊN ĐOÀN",
+      "conversationId": "pzl_g_2132817647513376826_2565461692764726585",
+      "actualName": "FILE IN DUYÊN ĐOÀN"
+    },
+    {
+      "index": 14,
+      "targetName": "File Bi Thiết Kế",
+      "conversationId": "pzl_g_2132817647513376826_1956630041564684420",
+      "actualName": "File Bi Thiết Kế"
+    },
+    {
+      "index": 16,
+      "targetName": "FILE TRẦN ANH",
+      "conversationId": "pzl_g_2132817647513376826_966857315759651785",
+      "actualName": "FILE TRẦN ANH"
+    },
+    {
+      "index": 17,
+      "targetName": "FILE TRÚC",
+      "conversationId": "pzl_g_2132817647513376826_823579946937318094",
+      "actualName": "FILE TRÚC"
+    },
+    {
+      "index": 19,
+      "targetName": "ÁO GẠO - NHÀ YẾN SPORT - FILE ĐÃ LÀM",
+      "conversationId": "pzl_g_2132817647513376826_6080869837323774912",
+      "actualName": "ÁO GẠO - NHÀ YẾN SPORT - FILE ĐÃ LÀM"
+    },
+    {
+      "index": 20,
+      "targetName": "File Mẫn Babyboo",
+      "conversationId": "pzl_g_2132817647513376826_4340197215393749912",
+      "actualName": "File Mẫn Babyboo"
+    },
+    {
+      "index": 25,
+      "targetName": "FILE IN THIÊN ĐƯỜNG",
+      "conversationId": "pzl_g_2132817647513376826_5015945896877901119",
+      "actualName": "FILE IN THIÊN ĐƯỜNG"
+    },
+    {
+      "index": 27,
+      "targetName": "FILE KHUÔN TÂN PHÚ",
+      "conversationId": "pzl_g_2132817647513376826_6815669790370649141",
+      "actualName": "FILE KHUÔN TÂN PHÚ"
+    },
+    {
+      "index": 31,
+      "targetName": "FILE PHÔI NHÀ YẾN",
+      "conversationId": "pzl_g_2132817647513376826_6450303137285423399",
+      "actualName": "FILE PHÔI NHÀ YẾN"
+    },
+    {
+      "index": 32,
+      "targetName": "File Sang TK",
+      "conversationId": "pzl_g_2132817647513376826_7325696122264310537",
+      "actualName": "File Sang TK"
+    },
+    {
+      "index": 33,
+      "targetName": "FILE IN NHƯ QUỲNH",
+      "conversationId": "pzl_g_2132817647513376826_7273347384936302675",
+      "actualName": "FILE IN NHƯ QUỲNH"
+    },
+    {
+      "index": 34,
+      "targetName": "FILE TÚ",
+      "conversationId": "pzl_g_2132817647513376826_6954859330973693991",
+      "actualName": "FILE TÚ"
+    },
+    {
+      "index": 36,
+      "targetName": "D250725 xuất file",
+      "conversationId": "pzl_g_2132817647513376826_2930674612441128712",
+      "actualName": "D250725 xuất file"
+    },
+    {
+      "index": 37,
+      "targetName": "FILE THIÊN BÌNH",
+      "conversationId": "pzl_g_2132817647513376826_6436651118711609072",
+      "actualName": "FILE THIÊN BÌNH"
+    },
+    {
+      "index": 38,
+      "targetName": "FILE IN ĐẠT",
+      "conversationId": "pzl_g_2132817647513376826_6370242113723442116",
+      "actualName": "FILE IN ĐẠT"
+    },
+    {
+      "index": 40,
+      "targetName": "FILE MINH",
+      "conversationId": "pzl_g_2132817647513376826_8471710698369611826",
+      "actualName": "FILE MINH"
+    },
+    {
+      "index": 41,
+      "targetName": "FILE THUẬN",
+      "conversationId": "pzl_g_2132817647513376826_6081312377274904006",
+      "actualName": "FILE THUẬN"
+    },
+    {
+      "index": 42,
+      "targetName": "Xin File Đà Nẵng",
+      "conversationId": "pzl_g_2132817647513376826_8749090203238600392",
+      "actualName": "Xin File Đà Nẵng"
+    },
+    {
+      "index": 43,
+      "targetName": "FILE XƯỞNG THIẾT KẾ",
+      "conversationId": "pzl_g_2132817647513376826_1215794729776927612",
+      "actualName": "FILE XƯỞNG THIẾT KẾ"
+    },
+    {
+      "index": 44,
+      "targetName": "FILE ĐỨC QUYỀN - NHÀ YẾN",
+      "conversationId": "pzl_g_2132817647513376826_6873942082586355398",
+      "actualName": "FILE ĐỨC QUYỀN - NHÀ YẾN"
+    },
+    {
+      "index": 45,
+      "targetName": "D230718 xuất file",
+      "conversationId": "pzl_g_2132817647513376826_2890142804616818616",
+      "actualName": "D230718 xuất file"
+    },
+    {
+      "index": 47,
+      "targetName": "FILE LÂM",
+      "conversationId": "pzl_g_2132817647513376826_2396722166253322209",
+      "actualName": "FILE LÂM"
+    },
+    {
+      "index": 48,
+      "targetName": "FILE PHƯƠNG",
+      "conversationId": "pzl_g_2132817647513376826_6022771708329351734",
+      "actualName": "FILE PHƯƠNG"
+    },
+    {
+      "index": 49,
+      "targetName": "File Tuyn",
+      "conversationId": "pzl_g_2132817647513376826_3198494243892908992",
+      "actualName": "File Tuyn"
+    },
+    {
+      "index": 50,
+      "targetName": "FILE VY THIỆP",
+      "conversationId": "pzl_g_2132817647513376826_7490782831002914647",
+      "actualName": "FILE VY THIỆP"
+    },
+    {
+      "index": 51,
+      "targetName": "194/ FILE NHÀ YẾN HCM",
+      "conversationId": "pzl_g_2132817647513376826_6924051917206350772",
+      "actualName": "194/ FILE NHÀ YẾN HCM"
+    },
+    {
+      "index": 52,
+      "targetName": "NHÀ YẾN Chụp Ảnh",
+      "conversationId": "pzl_g_2132817647513376826_1078260503824786517",
+      "actualName": "NHÀ YẾN Chụp Ảnh"
+    },
+    {
+      "index": 56,
+      "targetName": "ÁO DOANH NGHIỆP",
+      "conversationId": "pzl_g_2132817647513376826_9163003822902299274",
+      "actualName": "ÁO DOANH NGHIỆP"
+    },
+    {
+      "index": 64,
+      "targetName": "HÌNH ÁO KHÁCH",
+      "conversationId": "pzl_g_2132817647513376826_671123050827761139",
+      "actualName": "HÌNH ÁO KHÁCH"
+    },
+    {
+      "index": 66,
+      "targetName": "ÁO FEEDBACK ÁO",
+      "conversationId": "pzl_g_2132817647513376826_3734456453913279600",
+      "actualName": "ÁO FEEDBACK ÁO"
+    },
+    {
+      "index": 69,
+      "targetName": "DN Viettel Nhà Yến",
+      "conversationId": "pzl_g_2132817647513376826_3377806279909200451",
+      "actualName": "DN Viettel Nhà Yến"
+    },
+    {
+      "index": 70,
+      "targetName": "HM Viettel Nhà Yến",
+      "conversationId": "pzl_g_2132817647513376826_4986341794159094416",
+      "actualName": "HM Viettel Nhà Yến"
+    },
+    {
+      "index": 71,
+      "targetName": "TÂN PHÚ NHÀ YẾN VIETTEL",
+      "conversationId": "pzl_g_2132817647513376826_1996178853766116368",
+      "actualName": "TÂN PHÚ NHÀ YẾN VIETTEL"
+    },
+    {
+      "index": 72,
+      "targetName": "Nhà Yến - Viettel Q12",
+      "conversationId": "pzl_g_2132817647513376826_771749437905314582",
+      "actualName": "Nhà Yến - Viettel Q12"
+    }
+  ],
+  "unmatchedGroups": [
+    {
+      "index": 5,
+      "targetName": "NHÀ YẾN FILE SOS + IN THÊM"
+    },
+    {
+      "index": 10,
+      "targetName": "FILE HỒNG DIỄM"
+    },
+    {
+      "index": 12,
+      "targetName": "FILE UYÊN"
+    },
+    {
+      "index": 13,
+      "targetName": "FILE LINH ĐÀI"
+    },
+    {
+      "index": 15,
+      "targetName": "FILE ẢNH NHÀ YẾN TT - THIÊN NGA BÌNH DƯƠNG"
+    },
+    {
+      "index": 18,
+      "targetName": "FILE KTS NHÀ YẾN"
+    },
+    {
+      "index": 21,
+      "targetName": "File Khanh"
+    },
+    {
+      "index": 22,
+      "targetName": "File Dung Tk"
+    },
+    {
+      "index": 23,
+      "targetName": "FILE HIẾU 2K7"
+    },
+    {
+      "index": 24,
+      "targetName": "DAKLAK - NHÀ YẾN - FILE IN"
+    },
+    {
+      "index": 26,
+      "targetName": "FILE Khang"
+    },
+    {
+      "index": 28,
+      "targetName": "FILE CÔNG DANH"
+    },
+    {
+      "index": 29,
+      "targetName": "FILE IN PHONG"
+    },
+    {
+      "index": 30,
+      "targetName": "File Trí - Thiết kế"
+    },
+    {
+      "index": 35,
+      "targetName": "FILE ÁO THUN (COREL)"
+    },
+    {
+      "index": 39,
+      "targetName": "FILE IN THỦY"
+    },
+    {
+      "index": 46,
+      "targetName": "FILE VY ÁO + ẢNH"
+    },
+    {
+      "index": 53,
+      "targetName": "ÁO TIN NHẮN CSKH"
+    },
+    {
+      "index": 54,
+      "targetName": "ẢNH NHŨ 2026"
+    },
+    {
+      "index": 55,
+      "targetName": "Giải 226 Brothers Pickle and Chill"
+    },
+    {
+      "index": 57,
+      "targetName": "Tu chỉ làm ăn"
+    },
+    {
+      "index": 58,
+      "targetName": "CONTENT ZALO ÁO"
+    },
+    {
+      "index": 59,
+      "targetName": "CONTENT TIỆM ẢNH"
+    },
+    {
+      "index": 60,
+      "targetName": "Ảnh cưới Thảo Yến"
+    },
+    {
+      "index": 61,
+      "targetName": "TEAM ÁO NHÀ YẾN SPORT"
+    },
+    {
+      "index": 62,
+      "targetName": "Hình Ảnh SP Thiệp Cưới - Cty Thiệp Đức Quyền"
+    },
+    {
+      "index": 63,
+      "targetName": "Feed ảnh"
+    },
+    {
+      "index": 65,
+      "targetName": "ẢNH NHŨ 2024"
+    },
+    {
+      "index": 67,
+      "targetName": "ÁO CẦU LÔNG"
+    },
+    {
+      "index": 68,
+      "targetName": "K2 A Hiền"
+    }
+  ],
+  "ambiguousGroups": []
+}

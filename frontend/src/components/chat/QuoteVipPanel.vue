@@ -166,15 +166,15 @@ function cleanCode(str: string): string {
 
 function getOrderRule(family: string, qty: number) {
   if (['TTD26', 'TTN20', 'TTN25', 'BTN106'].includes(family)) {
-    if (qty < 300) return { fee: 100000, minimum: 300, rejected: false };
+    if (qty < 300) return { fee: 500000, minimum: 300, rejected: false };
     return { fee: 0, minimum: 300, rejected: false };
   }
   if (['BTN26', 'BTN114', 'BTD110'].includes(family)) {
-    if (qty < 300) return { fee: 100000, minimum: 300, rejected: false };
+    if (qty < 300) return { fee: 500000, minimum: 300, rejected: false };
     return { fee: 0, minimum: 300, rejected: false };
   }
   if (qty < 100) return { fee: 0, minimum: 100, rejected: true };
-  if (qty < 300) return { fee: 100000, minimum: 100, rejected: false };
+  if (qty < 300) return { fee: 500000, minimum: 100, rejected: false };
   return { fee: 0, minimum: 100, rejected: false };
 }
 
@@ -187,12 +187,17 @@ function getUnitPrice(product: VipProduct, qty: number): number {
   return Math.max(0, product.preVat - discount);
 }
 
-function getShippingText(total: number): string {
-  if (total <= 0) return '—';
-  if (total > 15000000) return 'Miễn phí vận chuyển (Ưu đãi đơn hàng trên 15 triệu)';
-  if (total <= 1000000) return '30.000đ – 40.000đ';
-  if (total <= 3000000) return '40.000đ – 60.000đ';
-  return '60.000đ – 90.000đ';
+function getShippingText(qty: number): string {
+  if (qty < 50) return '—';
+  if (qty <= 149) return '35.000đ – 40.000đ';
+  if (qty <= 399) return '45.000đ – 50.000đ';
+  if (qty <= 799) return '60.000đ – 90.000đ';
+  return '100.000đ – 150.000đ';
+}
+
+function getShippingWeightText(qty: number): string {
+  const weightInGrams = qty * 20;
+  return weightInGrams >= 1000 ? `${(weightInGrams / 1000).toFixed(1)}kg` : `${weightInGrams}g`;
 }
 
 const unitPriceVal = computed(() => {
@@ -216,7 +221,7 @@ const unitPriceText = computed(() => current.value && unitPriceVal.value ? `${mo
 const smallFeeText = computed(() => orderRuleVal.value.fee ? `${money.format(orderRuleVal.value.fee)}đ` : '—');
 const moldFeeText = computed(() => totalMoldVal.value ? `${money.format(totalMoldVal.value)}đ` : '—');
 const totalPriceText = computed(() => totalCostVal.value ? `${money.format(totalCostVal.value)}đ` : '—');
-const shippingTextVal = computed(() => getShippingText(totalCostVal.value));
+const shippingTextVal = computed(() => getShippingText(quantity.value));
 
 const canCopy = computed(() => current.value && !orderRuleVal.value.rejected && quantity.value > 0);
 
@@ -373,7 +378,8 @@ function onKeydown(e: KeyboardEvent) {
 function buildMessageText(): string {
   if (!current.value) return '';
   const code = current.value.displayCode;
-  const ship = getShippingText(totalCostVal.value);
+  const ship = getShippingText(quantity.value);
+  const shippingWeight = getShippingWeightText(quantity.value);
   const uPrice = unitPriceVal.value;
   const qty = quantity.value;
   const total = totalCostVal.value;
@@ -397,17 +403,16 @@ function buildMessageText(): string {
   ];
 
   if (moldFee) lines.push(`Phí làm khuôn: ${money.format(moldFee)}đ`);
-  if (rule.fee) lines.push(`Phí số lượng ít: ${money.format(rule.fee)}đ (áp dụng số lượng ${rule.minimum}–299 bộ)`);
+  if (rule.fee) lines.push(`Phí số lượng ít: ${money.format(rule.fee)}đ (áp dụng dưới 300 bộ)`);
 
   lines.push(
     "",
     `TỔNG CHI PHÍ: ${money.format(total)}đ`,
     "",
     "Ghi chú khác:",
-    "• Vui lòng xác nhận lại đơn giá nếu đổi sang khuôn khác.",
     "• Dòng thiệp cao cấp Luxury có thời gian nhận hàng dự kiến từ 8–10 ngày",
     "",
-    `Phí ship Viettel Post: ${ship}`
+    `Phí ship Viettel Post: ${ship} (${money.format(qty)} thiệp ≈ ${shippingWeight})`
   );
 
   if (total <= 15000000) lines.push("Lưu ý: Báo giá chưa bao gồm phí vận chuyển.");
@@ -505,13 +510,16 @@ function loadFallbackProducts() {
     },
     "DQBTN26441": {
       "displayCode": "DQ-BTN26-441",
-      "paper": "Giấy MT Kraft kem 230g + Vân Nhật; Lót 2 tờ in 1M + bế nổi",
-      "price": 18400,
+      "paper": "Giấy vân cao cấp 230g (bao thư và ruột thiệp cùng định lượng)",
+      "price": 9200,
       "preVat": 9200,
-      "moldFee": 400000,
+      "moldFee": 200000,
       "family": "BTN26",
-      "material": ["• Giấy MT Kraft kem 230g + Vân Nhật; Lót 2 tờ in 1M + bế nổi không nhũ"],
-      "specs": ["• Bế khuôn BTN26 19x14cm"]
+      "material": ["• Giấy vân cao cấp 230g (bao thư và ruột thiệp cùng định lượng)"],
+      "specs": [
+        "• Ruột thiệp: in 1 mặt + bế nổi không nhũ, kích thước 12.2x17.7cm",
+        "• Bao thư: in 1 mặt + bế nổi không nhũ + bế khuôn kích thước 19x14cm"
+      ]
     }
   };
 }

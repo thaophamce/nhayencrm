@@ -1,0 +1,514 @@
+﻿PHƯƠNG ÁN CẢI THIỆN TỐC ĐỘ KHO ẢNH ZALO CRM
+Ngày phân tích: 21/07/2026
+Phạm vi: tải ảnh lên kho, mở kho ảnh, chọn ảnh và gửi ảnh qua Zalo
+Trạng thái: mới phân tích và đề xuất, chưa sửa code
+
+======================================================================
+1. KẾT LUẬN NGẮN
+======================================================================
+
+Kho ảnh chậm không do một nguyên nhân duy nhất. Luồng hiện tại đang làm nhiều việc thừa:
+
+1. Dùng ảnh kích thước lớn làm thumbnail cho ô nhỏ.
+2. Upload giữ toàn bộ batch trong RAM rồi xử lý từng file tuần tự.
+3. Trình duyệt gửi ảnh gốc lên server, sau đó server mới nén.
+4. Khi gửi từ kho, backend tải ảnh từ storage về, ghi file tạm, rồi Zalo đọc lại để upload.
+5. Album đang chuẩn bị từng ảnh tuần tự.
+6. Chưa đo riêng thời gian nén, lưu storage, đọc storage và upload Zalo.
+
+Nhóm giải pháp có hiệu quả cao nhất:
+
+- Tạo thumbnail riêng 320-480 px.
+- Nén ảnh ngay tại trình duyệt trước khi upload.
+- Upload từng file, chạy đồng thời tối đa 2-3 file.
+- Gửi trực tiếp từ đường dẫn local hoặc Buffer/cache R2.
+- Chuẩn bị album song song có giới hạn.
+- Đo thời gian từng công đoạn trước và sau tối ưu.
+
+Không cần viết lại toàn bộ kho ảnh. Không cần đổi giao diện lớn.
+
+======================================================================
+2. CÁC NÚT THẮT ĐÃ TÌM THẤY
+======================================================================
+
+[CRITICAL] Ảnh lớn đang được dùng làm thumbnail
+
+File:
+- backend/src/modules/media/media-routes.ts, khoảng dòng 371
+
+Hiện trạng:
+- Nếu ảnh không có thumbnailUrl riêng, API trả URL ảnh chính làm thumbnail.
+- Trang kho có thể mở 40 ảnh cùng lúc.
+- Trình duyệt phải tải và giải mã ảnh 1600-2000 px chỉ để hiển thị trong ô nhỏ.
+
+Ảnh hưởng:
+- Tốn băng thông.
+- Tốn CPU và RAM trình duyệt.
+- Kho ảnh hiện chậm, nhất là Wi-Fi hoặc 4G yếu.
+
+Kết quả thử trên dữ liệu local:
+- Ảnh chính mẫu: khoảng 160-224 KB.
+- Thumbnail WebP 320 px: khoảng 5-11 KB.
+- Dữ liệu mỗi ô ảnh có thể giảm khoảng 90-96%.
+
+---------------------------------------------------------------------
+
+[CRITICAL] Gửi ảnh đi qua vòng xử lý thừa
+
+File:
+- backend/src/modules/media/media-routes.ts, khoảng dòng 651
+- backend/src/modules/chat/chat-media-helpers.ts, khoảng dòng 116-123
+
+Luồng hiện tại:
+1. Backend lấy URL ảnh trong storage.
+2. Backend tự tải URL đó qua HTTP.
+3. Backend giữ toàn bộ ảnh trong RAM.
+4. Backend ghi ảnh xuống thư mục tạm.
+5. zca-js đọc lại file tạm.
+6. zca-js upload ảnh lên Zalo.
+
+Ảnh hưởng:
+- Tốn thêm một lượt tải từ storage.
+- Tốn thao tác ghi và đọc ổ đĩa.
+- Tăng thời gian gửi.
+- Tăng RAM khi nhiều sale gửi cùng lúc.
+
+---------------------------------------------------------------------
+
+[HIGH] Upload giữ toàn bộ batch trong RAM
+
+File:
+- backend/src/modules/media/media-routes.ts, khoảng dòng 454-486
+
+Hiện trạng:
+- part.toBuffer() đọc toàn bộ từng file vào RAM.
+- Mọi file được giữ trong mảng pending.
+- Backend chỉ bắt đầu đăng ký ảnh sau khi đọc hết multipart.
+
+Ảnh hưởng:
+- 20 ảnh lớn có thể chiếm RAM bằng tổng dung lượng cả batch.
+- Node.js phải dọn rác nhiều hơn.
+- Dễ chậm hoặc treo khi nhiều sale upload cùng lúc.
+
+---------------------------------------------------------------------
+
+[HIGH] Xử lý ảnh trong batch theo kiểu tuần tự
+
+File:
+- backend/src/modules/media/media-routes.ts, khoảng dòng 486
+
+Hiện trạng:
+- Mỗi ảnh phải chờ ảnh trước nén, lưu storage và ghi DB xong.
+
+Ảnh hưởng:
+- Thời gian batch gần bằng tổng thời gian của từng ảnh.
+- Upload 10-30 ảnh chậm rõ rệt.
+
+---------------------------------------------------------------------
+
+[HIGH] Frontend gửi cả batch bằng một request
+
+File:
+- frontend/src/views/MediaView.vue, khoảng dòng 426-431
+- frontend/src/api/media.ts, khoảng dòng 77-86
+
+Hiện trạng:
+- Một request chứa nhiều file.
+- Người dùng không thấy tiến độ từng ảnh.
+- Một ảnh lỗi có thể làm trải nghiệm cả batch thất bại.
+- Axios đang dùng timeout chung 30 giây.
+
+---------------------------------------------------------------------
+
+[HIGH] Album chuẩn bị ảnh tuần tự
+
+File:
+- backend/src/modules/media/media-routes.ts, khoảng dòng 1407-1411
+
+Hiện trạng:
+- Backend tải ảnh thứ nhất xong mới tải ảnh thứ hai.
+- Album 12 ảnh chịu tổng thời gian chuẩn bị của 12 lượt.
+
+---------------------------------------------------------------------
+
+[HIGH] Gửi ảnh trực tiếp từ chat phải chờ mirror storage
+
+File:
+- backend/src/modules/chat/chat-attachment-routes.ts, khoảng dòng 144-154
+
+Hiện trạng:
+- Backend nén và lưu bản CRM trước.
+- Sau đó mới tiếp tục gửi lên Zalo.
+
+Ảnh hưởng:
+- Hai việc có thể chạy song song nhưng đang bị nối tiếp.
+- Người dùng phải chờ tổng thời gian của cả hai công đoạn.
+
+---------------------------------------------------------------------
+
+[MEDIUM] R2 gọi HeadObject trước PutObject
+
+File:
+- backend/src/shared/storage/r2-driver.ts, khoảng dòng 42-67
+
+Hiện trạng:
+- Mỗi ảnh mới chịu thêm một lượt mạng để kiểm tra tồn tại.
+- Sau đó mới upload.
+
+---------------------------------------------------------------------
+
+[MEDIUM] Đuôi file có thể không khớp MIME thật
+
+File:
+- backend/src/shared/storage/local-driver.ts, khoảng dòng 38
+- backend/src/shared/storage/r2-driver.ts, khoảng dòng 57
+
+Ví dụ:
+- Sharp đổi nội dung ảnh thành WebP.
+- Storage vẫn có thể lấy đuôi .jpg từ tên file gốc.
+
+Ảnh hưởng:
+- MIME là image/webp nhưng URL có đuôi .jpg.
+- CDN, cache hoặc phần mềm ngoài có thể nhận dạng sai.
+
+---------------------------------------------------------------------
+
+[MEDIUM] Truy vấn danh sách kho làm thêm việc chưa cần
+
+File:
+- backend/src/modules/media/media-routes.ts, khoảng dòng 330-354
+
+Hiện trạng:
+- Mỗi lần mở trang đều chạy COUNT.
+- Danh sách yêu thích của user được tải toàn bộ rồi mới tạo Set.
+- Khi kho có nhiều nghìn ảnh, sort recent và newest cần index phù hợp hơn.
+
+Đây chưa phải nguyên nhân chính, nhưng sẽ tăng chậm khi kho lớn.
+
+---------------------------------------------------------------------
+
+[MEDIUM] Cấu hình storage chưa thống nhất
+
+Hiện trạng kiểm tra:
+- .env đặt STORAGE_DRIVER=local.
+- backend/.env đặt STORAGE_DRIVER=r2.
+
+Ảnh hưởng:
+- Chạy Docker, chạy backend trực tiếp và production có thể dùng storage khác nhau.
+- Khó so sánh tốc độ và chẩn đoán đúng nút thắt.
+
+======================================================================
+3. PHƯƠNG ÁN KỸ THUẬT
+======================================================================
+
+3.1. TẠO BA BIẾN THỂ ẢNH
+
+Mỗi ảnh nên có ba biến thể:
+
+1. thumbnail
+   - Dùng cho lưới kho và picker chat.
+   - Định dạng WebP.
+   - Cạnh dài 320-480 px.
+   - Quality 65-72.
+
+2. send
+   - Dùng để gửi Zalo và xem ảnh thông thường.
+   - Định dạng WebP.
+   - Cạnh dài 1600-2000 px.
+   - Quality 80-82.
+
+3. watermarked
+   - Dùng khi bật logo.
+   - Sinh từ bản send.
+   - Không sinh từ thumbnail.
+
+Hệ thống đã có MediaBlob.variantType. Có thể thêm giá trị thumbnail và send mà không phải viết lại kiến trúc kho.
+
+Thay đổi chính:
+- media-service.ts sinh bản send và thumbnail.
+- media-routes.ts trả thumbnailUrl từ blob thumbnail.
+- Frontend tiếp tục đọc thumbnailUrl.
+- Chỉ tải bản send khi xem chi tiết hoặc gửi.
+
+Lợi ích dự kiến:
+- Payload trang 40 ảnh giảm mạnh.
+- Kho mở nhanh hơn khoảng 2-5 lần trên mạng yếu.
+- Trình duyệt giảm CPU và RAM khi giải mã ảnh.
+
+---------------------------------------------------------------------
+
+3.2. NÉN ẢNH TẠI TRÌNH DUYỆT TRƯỚC UPLOAD
+
+Luồng mới:
+1. Đọc ảnh bằng createImageBitmap.
+2. Resize cạnh dài tối đa 2000 px bằng Canvas hoặc OffscreenCanvas.
+3. Xuất WebP quality khoảng 0.82.
+4. Giữ nguyên GIF động.
+5. Nếu xử lý lỗi, gửi file gốc.
+6. Gửi tên file gốc trong metadata riêng.
+
+Không cần cài thư viện mới.
+
+Lợi ích dự kiến:
+- Ảnh điện thoại 5-15 MB thường còn 200-800 KB.
+- Dữ liệu upload giảm khoảng 70-95%.
+- Mạng upload yếu có thể nhanh hơn 3-10 lần.
+
+---------------------------------------------------------------------
+
+3.3. UPLOAD TỪNG FILE, CONCURRENCY TỐI ĐA 2-3
+
+Frontend:
+- Mỗi request upload một ảnh.
+- Chạy đồng thời tối đa 2-3 request.
+- Hiển thị trạng thái từng ảnh: Đang nén, Đang tải, Hoàn tất, Lỗi.
+- Dùng onUploadProgress.
+- Dùng timeout riêng cho upload khoảng 2-5 phút.
+- Một ảnh lỗi không làm hỏng cả batch.
+
+Backend:
+- Không giữ toàn bộ batch trong pending.
+- Giới hạn số ảnh mỗi lượt, ví dụ 30.
+- Giới hạn tổng dung lượng.
+- Giới hạn tác vụ Sharp đồng thời khoảng 2-3.
+
+Lợi ích:
+- RAM backend chỉ giữ tối đa vài ảnh.
+- Người dùng thấy tiến độ rõ.
+- Có thể retry riêng ảnh lỗi.
+
+---------------------------------------------------------------------
+
+3.4. BỎ VÒNG TẢI HTTP KHI GỬI TỪ KHO
+
+Storage local:
+- Dùng minioKey để lấy đường dẫn file thật trên VPS.
+- Truyền đường dẫn đó cho zca-js.
+- Không fetch URL public.
+- Không tạo thêm bản sao tạm cho ảnh.
+
+Storage R2:
+- Đọc object bằng GetObject.
+- Truyền Buffer source trực tiếp cho zca-js với data, filename, width, height và totalSize.
+- Không ghi file tạm.
+
+Có thể thêm hàm chung ở tầng storage:
+
+materializeForSend(key, metadata)
+
+Driver local trả đường dẫn. Driver R2 trả Buffer hoặc file cache.
+
+Lợi ích dự kiến:
+- Local loại bỏ vòng HTTP và phần lớn thao tác ổ tạm.
+- R2 loại bỏ thao tác ghi rồi đọc file tạm.
+- Thời gian chuẩn bị ảnh giảm rõ rệt.
+- Tổng thời gian gửi một ảnh có thể giảm 15-40%, tùy mạng Zalo.
+
+Giới hạn còn lại:
+- zca-js vẫn phải upload bytes lên Zalo mỗi lần.
+- Không thể loại bỏ an toàn bước upload lên Zalo với API hiện tại.
+
+---------------------------------------------------------------------
+
+3.5. CHUẨN BỊ ALBUM SONG SONG CÓ GIỚI HẠN
+
+Luồng mới:
+- Tải hoặc materialize tối đa 3 ảnh cùng lúc.
+- Giữ giới hạn album 12 ảnh.
+- Thêm giới hạn tổng byte mỗi album.
+- Sau khi chuẩn bị đủ, gọi Zalo một lần.
+
+Không dùng Promise.all không giới hạn. zca-js đã từng gặp lỗi socket khi upload nhiều ảnh song song.
+
+Lợi ích dự kiến:
+- Chuẩn bị album nhanh hơn khoảng 2-4 lần.
+- Không làm bùng RAM hoặc quá tải mạng.
+
+---------------------------------------------------------------------
+
+3.6. CACHE LOCAL NẾU DÙNG R2
+
+Kiến trúc:
+- R2 giữ bản chuẩn và bền.
+- Ổ NVMe VPS giữ cache ảnh hay gửi.
+- Cache key dùng contentHash.
+- Giới hạn dung lượng 2-5 GB hoặc theo VPS.
+- TTL 7-30 ngày.
+- Xóa theo LRU khi đầy.
+- Có thể prefetch khi sale chọn ảnh, trước lúc bấm Gửi.
+
+Không lưu binary ảnh lớn trong Redis. Redis chỉ giữ metadata, lock và trạng thái cache; ổ đĩa giữ bytes.
+
+---------------------------------------------------------------------
+
+3.7. CHẠY MIRROR CHAT SONG SONG VỚI UPLOAD ZALO
+
+Luồng mới khi sale gửi ảnh từ máy:
+1. Ghi file tạm.
+2. Bắt đầu upload ảnh lên Zalo.
+3. Đồng thời nén và lưu bản CRM vào storage.
+4. Chờ cả hai hoàn tất trước khi ghi message cuối.
+
+Lợi ích:
+- Tổng thời gian gần bằng công đoạn chậm nhất.
+- Không còn bằng tổng thời gian của hai công đoạn nối tiếp.
+
+---------------------------------------------------------------------
+
+3.8. TỐI ƯU DEDUP STORAGE
+
+Luồng đề xuất:
+1. Xử lý ảnh và tính contentHash.
+2. Kiểm tra MediaBlob trong DB trước.
+3. DB đã có thì dùng ngay, không gọi R2.
+4. DB chưa có thì upload thẳng theo key hash.
+5. Hai request đồng thời ghi cùng key vẫn an toàn vì bytes có cùng hash.
+
+Lợi ích:
+- Ảnh trùng chỉ cần truy vấn DB.
+- Ảnh mới bỏ được một lượt HeadObject.
+
+---------------------------------------------------------------------
+
+3.9. CDN ĐÚNG CHỖ
+
+Sau khi có thumbnail riêng:
+- Dùng custom domain Cloudflare cho media production.
+- Cache thumbnail và send theo content hash.
+- Bật HTTP/2 hoặc HTTP/3.
+- Cache immutable một năm vì key theo hash.
+- Không cache API có dữ liệu quyền riêng tư như public asset.
+
+CDN không giải quyết triệt để nếu thumbnail vẫn là ảnh lớn. Phải sửa kích thước thumbnail trước.
+
+---------------------------------------------------------------------
+
+3.10. TỐI ƯU POSTGRESQL KHI KHO LỚN
+
+Index đề xuất:
+
+CREATE INDEX media_assets_active_kind_recent_idx
+ON media_assets (org_id, kind, last_used_at DESC, created_at DESC)
+WHERE archived_at IS NULL;
+
+CREATE INDEX media_assets_active_kind_newest_idx
+ON media_assets (org_id, kind, created_at DESC)
+WHERE archived_at IS NULL;
+
+Tối ưu tiếp:
+- Chỉ truy vấn favorite theo ID của 40 asset đang hiển thị.
+- Cache COUNT 10-30 giây theo bộ lọc.
+- Dùng cursor pagination khi kho đạt hàng chục nghìn ảnh.
+- Dùng pg_trgm cho tìm kiếm contains nếu dữ liệu tên ảnh lớn.
+
+Pagination 40 ảnh hiện đã có. DB chưa phải nút thắt chính.
+
+======================================================================
+4. ĐO HIỆU NĂNG BẮT BUỘC
+======================================================================
+
+Thêm timing cho từng bước:
+- multipart_receive
+- client_bytes
+- sharp_process
+- virus_scan
+- storage_write
+- db_write
+- storage_read
+- cache_hit hoặc cache_miss
+- temp_write
+- zalo_upload
+- total
+
+Ghi thêm:
+- Số ảnh.
+- Tổng byte đầu vào.
+- Tổng byte sau nén.
+- Tỷ lệ nén.
+- Dedup hit hoặc miss.
+- Storage driver local hoặc r2.
+- Cache hit hoặc miss.
+
+Theo dõi p50, p95, tỷ lệ timeout, lỗi socket Zalo, RAM và CPU backend.
+
+Không ghi URL riêng tư hoặc nội dung khách hàng vào log hiệu năng.
+
+======================================================================
+5. CẢNH BÁO BẢO MẬT
+======================================================================
+
+Luồng gửi hiện có thể nhận body.url rồi backend tải URL được cung cấp.
+
+Khi sửa luồng tải ảnh phải:
+1. Chỉ cho phép hostname storage/CDN hợp lệ.
+2. Chặn địa chỉ IP private và metadata service.
+3. Giới hạn kích thước response.
+4. Kiểm tra MIME bằng nội dung thật, không chỉ tin header.
+5. Đặt timeout và giới hạn redirect.
+
+Nếu bỏ qua, endpoint có nguy cơ SSRF.
+
+======================================================================
+6. THỨ TỰ TRIỂN KHAI
+======================================================================
+
+Giai đoạn 1 - Đo và sửa điểm có ROI cao nhất
+1. Thêm timing từng công đoạn.
+2. Giới hạn batch và tổng dung lượng.
+3. Sinh thumbnail 320-480 px.
+4. API trả thumbnail đúng.
+
+Giai đoạn 2 - Tăng tốc upload
+5. Nén ảnh phía trình duyệt.
+6. Upload từng file.
+7. Concurrency tối đa 2-3.
+8. Tiến độ và retry từng ảnh.
+
+Giai đoạn 3 - Tăng tốc gửi
+9. Gửi bằng minioKey.
+10. Local dùng path trực tiếp.
+11. R2 dùng Buffer hoặc cache local.
+12. Chuẩn bị album song song có giới hạn.
+13. Chạy mirror CRM song song với upload Zalo.
+
+Giai đoạn 4 - Tối ưu hạ tầng và DB
+14. Kiểm tra dedup DB trước storage.
+15. Bỏ HeadObject thừa.
+16. Thống nhất cấu hình storage cho dev, Docker và production.
+17. Dùng custom domain CDN.
+18. Thêm index DB khi số asset tăng.
+
+Giai đoạn 5 - Chỉ làm khi cần mở rộng lớn
+19. Presigned upload trực tiếp R2.
+20. BullMQ worker xử lý biến thể nền.
+21. Cursor pagination và cache COUNT.
+
+======================================================================
+7. MỤC TIÊU SAU TỐI ƯU
+======================================================================
+
+- Thumbnail mỗi ảnh: dưới 15-30 KB.
+- Trang 40 ảnh: dữ liệu ảnh khoảng 0.2-1 MB tùy nội dung.
+- API list media p95: dưới 300 ms, chưa tính thời gian tải ảnh CDN.
+- Ảnh đầu tiên hiện: dưới 1 giây trên mạng tốt.
+- Upload ảnh điện thoại: giảm dữ liệu 70-95%.
+- RAM backend khi upload batch: không tăng theo tổng dung lượng cả batch.
+- Gửi ảnh từ local storage: bỏ hoàn toàn lượt tải HTTP nội bộ.
+- Chuẩn bị album: nhanh hơn khoảng 2-4 lần.
+- Không đổi logic quyền riêng tư, watermark, dedup và lịch sử chat.
+
+======================================================================
+8. PHƯƠNG ÁN CHỐT
+======================================================================
+
+Nên ưu tiên năm thay đổi:
+
+1. Thumbnail riêng.
+2. Nén trước upload tại frontend.
+3. Upload từng file, concurrency 2-3.
+4. Gửi trực tiếp từ local path hoặc R2 Buffer/cache.
+5. Đo timing từng công đoạn.
+
+Đây là nhóm thay đổi có lợi ích lớn nhất, rủi ro kiểm soát được, không cần viết lại kho và không cần thay giao diện lớn.
+
+Trạng thái hiện tại: mới phân tích và đề xuất; chưa sửa code.

@@ -130,7 +130,9 @@
             <div class="card-head">
               <div class="card-head-title">
                 <h2>KPI Doanh thu tháng</h2>
-                <span v-if="goalStage === 'completed'" class="badge-fire">🔥 Hoàn thành cả 2 mục tiêu!</span>
+                <span v-if="goalStage === 'completed'" class="badge-fire">🔥 Đã vượt mốc 150%!</span>
+                <span v-else-if="monthlyRevenue >= MONTHLY_REVENUE_GOAL_3" class="badge-fire">🔥 Đã vượt mốc 130%!</span>
+                <span v-else-if="monthlyRevenue >= MONTHLY_REVENUE_GOAL_2" class="badge-fire">🔥 Hoàn thành cả 2 mục tiêu!</span>
                 <span v-else class="goal-guidance">{{ goalGuidance }}</span>
               </div>
               <div class="goal-percent-badge" :class="{ pending: goalStage !== 'completed' }">
@@ -142,11 +144,17 @@
             <div class="goal-progress-wrap">
               <div class="goal-progress-bar">
                 <div class="progress-fill" :style="{ width: `${overallProgressPercent}%` }"></div>
+                <div class="progress-marker" style="left: 52.16%" title="MT1"></div>
+                <div class="progress-marker" style="left: 66.67%" title="MT2"></div>
+                <div class="progress-marker" style="left: 86.67%" title="MT3 130%"></div>
+                <div class="progress-marker" style="left: 100%" title="MT4 150%"></div>
               </div>
 
               <div class="goal-markers">
                 <span class="marker-item" :class="{ active: monthlyRevenue >= MONTHLY_REVENUE_GOAL_1 }"><template v-if="monthlyRevenue >= MONTHLY_REVENUE_GOAL_1">✓ </template>MT1: {{ formatMoney(MONTHLY_REVENUE_GOAL_1) }}</span>
                 <span class="marker-item" :class="{ active: monthlyRevenue >= MONTHLY_REVENUE_GOAL_2 }"><template v-if="monthlyRevenue >= MONTHLY_REVENUE_GOAL_2">✓ </template>MT2: {{ formatMoney(MONTHLY_REVENUE_GOAL_2) }}</span>
+                <span class="marker-item" :class="{ active: monthlyRevenue >= MONTHLY_REVENUE_GOAL_3 }"><template v-if="monthlyRevenue >= MONTHLY_REVENUE_GOAL_3">✓ </template>MT3: {{ formatMoney(MONTHLY_REVENUE_GOAL_3) }}</span>
+                <span class="marker-item" :class="{ active: monthlyRevenue >= MONTHLY_REVENUE_GOAL_4 }"><template v-if="monthlyRevenue >= MONTHLY_REVENUE_GOAL_4">✓ </template>MT4: {{ formatMoney(MONTHLY_REVENUE_GOAL_4) }}</span>
               </div>
             </div>
 
@@ -419,16 +427,33 @@ const displayData = computed(() => data.value || {});
 const showSearchSuggestions = computed(() => searchFocused.value && quickSearch.value.trim().length >= 2);
 const MONTHLY_REVENUE_GOAL_1 = 719_000_000;
 const MONTHLY_REVENUE_GOAL_2 = 918_901_000;
+const MONTHLY_REVENUE_GOAL_3 = 1_194_571_300; // 130% MT2
+const MONTHLY_REVENUE_GOAL_4 = 1_378_351_500; // 150% MT2
 const monthlyRevenue = computed(() => Math.max(0, Number(displayData.value.revenue) || 0));
-const goalStage = computed(() => monthlyRevenue.value >= MONTHLY_REVENUE_GOAL_2
+const goalStage = computed(() => monthlyRevenue.value >= MONTHLY_REVENUE_GOAL_4
   ? 'completed'
+  : monthlyRevenue.value >= MONTHLY_REVENUE_GOAL_3 ? 'goal4'
+  : monthlyRevenue.value >= MONTHLY_REVENUE_GOAL_2 ? 'goal3'
   : monthlyRevenue.value >= MONTHLY_REVENUE_GOAL_1 ? 'goal2' : 'goal1');
-const currentGoalNumber = computed(() => goalStage.value === 'goal1' ? 1 : 2);
-const currentGoalAmount = computed(() => currentGoalNumber.value === 1 ? MONTHLY_REVENUE_GOAL_1 : MONTHLY_REVENUE_GOAL_2);
+const currentGoalNumber = computed(() => {
+  if (goalStage.value === 'goal1') return 1;
+  if (goalStage.value === 'goal2') return 2;
+  if (goalStage.value === 'goal3') return 3;
+  return 4;
+});
+const currentGoalAmount = computed(() => {
+  if (currentGoalNumber.value === 1) return MONTHLY_REVENUE_GOAL_1;
+  if (currentGoalNumber.value === 2) return MONTHLY_REVENUE_GOAL_2;
+  if (currentGoalNumber.value === 3) return MONTHLY_REVENUE_GOAL_3;
+  return MONTHLY_REVENUE_GOAL_4;
+});
 const goalPercent = computed(() => Math.min(100, Math.round((monthlyRevenue.value / currentGoalAmount.value) * 100)));
-const overallProgressPercent = computed(() => Math.min(100, (monthlyRevenue.value / MONTHLY_REVENUE_GOAL_2) * 100));
+const overallProgressPercent = computed(() => Math.min(100, (monthlyRevenue.value / MONTHLY_REVENUE_GOAL_4) * 100));
 const goalRemaining = computed(() => Math.max(0, currentGoalAmount.value - monthlyRevenue.value));
-const goalGuidance = computed(() => `Đang hướng tới Mục tiêu ${currentGoalNumber.value}`);
+const goalGuidance = computed(() => {
+  if (goalStage.value === 'completed') return '';
+  return `Đang hướng tới Mục tiêu ${currentGoalNumber.value}`;
+});
 
 const overdueList = computed(() => {
   if (data.value.overdueOrders && Array.isArray(data.value.overdueOrders) && data.value.overdueOrders.length > 0) {
@@ -888,19 +913,18 @@ onMounted(loadData);
   height: 12px;
   background: #EAECEF;
   border-radius: 6px;
-  overflow: hidden;
+  overflow: visible;
   margin-bottom: 8px;
 }
 
-.goal-progress-bar::after {
-  content: "";
+.progress-marker {
   position: absolute;
   top: -3px;
   bottom: -3px;
-  left: 78.25%;
   width: 2px;
   border-radius: 1px;
   background: #253248;
+  z-index: 2;
 }
 
 .progress-fill {

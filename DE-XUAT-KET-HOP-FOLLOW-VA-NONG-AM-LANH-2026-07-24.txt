@@ -1,0 +1,286 @@
+﻿ĐỀ XUẤT KẾT HỢP FOLLOW KHÁCH HÀNG VỚI PHÂN LOẠI NÓNG - ẤM - LẠNH
+Ngày đánh giá: 24/07/2026
+
+======================================================================
+1. KẾT LUẬN NGẮN
+======================================================================
+
+Kết hợp tính năng "Theo dõi khách" với phân loại Nóng - Ấm - Lạnh rất có giá trị.
+Không nên nhập hai khái niệm thành một:
+
+- Nóng - Ấm - Lạnh: khách đáng ưu tiên tới mức nào.
+- Theo dõi: sale cam kết tiếp tục chăm khách và hệ thống giám sát phản hồi.
+- Ngày im lặng: khách đã không phản hồi bao lâu, mức khẩn cấp ra sao.
+- Kết quả cần tạo: danh sách việc phải làm theo thứ tự ưu tiên.
+
+Follow hiện tại chủ yếu là chuông đánh dấu và lắng nghe khách trả lời.
+Hướng phát triển tốt nhất: biến Follow thành hệ thống quản lý công việc chăm khách.
+
+======================================================================
+2. HIỆN TRẠNG SOURCE
+======================================================================
+
+Source hiện có ba hệ thống dễ gây nhầm lẫn:
+
+A. Điểm tiềm năng khách hàng
+- Lạnh: 0 - 30 điểm.
+- Ấm: 31 - 60 điểm.
+- Nóng: 61 - 85 điểm.
+- Xuất sắc: 86 - 100 điểm.
+
+B. Phân loại theo số ngày khách im lặng
+- Hot: im 4 - 6 ngày.
+- Warm: im 7 - 14 ngày.
+- Cool: im 15 - 29 ngày.
+- Cold: im từ 30 ngày.
+
+C. Auto-tag hành vi
+- Đang chat, Chớm nguội, Đã nguội, Đóng băng, Ấm lại.
+- Đình trệ, Chốt được, Rủi ro mất.
+
+Vấn đề: Hot, Warm, Cold đang dùng cho cả điểm tiềm năng và số ngày im.
+Sale có thể hiểu sai khách "Hot" là khách sắp mua, trong khi đôi lúc nhãn chỉ có
+nghĩa khách mới bắt đầu im lặng 4 - 6 ngày.
+
+Đề nghị đổi tên nhãn ngày im:
+- 4 - 6 ngày: Mới im.
+- 7 - 14 ngày: Chớm nguội.
+- 15 - 29 ngày: Đã nguội.
+- Từ 30 ngày: Rất nguội.
+
+Giữ Nóng - Ấm - Lạnh riêng cho điểm tiềm năng mua hàng.
+
+======================================================================
+3. RỦI RO LỚN CẦN SỬA TRƯỚC
+======================================================================
+
+Bộ chấm điểm mặc định trong source đang thiết kế cho ngành bất động sản:
+- Hỏi dự án, vị trí, diện tích, số phòng.
+- Hỏi sổ đỏ, pháp lý, vay và lãi suất.
+- Đặt lịch xem nhà.
+- Đặt cọc giữ chỗ bất động sản.
+
+Các tín hiệu này không phù hợp ngành thiệp cưới. Dùng nguyên trạng sẽ xếp Nóng - Ấm -
+Lạnh sai. Sale dễ mất niềm tin vào điểm số.
+
+Việc cần làm đầu tiên: thay tín hiệu bất động sản bằng tín hiệu ngành thiệp cưới.
+
+======================================================================
+4. MÔ HÌNH KẾT HỢP ĐỀ XUẤT
+======================================================================
+
+Nên dùng hai trục độc lập:
+
+TRỤC 1 - TIỀM NĂNG MUA
+- Nóng: khả năng mua cao, có tín hiệu rõ.
+- Ấm: có quan tâm, cần tiếp tục nuôi dưỡng.
+- Lạnh: ít tín hiệu mua hoặc đã im lâu.
+
+TRỤC 2 - KHẨN CẤP CHĂM SÓC
+- Làm ngay.
+- Làm hôm nay.
+- Chăm trong 2 ngày.
+- Nuôi dưỡng định kỳ.
+
+Ví dụ vận hành:
+- Khách Nóng vừa trả lời: sale trả lời trong 5 phút.
+- Khách Nóng im 1 - 3 ngày: nhắc sale kiểm tra.
+- Khách Nóng im 4 - 7 ngày: cảnh báo đỏ, yêu cầu chọn hành động.
+- Khách Nóng im trên 7 ngày: báo trưởng nhóm.
+- Khách Ấm vừa trả lời: sale trả lời trong 15 phút.
+- Khách Ấm im 4 - 7 ngày: gợi ý nội dung Follow cá nhân hóa.
+- Khách Ấm im 8 - 15 ngày: đưa vào luồng nuôi dưỡng nhẹ.
+- Khách Lạnh im dưới 30 ngày: chăm định kỳ, không nhắn dày.
+- Khách Lạnh im trên 30 ngày: đưa vào chiến dịch tái kích hoạt.
+- Khách đã chốt hoặc xác nhận mất: tự đóng Follow.
+
+======================================================================
+5. ĐIỂM ƯU TIÊN FOLLOW
+======================================================================
+
+Nên tạo điểm riêng "Ưu tiên chăm sóc" trên thang 100.
+Không dùng trực tiếp Lead Score làm điểm khẩn cấp.
+
+Công thức đề xuất ban đầu:
+- 45%: điểm tiềm năng Lead Score.
+- 25%: số ngày khách im lặng.
+- 15%: khách đang chờ sale trả lời.
+- 10%: ngày cưới hoặc hạn giao gần.
+- 5%: lịch hẹn, báo giá hoặc mẫu thiết kế chưa xử lý.
+
+Điểm cộng cảnh báo:
+- Khách nhắn cuối nhưng sale chưa trả lời: cộng 30.
+- Khách hỏi giá, số lượng hoặc thời gian giao: cộng 20.
+- Ngày cưới gần: cộng 20.
+- Có lịch hẹn quá hạn: cộng 20.
+- Sale đã gửi cuối và đang chờ khách: không cộng khẩn cấp.
+
+Mức xử lý:
+- 80 - 100: Làm ngay.
+- 60 - 79: Làm hôm nay.
+- 40 - 59: Chăm trong 2 ngày.
+- Dưới 40: Nuôi dưỡng.
+
+Ngưỡng này là điểm bắt đầu. Cần chạy thử và chỉnh theo dữ liệu chốt đơn thật.
+
+======================================================================
+6. BỘ TÍN HIỆU DÀNH CHO THIỆP CƯỚI
+======================================================================
+
+Tăng điểm tiềm năng khi khách:
+- Hỏi giá, bảng giá hoặc combo.
+- Hỏi mẫu, màu sắc, chất liệu giấy.
+- Gửi ngày cưới hoặc số lượng thiệp cần in.
+- Gửi địa chỉ giao hàng.
+- Hỏi thời gian thiết kế, in và giao.
+- Yêu cầu chỉnh sửa mẫu.
+- Chọn mẫu hoặc duyệt demo.
+- Xin số tài khoản, hỏi chuyển khoản hoặc tiền cọc.
+- Đặt lịch tới cửa hàng.
+- Chủ động nhắn lại sau thời gian im lặng.
+- Gửi tin dài, nhiều thông tin cụ thể hoặc phản hồi nhanh.
+
+Giảm điểm hoặc đổi trạng thái khi khách:
+- Báo đã đặt nơi khác.
+- Báo hoãn hoặc hủy cưới.
+- Từ chối mức giá rõ ràng.
+- Không còn nhu cầu hoặc chặn nick Zalo.
+- Im lặng quá lâu sau nhiều lần chăm hợp lý.
+
+Tín hiệu cần tạo lịch Follow:
+- "Để bàn với gia đình".
+- "Để hỏi cô dâu/chú rể".
+- "Ngày mai trả lời".
+- "Gần ngày cưới liên hệ lại".
+- "Chờ chốt số lượng".
+- "Chờ chọn mẫu".
+
+Hệ thống nên gợi ý ngày Follow từ nội dung, sale xác nhận trước khi tạo.
+
+======================================================================
+7. FOLLOW THÔNG MINH NÊN HOẠT ĐỘNG RA SAO
+======================================================================
+
+Khi sale bấm "Theo dõi", nên hiển thị hộp chọn:
+- Lý do: chờ trả lời, chờ chọn mẫu, chờ cọc, chờ số lượng, chờ ngày cưới,
+  chăm lại hoặc lý do khác.
+- Ngày cần xử lý tiếp.
+- Mức ưu tiên hệ thống đề xuất, sale có thể điều chỉnh.
+- Kết quả mong đợi: trả lời, gửi mẫu, đặt lịch, cọc hoặc chốt đơn.
+- Ghi chú ngắn.
+
+Sau khi tạo Follow, hệ thống phải:
+- Hiện chuông, mức Nóng - Ấm - Lạnh và hạn xử lý.
+- Đẩy hội thoại lên đầu khi khách trả lời.
+- Cảnh báo nếu sale chưa trả lời đúng thời gian.
+- Tăng ưu tiên khi khách chuyển từ Lạnh/Ấm thành Nóng.
+- Cảnh báo khi khách Nóng bắt đầu nguội.
+- Tự đóng Follow khi khách đã chốt hoặc xác nhận mất.
+- Báo trưởng nhóm nếu Follow quá hạn lâu nhưng sale không hành động.
+
+Không nên tự gửi tin ngay trong giai đoạn đầu. Trước tiên nhắc sale, đo hiệu quả và
+kiểm tra độ chính xác. Khi dữ liệu ổn mới bật gửi tự động có kiểm soát.
+
+======================================================================
+8. GIAO DIỆN ĐỀ XUẤT
+======================================================================
+
+Mỗi hội thoại nên hiện ba thông tin riêng:
+- "Nóng 74": mức tiềm năng mua.
+- "Im 5 ngày": độ nguội theo thời gian.
+- "Theo dõi - quá hạn 1 ngày": trách nhiệm xử lý của sale.
+
+Không dùng một biểu tượng để diễn tả cả ba ý.
+
+Nên thêm tab "Việc cần làm":
+1. Khách đang chờ sale trả lời.
+2. Khách Nóng đã quá hạn.
+3. Khách Nóng vừa nhắn lại.
+4. Khách Ấm cần chăm hôm nay.
+5. Khách Lạnh cần tái kích hoạt.
+
+Danh sách mặc định sắp theo điểm ưu tiên chăm sóc, không chỉ theo tin mới nhất.
+
+======================================================================
+9. KẾ HOẠCH TRIỂN KHAI
+======================================================================
+
+GIAI ĐOẠN 1 - LÀM RÕ KHÁI NIỆM
+- Đổi tên nhãn ngày im để không trùng Nóng - Ấm - Lạnh.
+- Giữ Nóng - Ấm - Lạnh cho điểm tiềm năng mua.
+- Viết tooltip giải thích rõ từng nhãn.
+
+GIAI ĐOẠN 2 - SỬA BỘ CHẤM ĐIỂM
+- Gỡ hoặc tắt tín hiệu bất động sản.
+- Tạo tín hiệu ngành thiệp cưới.
+- Kiểm tra tin nhắn cũ để hiệu chỉnh từ khóa.
+- Cho quản lý chỉnh trọng số trong cài đặt.
+
+GIAI ĐOẠN 3 - NÂNG CẤP FOLLOW
+- Thêm lý do, hạn xử lý và kết quả mong đợi.
+- Thêm trạng thái đúng hạn, sắp quá hạn và quá hạn.
+
+GIAI ĐOẠN 4 - TẠO HÀNG ĐỢI CÔNG VIỆC
+- Tạo điểm ưu tiên chăm sóc và tab Việc cần làm.
+- Sắp xếp theo mức khẩn cấp.
+- Lọc theo sale, nick Zalo, mức nhiệt và tình trạng quá hạn.
+
+GIAI ĐOẠN 5 - CẢNH BÁO VÀ QUẢN LÝ
+- Nhắc sale khi tới hạn hoặc khi khách Follow trả lời.
+- Báo trưởng nhóm khi khách Nóng bị bỏ quên.
+- Tạo báo cáo Follow quá hạn theo nhân viên.
+
+GIAI ĐOẠN 6 - CHẠY THỬ 2 ĐẾN 4 TUẦN
+- Chọn một nhóm sale chạy thử.
+- Không tự gửi tin hàng loạt.
+- Ghi nhận cảnh báo đúng, cảnh báo sai và hành động sale.
+- Điều chỉnh điểm, ngưỡng và SLA theo dữ liệu thật.
+
+GIAI ĐOẠN 7 - TỰ ĐỘNG HÓA CÓ KIỂM SOÁT
+- Gợi ý mẫu tin phù hợp lý do Follow.
+- Sale duyệt trước khi gửi.
+- Chỉ tự gửi với kịch bản đã chứng minh hiệu quả.
+- Dừng tự động ngay khi khách trả lời.
+
+======================================================================
+10. KPI CẦN ĐO
+======================================================================
+
+- Thời gian phản hồi trung bình với khách Nóng.
+- Tỷ lệ Follow được xử lý đúng hạn.
+- Tỷ lệ khách Nóng chuyển thành cọc hoặc chốt đơn.
+- Tỷ lệ khách Ấm chuyển thành Nóng.
+- Tỷ lệ khách nguội được hâm nóng lại.
+- Số khách đang chờ sale nhưng bị bỏ quên.
+- Số Follow mở quá 7 ngày không có kết quả.
+- Tỷ lệ khách trả lời sau mỗi lần Follow.
+- Tỷ lệ cảnh báo đúng và cảnh báo sai.
+- Doanh thu/chốt đơn theo mức Nóng - Ấm - Lạnh.
+- Hiệu quả Follow theo từng sale và từng nick Zalo.
+
+======================================================================
+11. KẾT QUẢ KỲ VỌNG
+======================================================================
+
+- Sale biết khách nào phải xử lý trước.
+- Giảm khách hỏi rồi bị quên.
+- Khách Nóng được phản hồi nhanh hơn.
+- Khách Ấm được nuôi đúng thời điểm.
+- Khách Lạnh không chiếm quá nhiều thời gian sale chính.
+- Trưởng nhóm phát hiện sớm khách giá trị cao bị bỏ quên.
+- Đo được hiệu quả chăm sóc từng sale.
+- Follow thành công cụ điều hành bán hàng, không chỉ là biểu tượng chuông.
+
+======================================================================
+12. THỨ TỰ ƯU TIÊN ĐỀ XUẤT
+======================================================================
+
+Ưu tiên 1: Sửa bộ chấm điểm theo ngành thiệp cưới.
+Ưu tiên 2: Đổi tên nhãn ngày im để tránh hiểu sai.
+Ưu tiên 3: Thêm lý do, hạn xử lý và kết quả mong đợi cho Follow.
+Ưu tiên 4: Tạo tab Việc cần làm và điểm ưu tiên chăm sóc.
+Ưu tiên 5: Chạy thử, đo KPI rồi mới bật tự động gửi tin.
+
+Không nên kết nối tự động ngay trên bộ chấm điểm hiện tại. Nếu phân loại sai, hệ thống
+sẽ ưu tiên sai khách và sale mất niềm tin. Nền tảng đúng phải bắt đầu từ tín hiệu đúng
+cho ngành thiệp cưới.

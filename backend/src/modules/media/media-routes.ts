@@ -47,7 +47,8 @@ const ALLOWED_FILE = [
 ];
 // Giới hạn (design review E5): ảnh >15MB báo quá lớn.
 const IMAGE_MAX = 15 * 1024 * 1024;
-const VIDEO_MAX = 500 * 1024 * 1024;
+// Video thư viện dùng để gửi nhanh trong chat: anh chốt tối đa 20 MB/file (2026-08-16).
+const VIDEO_MAX = 20 * 1024 * 1024;
 const FILE_MAX = 1024 * 1024 * 1024;
 
 const MEDIA_UPLOAD_MAX_FILES = 30;
@@ -845,7 +846,14 @@ export async function mediaRoutes(app: FastifyInstance) {
 
       const canViewAll = await userHasGrant(userId, 'media', 'view_all');
       const asset = await prisma.mediaAsset.findFirst({
-        where: { id, orgId: user.orgId, archivedAt: null, ...(canViewAll ? {} : { ownerUserId: userId }) },
+        where: {
+          id,
+          orgId: user.orgId,
+          archivedAt: null,
+          // Video public là thư viện dùng chung: mọi nhân viên có quyền media.edit đều được xóa mềm.
+          // Các loại media khác vẫn giữ scope owner/view_all như trước.
+          ...(canViewAll ? {} : { OR: [{ ownerUserId: userId }, { kind: 'video', visibility: 'public' }] }),
+        },
       });
       if (!asset) return reply.status(404).send({ error: 'Không tìm thấy media (hoặc không thuộc bạn)' });
 
@@ -934,7 +942,8 @@ export async function mediaRoutes(app: FastifyInstance) {
 
   // ── DELETE /api/v1/media/:id — vào THÙNG RÁC (xóa MỀM, giữ object MinIO) ────
   // GĐ13a (2026-06-12): archivedAt = dấu thùng rác. grant 'edit' đủ (sale xóa ảnh CỦA MÌNH).
-  // Xóa của người khác cần view_all (admin). Ghi trashedById để audit + scope khôi phục.
+  // Video public thuộc thư viện dùng chung nên nhân viên có media.edit được xóa mềm của nhau.
+  // Media khác vẫn cần đúng owner hoặc view_all. Ghi trashedById để audit + scope khôi phục.
   app.delete(
     '/api/v1/media/:id',
     { preHandler: requireGrant('media', 'edit') },
@@ -944,7 +953,12 @@ export async function mediaRoutes(app: FastifyInstance) {
       const { id } = request.params as { id: string };
       const canViewAll = await userHasGrant(userId, 'media', 'view_all');
       const asset = await prisma.mediaAsset.findFirst({
-        where: { id, orgId: user.orgId, archivedAt: null, ...(canViewAll ? {} : { ownerUserId: userId }) },
+        where: {
+          id,
+          orgId: user.orgId,
+          archivedAt: null,
+          ...(canViewAll ? {} : { OR: [{ ownerUserId: userId }, { kind: 'video', visibility: 'public' }] }),
+        },
       });
       if (!asset) return reply.status(404).send({ error: 'Không tìm thấy media' });
       // INVARIANT: chỉ vào thùng rác, KHÔNG xóa object MinIO (giữ lịch sử chat cũ trỏ tới).

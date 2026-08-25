@@ -13,16 +13,16 @@
           <span class="back-account-name">{{ activeAccountName }}</span>
         </button>
       </div>
-      <div v-else class="d-flex align-center ml-3" style="gap: 8px;">
+      <div v-else class="d-flex align-center ml-3 cl-mobile-brand">
         <v-img src="/brand/logovip.png" width="28" height="28" contain class="mr-1" />
-        <span class="font-weight-bold text-body-2" style="color: #0F172A; font-family: 'Quicksand', sans-serif;">Thiệp Cưới <span style="color: #2563EB;">Nhà Yến</span></span>
+        <span class="font-weight-bold text-body-2 cl-mobile-brand__name">Thiệp Cưới <span>Nhà Yến</span></span>
       </div>
 
       <v-spacer />
 
       <NotificationBell />
-      <v-btn icon size="small" variant="text" @click="logout" class="mr-2">
-        <v-icon size="18" color="grey-darken-1">mdi-logout</v-icon>
+      <v-btn icon size="small" variant="text" aria-label="Đăng xuất" @click="logout" class="mr-2 cl-mobile-logout">
+        <v-icon size="18">mdi-logout</v-icon>
       </v-btn>
     </v-app-bar>
 
@@ -33,13 +33,12 @@
       </div>
     </v-main>
 
-    <BottomNav />
+    <BottomNav v-if="!threadOpen" />
   </v-app>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted } from 'vue';
-import { useTheme } from 'vuetify';
 import { useAuthStore } from '@/stores/auth';
 import { useRouter, useRoute } from 'vue-router';
 import { useWorkScope } from '@/composables/use-work-scope';
@@ -49,7 +48,6 @@ import BottomNav from '@/components/BottomNav.vue';
 import OfflineIndicator from '@/components/OfflineIndicator.vue';
 import { useMobileChatLayout } from '@/composables/use-mobile-chat-layout';
 
-const theme = useTheme();
 const authStore = useAuthStore();
 const router = useRouter();
 const route = useRoute();
@@ -65,7 +63,6 @@ const activeAccountName = computed(() => {
 });
 
 onMounted(() => {
-  theme.global.name.value = 'light';
   void fetchZaloAccounts();
 });
 
@@ -78,14 +75,25 @@ function logout() {
 
 <style scoped>
 .cl-mobile-bar {
-  background: rgba(255, 255, 255, 0.85) !important;
+  background: color-mix(in srgb, var(--surface) 85%, transparent) !important;
   backdrop-filter: blur(20px) saturate(180%) !important;
   -webkit-backdrop-filter: blur(20px) saturate(180%) !important;
-  border-bottom: 1px solid rgba(226, 232, 240, 0.8) !important;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 80%, transparent) !important;
+  color: var(--ink);
+  font-family: var(--font);
 }
-.theme--dark .cl-mobile-bar {
-  background: rgba(15, 23, 42, 0.85) !important;
-  border-bottom: 1px solid rgba(51, 65, 85, 0.8) !important;
+.cl-mobile-brand {
+  gap: 8px;
+}
+.cl-mobile-brand__name {
+  color: var(--ink);
+  font-family: var(--font);
+}
+.cl-mobile-brand__name span {
+  color: var(--brand);
+}
+.cl-mobile-logout {
+  color: var(--ink-3) !important;
 }
 .back-to-select-btn {
   display: flex;
@@ -94,13 +102,14 @@ function logout() {
   border: none;
   cursor: pointer;
   padding: 4px 6px;
-  border-radius: 6px;
-  transition: all 0.2s;
-  color: #1E202C;
+  border-radius: var(--r-xs);
+  transition: background-color 0.2s, color 0.2s;
+  color: var(--ink);
+  font-family: var(--font);
 }
 .back-to-select-btn:active {
-  background-color: #EBF3FF;
-  color: #2F80ED;
+  background-color: var(--brand-soft);
+  color: var(--brand);
 }
 .back-account-name {
   font-size: 14px;

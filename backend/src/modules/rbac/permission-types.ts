@@ -190,7 +190,7 @@ export const MENU_TREE: MenuNode[] = [
     label: 'Nhân sự',
     children: [
       { key: 'attendance', action: 'access', label: 'Chấm công' },
-      { key: 'leave', action: 'edit', label: 'Duyệt nghỉ phép' },
+      { key: 'leave', action: 'edit', label: 'Duyệt đơn' },
       { key: 'attendance', action: 'view_all', label: 'Cấu hình chấm công' },
       { key: 'payroll', action: 'view_all', label: 'Bảng lương' },
       { key: 'payroll', action: 'access', label: 'Phiếu lương của tôi' },

@@ -1,0 +1,127 @@
+﻿PHÂN TÍCH MÀU GIAO DIỆN ZALO CRM
+
+1. BẢNG MÀU
+
+- Nền hội thoại
+  Màu: Xám xanh rất nhạt
+  HEX: #F7F8FC
+  Nhận xét: Dịu mắt, tách khỏi header trắng.
+
+- Bong bóng tin gửi
+  Nền: #EBF3FF
+  Viền: #CBE0FF
+  Nhận xét: Xanh dương nhạt, giúp phân biệt tin do nhân viên gửi.
+
+- Bong bóng tin nhận
+  Nền: #FFFFFF
+  Viền: #EBEDF0
+  Nhận xét: Nền trắng, tương phản nhẹ với nền hội thoại.
+
+- Chữ nội dung tin nhắn
+  HEX: #1E202C
+  Nhận xét: Đen xanh, độ tương phản tốt.
+
+- Nhãn giới tính “Nữ”
+  Nền: #FDE8EF
+  Chữ và biểu tượng: #FF5A5F
+  Nhận xét: Hồng nhạt, nổi bật vừa đủ.
+
+- Nút “Kết bạn”
+  Nền: #EBF3FF
+  Viền: #2F80ED
+  Chữ và biểu tượng: #2F80ED
+  Nhận xét: Viền xanh đậm giữ rõ vai trò nút hành động.
+
+- Trạng thái “Đã nhận”
+  Nền: #EAECF1
+  Chữ: #636B7D
+  Nhận xét: Màu xám dành cho thông tin phụ.
+
+- Header
+  Nền: #FFFFFF
+  Nhận xét: Tách khỏi vùng hội thoại bằng đường viền xám nhạt.
+
+2. CSS THAM KHẢO
+
+:root {
+  --conversation-bg: #F7F8FC;
+
+  --message-sent-bg: #EBF3FF;
+  --message-sent-border: #CBE0FF;
+
+  --message-received-bg: #FFFFFF;
+  --message-received-border: #EBEDF0;
+
+  --message-text: #1E202C;
+
+  --gender-female-bg: #FDE8EF;
+  --gender-female-text: #FF5A5F;
+
+  --friend-button-bg: #EBF3FF;
+  --friend-button-border: #2F80ED;
+  --friend-button-text: #2F80ED;
+
+  --received-status-bg: #EAECF1;
+  --received-status-text: #636B7D;
+}
+
+3. ĐÁNH GIÁ
+
+- Bảng màu thiên lạnh, sạch, phù hợp giao diện CRM.
+- Tin gửi dùng xanh nhạt; tin nhận dùng trắng. Hai phía phân biệt rõ nhưng không chói.
+- Nút “Kết bạn” dùng cùng nền với tin gửi nhưng có viền xanh đậm.
+- Nhãn “Nữ” dùng đỏ hồng #FF5A5F trên nền #FDE8EF.
+- Trạng thái “Đã nhận” dùng xám, không cạnh tranh với nội dung hội thoại.
+- Mã màu lấy từ pixel ảnh. Vùng chữ có biến thể nhỏ do khử răng cưa.
+
+4. MÀU CÁC THẺ TRẠNG THÁI ĐƠN
+
+- Chờ demo
+  Nền: #FFD08C
+  Chữ: #FFFFFF
+  Nhóm màu: Cam vàng nhạt.
+
+- Đang thiết kế
+  Nền: #8CBBFF
+  Chữ: #FFFFFF
+  Nhóm màu: Xanh dương nhạt.
+
+- Chốt in
+  Nền: #AEDBB0
+  Chữ: #FFFFFF
+  Nhóm màu: Xanh lá nhạt.
+
+- Khách huỷ
+  Nền: #FAAAA4
+  Chữ: #FFFFFF
+  Nhóm màu: Đỏ san hô nhạt.
+
+CSS THAM KHẢO
+
+:root {
+  --status-waiting-demo-bg: #FFD08C;
+  --status-designing-bg: #8CBBFF;
+  --status-print-confirmed-bg: #AEDBB0;
+  --status-cancelled-bg: #FAAAA4;
+  --status-text: #FFFFFF;
+}
+
+.status-waiting-demo {
+  background-color: #FFD08C;
+  color: #FFFFFF;
+}
+
+.status-designing {
+  background-color: #8CBBFF;
+  color: #FFFFFF;
+}
+
+.status-print-confirmed {
+  background-color: #AEDBB0;
+  color: #FFFFFF;
+}
+
+.status-cancelled {
+  background-color: #FAAAA4;
+  color: #FFFFFF;
+}

@@ -1,0 +1,464 @@
+﻿# PROMPT KIỂM TRA VÀ TỐI ƯU NHÀ YẾN CRM TRƯỚC KHI DEPLOY
+
+Bạn là Principal Engineer, Security Reviewer, SRE và QA Lead. Hãy audit toàn bộ web app trong repository hiện tại trước khi deploy production.
+
+## Bối cảnh
+
+- Sản phẩm: Nhà Yến CRM
+- Doanh nghiệp: Thiệp Cưới Nhà Yến
+- Stack chính:
+  - Frontend: Vue 3, TypeScript, Vuetify, Pinia, Vite, PWA
+  - Backend: Node.js, Fastify, TypeScript, Prisma
+  - Database: PostgreSQL
+  - Realtime: Socket.IO
+  - Storage: local/MinIO/S3/Cloudflare R2
+  - Cache/queue: Redis
+  - Deploy: Docker Compose
+  - Tích hợp: Zalo qua zca-js, Telegram, Pancake POS, public API/webhook
+- Repository có nhiều file modified/untracked và nhiều thay đổi tính năng song song. Không được giả định toàn bộ diff thuộc cùng một task.
+- Identifier kỹ thuật cũ như DB name, bucket, localStorage key, API key prefix, iOS appId, migration cũ có thể phải giữ để tránh mất dữ liệu hoặc gãy tương thích.
+- License chính: AGPL-3.0. Phải giữ LICENSE, NOTICE, SPDX header và attribution upstream.
+
+## Mục tiêu
+
+1. Xác định app có đủ an toàn để deploy production không.
+2. Tìm lỗi chức năng, lỗi dữ liệu, lỗi bảo mật, lỗi phân quyền, lỗi tenant isolation, lỗi realtime và lỗi tích hợp.
+3. Tối ưu hiệu năng có bằng chứng; không tối ưu cảm tính.
+4. Sửa lỗi blocker/high-confidence trong phạm vi an toàn.
+5. Không làm mất dữ liệu, không phá API contract, không đổi identifier runtime tùy tiện.
+6. Tạo báo cáo rõ: PASS, FAIL, BLOCKER, việc đã sửa, việc cần chủ dự án quyết định.
+
+## Nguyên tắc bắt buộc
+
+- Trước khi sửa, đọc `git status`, `git diff --stat`, `git diff --check` và diff từng file liên quan.
+- Không reset, checkout, clean, stash, xóa hoặc ghi đè thay đổi của người khác.
+- Không dùng `git reset --hard`, `git clean`, `git checkout -- .`, force push hoặc lệnh phá hủy.
+- Không tự sửa migration production đã chạy.
+- Không đổi DB name, bucket, localStorage key, API key prefix, appId hoặc API contract khi chưa có migration/compatibility plan.
+- Không commit secret, token, cookie, credential, payload khách hàng hoặc file `.tmp-*`, `.runtime/`.
+- Không log JWT, refresh token, API key, cookie, mật khẩu, nội dung riêng tư hoặc dữ liệu định danh không cần thiết.
+- Không bỏ qua lỗi bằng `any`, `@ts-ignore`, ép kiểu mù, catch rỗng hoặc tắt test.
+- Không tuyên bố PASS nếu chưa chạy lệnh và đọc exit code.
+- Nếu lỗi có sẵn ngoài phạm vi, ghi rõ bằng chứng; không đổ lỗi chung chung.
+- Mọi sửa đổi phải nhỏ, dễ review, dễ rollback.
+- Không deploy, push hoặc commit nếu chưa được yêu cầu riêng.
+
+## Quy trình thực hiện
+
+### Giai đoạn 1 — Lập bản đồ repository
+
+1. Đọc:
+   - `README.md`
+   - `LICENSE`
+   - `NOTICE`
+   - `.env.example`
+   - `docker-compose*.yml`
+   - package scripts frontend/backend
+   - Prisma schema và danh sách migration, nhưng không sửa migration cũ
+2. Ghi nhận:
+   - branch, remote, commit hiện tại
+   - modified/untracked files
+   - tiến trình dev đang chạy
+   - phiên bản Node/npm/Docker nếu có
+3. Chia diff thành nhóm:
+   - branding/docs
+   - frontend UI
+   - backend/API
+   - DB/schema
+   - auth/RBAC/tenant
+   - Zalo/realtime
+   - Pancake/Telegram/webhook
+   - deploy/infrastructure
+   - file tạm hoặc có nguy cơ chứa secret
+
+### Giai đoạn 2 — Kiểm tra build và chất lượng mã
+
+Chạy đúng script repository cung cấp. Tối thiểu:
+
+```powershell
+git diff --check
+
+Push-Location backend
+npm run build
+Pop-Location
+
+Push-Location frontend
+npm run build
+Pop-Location
+```
+
+Sau đó chạy test phù hợp:
+
+```powershell
+Push-Location frontend
+npm test -- --run
+Pop-Location
+
+Push-Location backend
+npm test -- --run
+Pop-Location
+```
+
+Nếu full backend suite lỗi vì module EE thiếu, DB test chưa sẵn sàng hoặc mock cũ:
+
+- phân loại từng nhóm lỗi;
+- chạy targeted tests cho file đã sửa;
+- không coi targeted tests là thay thế full suite;
+- báo chính xác số test pass/fail/skip;
+- xác định lỗi mới do diff hay lỗi nền có sẵn.
+
+Kiểm tra thêm:
+
+- TypeScript strict errors
+- dead code và unused symbol
+- import vòng
+- route trùng hoặc route không có component
+- component untracked nhưng đã được import
+- JSON/YAML parse
+- package-lock đồng bộ package.json
+- source map và production artifact
+- encoding UTF-8/BOM bất thường
+- trailing whitespace
+
+### Giai đoạn 3 — Security audit
+
+Kiểm tra theo OWASP ASVS/Top 10, tập trung vào hệ thống này:
+
+#### Auth và session
+
+- access token expiry và refresh rotation
+- token reuse/revocation
+- logout thực sự vô hiệu hóa session cần thiết
+- cookie flags nếu dùng cookie: HttpOnly, Secure, SameSite
+- JWT algorithm, issuer, audience, secret strength
+- brute-force/rate limit login, setup và public routes
+- force-password-change không thể bypass
+- auth middleware có áp dụng cho mọi route private
+
+#### RBAC và tenant isolation
+
+- mọi query/update/delete phải scope bằng `orgId`
+- mọi Zalo account operation phải kiểm tra quyền account
+- owner/admin/member không leo thang quyền
+- public API key phải gắn đúng org
+- không tin `orgId`, `userId`, `accountId` từ client khi server có thể suy ra
+- kiểm tra IDOR trên route `/:id`
+- batch route, export, report, webhook và websocket room không rò dữ liệu tenant khác
+- Prisma raw SQL phải có tenant condition
+
+#### Input và output
+
+- validation body/query/params
+- giới hạn độ dài, page size, upload size
+- SQL injection, command injection, path traversal
+- SSRF ở URL ảnh, webhook, R2/S3, media proxy
+- XSS ở rich text, tên khách, nội dung Zalo, template, HTML preview
+- CSV/Excel formula injection khi export
+- open redirect
+- prototype pollution/mass assignment
+- lỗi API không lộ stack, secret hoặc nội bộ hạ tầng
+
+#### File và media
+
+- MIME sniffing và extension mismatch
+- virus scan nếu được cấu hình
+- private object không vô tình public
+- signed URL expiry
+- upload filename/path an toàn
+- thumbnail/video processor không shell injection
+- xóa file và DB record nhất quán
+- watermark asset tồn tại
+
+#### Webhook và tích hợp
+
+- HMAC verify constant-time
+- replay protection/timestamp
+- webhook URL SSRF protection
+- retry có idempotency và giới hạn
+- secret mã hóa khi lưu DB
+- Telegram/Pancake/Zalo credential không gửi frontend
+- log phải redact token
+- API key prefix giữ contract
+
+#### Realtime
+
+- Socket.IO handshake auth
+- room theo org/user/account
+- reconnect không nhận event tenant khác
+- listener cleanup, duplicate subscription, memory leak
+- offline queue không gửi trùng
+- event payload không chứa dữ liệu vượt quyền
+
+### Giai đoạn 4 — Kiểm tra dữ liệu và DB
+
+- Prisma schema hợp lệ và client được generate đúng.
+- Migration mới có backward compatibility và rollback plan.
+- Không sửa migration đã chạy.
+- Kiểm tra unique constraint, foreign key, cascade và soft delete.
+- Kiểm tra race condition: upsert, duplicate contact, friend transition, order update.
+- Kiểm tra transaction boundary cho thao tác nhiều bảng.
+- Kiểm tra raw SQL có index hỗ trợ.
+- Tìm N+1 query, query không phân trang, `findMany` không giới hạn.
+- Kiểm tra pool, timeout, retry và graceful shutdown.
+- Xác nhận backup/restore command dùng đúng DB name và volume.
+- Không chạy migration hoặc thao tác dữ liệu production nếu chưa được phê duyệt.
+
+### Giai đoạn 5 — Audit chức năng trọng yếu
+
+Kiểm tra luồng thực tế hoặc bằng targeted integration test:
+
+1. Setup lần đầu.
+2. Login bằng email/SĐT.
+3. Đổi mật khẩu lần đầu.
+4. Refresh token và logout.
+5. Chọn tài khoản Zalo và work scope.
+6. Danh sách hội thoại, gửi/nhận tin, media, reply, reaction.
+7. Lời mời kết bạn:
+   - web phải đọc live incoming requests từ Zalo;
+   - `getFriendRecommendations()` chỉ lấy `recommType = 2`;
+   - không nhầm gợi ý kết bạn `recommType = 1`;
+   - scope rỗng phải nghĩa là tất cả nick có quyền;
+   - Đồng ý/Từ chối dùng đúng accountId và UID;
+   - tải lại phải khớp Zalo điện thoại.
+8. Friends/contacts sync và duplicate handling.
+9. RBAC theo vai trò và account access.
+10. Orders/Pancake: list, detail, update, confirmation hành động rủi ro.
+11. Telegram bridge.
+12. Public API và webhook HMAC.
+13. Report/export.
+14. Branding, favicon và PWA.
+15. Mobile responsive.
+
+Không thực hiện hành động thật có thể gửi hàng loạt, xóa bạn, rời nhóm, cập nhật đơn thật hoặc gửi tin khách thật khi chưa có xác nhận. Dùng mock/test account nếu có.
+
+### Giai đoạn 6 — Hiệu năng frontend
+
+Đo trước, sửa sau:
+
+- bundle/chunk size
+- route lazy loading
+- component render lại thừa
+- watcher/computed gây vòng lặp
+- list lớn cần pagination/virtualization
+- ảnh/logo/PWA icon đúng kích thước và được nén
+- font/icon payload
+- API gọi trùng khi mount/watch/open popup
+- debounce search
+- AbortController hoặc stale request protection
+- cache hợp lý nhưng không giữ dữ liệu sai scope
+- mobile viewport và layout shift
+- accessibility: keyboard, focus, aria-label, contrast
+
+Mục tiêu gợi ý:
+
+- không có asset auth/logo cỡ MB nếu không cần;
+- route nặng được lazy-load;
+- request danh sách có page/limit;
+- không gọi live Zalo cho nick ngoài quyền;
+- không phát sinh request storm khi watcher đổi scope.
+
+### Giai đoạn 7 — Hiệu năng backend
+
+- tìm endpoint chậm và query N+1
+- timeout cho HTTP bên ngoài
+- concurrency limit khi gọi nhiều nick Zalo
+- không `Promise.all` vô hạn với số nick lớn
+- retry có backoff/jitter
+- cache có TTL và tenant-safe key
+- cron có lock chống chạy trùng nhiều replica
+- queue job có idempotency
+- log có correlation/request ID
+- graceful shutdown đóng HTTP, Socket.IO, Redis, Prisma và worker
+- health/readiness endpoint phản ánh DB/Redis phù hợp
+
+Không tăng tốc bằng cách bỏ validation, bỏ tenant scope hoặc nuốt lỗi.
+
+### Giai đoạn 8 — Production configuration
+
+Rà `.env.example`, Dockerfile và compose:
+
+- không dùng secret mặc định
+- `NODE_ENV=production`
+- CORS allowlist đúng domain
+- trusted proxy đúng hạ tầng
+- secure headers/CSP
+- rate limit phù hợp
+- DB/Redis không public port nếu không cần
+- container chạy non-root nếu khả thi
+- healthcheck và restart policy
+- volume bền vững
+- log rotation
+- timezone
+- backup tự động và restore đã kiểm chứng
+- R2/S3 CORS, bucket policy và public URL
+- reverse proxy upload/body/timeouts
+- websocket upgrade
+- frontend API base URL
+- PWA cache không giữ bundle cũ sau deploy
+
+Kiểm tra dependency:
+
+```powershell
+Push-Location backend
+npm audit --omit=dev
+Pop-Location
+
+Push-Location frontend
+npm audit --omit=dev
+Pop-Location
+```
+
+Không tự chạy `npm audit fix --force`. Với CVE, báo package, mức độ, đường khai thác thực tế và phương án nâng phiên bản ít rủi ro.
+
+### Giai đoạn 9 — Dọn repository trước deploy
+
+- Liệt kê file untracked cần commit vì code đang tham chiếu.
+- Liệt kê file untracked phải bỏ khỏi commit.
+- Quét secret có kiểm soát, không in giá trị secret ra báo cáo.
+- Xác nhận `.gitignore` chặn `.runtime/`, `.tmp-*`, dump DB, token và backup.
+- Xác nhận production build không phụ thuộc file local chưa track.
+- Không xóa file. Chỉ đề xuất hoặc sửa `.gitignore` an toàn.
+
+### Giai đoạn 10 — Sửa lỗi
+
+Chỉ tự sửa khi:
+
+- lỗi tái hiện được;
+- nguyên nhân rõ;
+- thay đổi nhỏ;
+- không đổi API/runtime contract ngoài ý muốn;
+- có build hoặc test xác nhận.
+
+Mỗi sửa phải ghi:
+
+- lỗi;
+- nguyên nhân;
+- file/dòng;
+- cách sửa;
+- test đã chạy;
+- rủi ro còn lại.
+
+Nếu cần thay đổi DB, identifier, pháp lý, domain thật, secret, appId hoặc hành động production: dừng và xin xác nhận.
+
+## Tiêu chí chặn deploy
+
+Đánh dấu `BLOCKER` nếu có một trong các lỗi:
+
+- frontend hoặc backend build fail;
+- migration chưa rõ hoặc có nguy cơ mất dữ liệu;
+- auth/RBAC/tenant isolation lỗi;
+- secret lộ trong Git/build/log;
+- API public/webhook thiếu auth hoặc verify;
+- file asset/runtime bắt buộc chưa được track;
+- Docker production không khởi động/healthcheck fail;
+- backup/restore chưa có hoặc sai DB/volume;
+- lỗi chức năng chính: login, chat, gửi tin, sync, orders;
+- PWA/service worker giữ bản cũ không kiểm soát;
+- test mới liên quan thay đổi đang fail;
+- production config dùng secret mặc định hoặc CORS mở nguy hiểm.
+
+## Đầu ra bắt buộc
+
+Tạo `PRE_DEPLOY_AUDIT.md` với cấu trúc:
+
+```markdown
+# Pre-deploy Audit — Nhà Yến CRM
+
+## Kết luận
+- Verdict: GO / GO WITH CONDITIONS / NO-GO
+- Blocker count:
+- High/Medium/Low count:
+
+## Phạm vi và trạng thái Git
+
+## Kết quả lệnh
+| Kiểm tra | Kết quả | Bằng chứng |
+
+## Blockers
+
+## Security findings
+| Mức độ | Vị trí | Lỗi | Tác động | Cách sửa | Trạng thái |
+
+## Functional findings
+
+## Performance findings
+
+## Database and migration findings
+
+## Infrastructure/deploy findings
+
+## Files cần commit
+
+## Files tuyệt đối không commit
+
+## Thay đổi đã thực hiện
+
+## Test đã chạy
+
+## Lỗi nền chưa xử lý
+
+## Checklist deploy
+
+## Checklist rollback
+
+## Quyết định cuối
+```
+
+Đồng thời xuất báo cáo HTML dễ đọc:
+
+```text
+PRE_DEPLOY_AUDIT.html
+```
+
+HTML cần có:
+
+- màu đỏ cho blocker;
+- bảng PASS/FAIL;
+- danh sách file cần commit và không commit;
+- checklist trước deploy;
+- checklist rollback;
+- lệnh kiểm tra cuối.
+
+## Lệnh kiểm tra cuối đề xuất
+
+```powershell
+git status --short
+git diff --check
+
+Push-Location backend
+npm run build
+npm test -- --run
+npm audit --omit=dev
+Pop-Location
+
+Push-Location frontend
+npm run build
+npm test -- --run
+npm audit --omit=dev
+Pop-Location
+
+docker compose config
+```
+
+Nếu Docker đang khả dụng và không ảnh hưởng dữ liệu đang chạy, tạo môi trường test riêng rồi kiểm tra:
+
+```powershell
+docker compose build
+docker compose up -d
+docker compose ps
+```
+
+Không được dùng production volume/database cho thử nghiệm. Không được `down -v` hoặc xóa volume.
+
+## Kết thúc
+
+Sau audit, trả lời ngắn gọn:
+
+1. Có deploy được chưa?
+2. Blocker nào còn lại?
+3. File nào đã sửa?
+4. Lệnh nào PASS/FAIL?
+5. Bước thủ công nào chủ dự án phải làm?
+6. Rollback thế nào nếu deploy lỗi?
+
+Bắt đầu bằng việc đọc trạng thái Git và lập kế hoạch. Không sửa ngay khi chưa hiểu diff.

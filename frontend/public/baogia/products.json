@@ -521,17 +521,19 @@
   },
   {
     "family": "BTN26",
-    "paper": "Giấy MT Kraft kem 230g + Vân Nhật; Lót 2 tờ in 1M + bế nổi không nhũ + bế kiểu 12.2x17.7cm; B.Thư in 1M + bế nổi không nhũ + bế khuôn BTN26 19x14cm",
+    "paper": "Giấy vân cao cấp 230g (Bao thư và ruột thiệp cùng định lượng)",
     "preVat": 9200,
-    "price": 18400,
-    "moldFee": 400000,
+    "price": 9200,
+    "moldFee": 200000,
     "material": [
-      "• Giấy MT Kraft kem 230g + Vân Nhật; Lót 2 tờ in 1M + bế nổi không nhũ + bế kiểu 12.2x17.7cm; B.Thư in 1M + bế nổi không nhũ + bế khuôn BTN26 19x14cm",
-      "• => +VAT = 9,900đ/bộ + 432,000đ phí"
+      "• Giấy vân cao cấp 230g (Bao thư và ruột thiệp cùng định lượng)"
     ],
-    "specs": [],
+    "specs": [
+      "• Ruột thiệp: in 1 mặt + bế nổi không nhũ, kích thước 12.2x17.7cm",
+      "• Bao thư: in 1 mặt + bế nổi không nhũ + bế khuôn kích thước 19x14cm"
+    ],
     "source": "Luxury VIP",
-    "page": 2,
+    "page": 3,
     "code": "DQ-BTN26-441"
   },
   {

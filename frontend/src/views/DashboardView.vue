@@ -1,5 +1,6 @@
 <template>
-  <main class="executive-dashboard">
+  <MobileDashboardView v-if="isMobile" />
+  <main v-else class="executive-dashboard">
     <div class="executive-dashboard__inner">
       <header class="executive-dashboard__head">
         <div>
@@ -34,13 +35,16 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { useRouter } from 'vue-router';
+import MobileDashboardView from '@/views/MobileDashboardView.vue';
 import ExecutiveAlertCard from '@/components/executive-dashboard/ExecutiveAlertCard.vue';
 import ExecutiveKpiCard from '@/components/executive-dashboard/ExecutiveKpiCard.vue';
 import ExecutiveModuleCard from '@/components/executive-dashboard/ExecutiveModuleCard.vue';
 import { useExecutiveDashboard } from '@/composables/use-executive-dashboard';
+import { useMobile } from '@/composables/use-mobile';
 import '@/assets/executive-dashboard.css';
 
 const router = useRouter();
+const { isMobile } = useMobile();
 const { kpis, modules, alerts, lastUpdated, refreshing, refresh } = useExecutiveDashboard();
 
 const updatedLabel = computed(() => {

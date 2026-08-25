@@ -1,0 +1,79 @@
+NGUYÊN NHÂN: TẠI SAO KHÔNG LẤY ĐƯỢC LỊCH SỬ TIN NHẮN CÁ NHÂN CŨ
+Điều tra trực tiếp trong SDK zca-js (không suy đoán) — 22/07/2026
+
+======================================================================
+1. BẰNG CHỨNG TỪ CHÍNH SDK — SO SÁNH NHÓM VS CÁ NHÂN
+======================================================================
+
+Nhóm CÓ API lịch sử thật (HTTP, lấy được dữ liệu cũ):
+File: node_modules/zca-js/dist/apis/getGroupChatHistory.js
+  → Gọi GET {group-service-url}/api/group/history?grid=...&count=50
+  → Đây là API HTTP thật, server Zalo trả lại toàn bộ tin nhắn cũ theo groupId.
+
+Cá nhân (1-1) KHÔNG có API tương đương:
+Tôi đã liệt kê toàn bộ file trong node_modules/zca-js/dist/apis/ — chỉ có
+getGroupChatHistory, KHÔNG hề có getUserChatHistory / getMessageHistory hay
+bất kỳ file nào tương tự cho tin nhắn cá nhân. SDK không cung cấp API này,
+không phải do project code thiếu sót.
+
+Cơ chế duy nhất cho tin cá nhân cũ là requestOldMessages — nhưng đây KHÔNG
+phải API lấy lịch sử, mà là lệnh qua WebSocket (cmd 510), theo đúng mã nguồn:
+  requestOldMessages(threadType, lastMsgId) {
+    sendWs({ cmd: 510, subCmd: 1, data: { first: true, lastId: lastMsgId, preIds: [] } })
+  }
+Đây là kiểu lệnh "đồng bộ những gì đang chờ trên phiên kết nối hiện tại"
+(delta/pending sync), KHÔNG phải "tải toàn bộ lịch sử theo threadId" như nhóm.
+Khi không có gì đang chờ đồng bộ, Zalo trả trang rỗng ngay — đúng như log
+dmPagesRequested=1, dmReceived=0 mà tài khoản 0777107860 gặp phải.
+
+======================================================================
+2. XÁC NHẬN TỪ CỘNG ĐỒNG (không chỉ suy đoán từ code)
+======================================================================
+Tìm kiếm thấy tài liệu OpenClaw (nền tảng dùng chung zca-js) mô tả đúng vấn đề:
+"zca-js exposes old DM messages by user-message stream, not by exact DM thread...
+should be treated as recent-window fills, not perfect historical mirrors."
+Nguồn: https://docs.openclaw.ai/channels/zalouser
+
+Nghĩa là: đồng bộ tin cá nhân qua zca-js CHỈ là "vá cửa sổ gần đây, tốt nhất
+có thể" (best-effort), KHÔNG bao giờ là bản sao lịch sử hoàn chỉnh — với BẤT
+KỲ ai dùng zca-js, không riêng project này.
+
+======================================================================
+3. VẬY TẠI SAO "WEB APP KHÁC" LẠI CÓ LỊCH SỬ CŨ?
+======================================================================
+Rất nhiều khả năng, gần như chắc chắn là 1 trong các lý do sau — KHÔNG phải
+họ có API bí mật nào khác:
+
+  a) Họ không "tải lại" lịch sử cũ — dữ liệu "cũ" bạn thấy ở đó thực ra là
+     tin nhắn đã tích lũy dần qua thời gian THỰC (real-time) từ ngày họ kết
+     nối tài khoản đó lần đầu. Nếu họ đã kết nối tài khoản 0777107860 (hoặc
+     tài khoản khác) từ nhiều tuần/tháng trước, tin nhắn "cũ" chỉ là tin
+     realtime tích lũy lâu ngày, không phải backfill ngược thời gian.
+
+  b) Họ dùng ứng dụng Zalo chính chủ (web.zalo.me / Zalo desktop) chứ không
+     phải SDK reverse-engineer. Zalo chính chủ đồng bộ lịch sử qua giao thức
+     riêng, mã hoá theo thiết bị đã liên kết trước đó — cơ chế này KHÔNG được
+     zca-js (thư viện reverse-engineer, không chính chủ) hỗ trợ, vì Zalo
+     không công khai giao thức đó.
+
+  c) Một số công cụ có thể giữ kết nối WebSocket liên tục 24/7 nhiều ngày
+     trước khi bạn nhìn vào — khi đó "pending sync" mà cmd 510 trả về sẽ có
+     dữ liệu hơn (vì có tin thực sự đang chờ đồng bộ), khác với phiên
+     0777107860 vừa kết nối lại (13:53:22) sau một khoảng ngắt kết nối,
+     lúc đó server Zalo không còn gì "đang chờ" để đẩy qua cmd 510 nữa.
+
+======================================================================
+4. KẾT LUẬN
+======================================================================
+Đây LÀ giới hạn thật của SDK zca-js đối với tin nhắn cá nhân (không có API
+HTTP lịch sử như nhóm, chỉ có delta-sync best-effort qua WebSocket) — đã xác
+nhận bằng cách đọc trực tiếp mã nguồn SDK cài trong node_modules và đối chiếu
+với tài liệu cộng đồng dùng chung SDK này. Không phải do code CRM thiếu logic.
+
+KHÔNG CÓ CÁCH nào trong code backend hiện tại để "ép" Zalo trả lịch sử DM cũ
+qua zca-js — vì API đó không tồn tại ở tầng SDK. Muốn có thật, chỉ còn 2 hướng
+(không nằm trong phạm vi sửa code này, cần anh quyết):
+  1. Đổi sang liên kết thiết bị chính chủ (giống Zalo Web thật) — rủi ro pháp
+     lý/kỹ thuật cao hơn nhiều, không dùng zca-js reverse-engineer nữa.
+  2. Giữ nguyên zca-js, chấp nhận giới hạn: chỉ tin nhắn phát sinh SAU thời
+     điểm kết nối được ghi nhận đầy đủ (đã hoạt động đúng qua listener 'message').

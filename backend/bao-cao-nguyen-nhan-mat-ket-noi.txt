@@ -1,0 +1,104 @@
+BÁO CÁO: Vì sao ZaloCRM mất kết nối Zalo thường xuyên hơn Pancake rất nhiều
+================================================================================
+Đọc thẳng log Docker container + log tiến trình dev local + DB, không đoán.
+
+KẾT LUẬN NGẮN
+-------------
+Nguyên nhân KHÔNG phải do code reconnect sai (đã rà kỹ zalo-pool.ts, logic đúng
+như thiết kế). Nguyên nhân là: CÓ 2 TIẾN TRÌNH BACKEND CÙNG CHẠY SONG SONG, CÙNG
+CỐ GIỮ PHIÊN ĐĂNG NHẬP CHO CÙNG 1 TÀI KHOẢN ZALO THẬT, DÙNG CHUNG 1 DATABASE:
+  1. Container Docker "zalo-crm-app" (port 3080) — chạy liên tục từ 18/07.
+  2. Tiến trình dev local "tsx watch" (port 3901, theo backend/.env) — chạy
+     riêng trên máy anh khi làm việc, cũng trỏ vào CÙNG database (qua
+     localhost:5433, cùng 1 Postgres với Docker dùng qua db:5432).
+
+Zalo (giống hầu hết nền tảng chat) CHỈ CHO 1 PHIÊN ĐĂNG NHẬP SỐNG TẠI 1 THỜI
+ĐIỂM cho 1 tài khoản. Khi 2 backend cùng đăng nhập tài khoản "Thiệp Cưới" cùng
+lúc, Zalo phát hiện và tự đá 1 trong 2 ra — đúng cơ chế mà Pancake gặp khi anh
+đăng nhập Zalo Web ở máy khác. Khác biệt là: Pancake chỉ có 1 backend nên
+hiếm khi tự đụng nhau; ZaloCRM đang tự đá chính mình vì chạy 2 backend.
+
+BẰNG CHỨNG THEO MỐC THỜI GIAN
+------------------------------
+1) 18/07/2026 15:05:01 — Container Docker khởi động lại, tự reconnect nick
+   "Thiệp Cưới" (75531187...) thành công lúc 15:05:02 bằng cookie lưu sẵn.
+
+2) 18/07/2026 15:26:29 — Đúng 21 phút sau, log Docker hiện:
+     "Listener disconnected (early): 3003 KICKOUT_BY_WORKER"
+   Đây là mã Zalo dùng khi 1 phiên bị chính Zalo đá ra vì có phiên khác đăng
+   nhập cùng tài khoản. Sau đó lặp lại chu kỳ connect→disconnect mỗi ~1 phút
+   liên tục 4 lần (15:26 → 15:30), đúng kiểu "flap" mà comment trong code
+   zalo-pool.ts đã mô tả sẵn ("2 WS cùng 1 nick → Zalo đóng bớt → lặp vô hạn").
+
+3) 18/07/2026 15:30:47 — Circuit breaker của Docker tự kích hoạt (>5 lần
+   disconnect/5 phút), dừng auto-reconnect, chuyển nick về qr_pending.
+   Từ đây, TIẾN TRÌNH DOCKER hoàn toàn bỏ cuộc với nick này.
+
+4) Từ 18/07 15:30 đến hết ngày 22/07 (5 ngày) — log Docker liên tục báo lỗi
+   "Zalo account not connected (status: disconnected)" mỗi 15 phút (cron
+   friend-sync) — vì THEO GÓC NHÌN CỦA TIẾN TRÌNH DOCKER, nick này vẫn chết,
+   Docker không hề tự phục hồi được (không có gì kích lại reconnect cho tới
+   khi cron 04:00 sáng hoặc khi có ai bấm nút "Kết nối lại" thủ công).
+
+5) 23/07/2026 09:27:32 (giờ VN) — Tiến trình dev local khởi động (anh mở máy
+   làm việc sáng nay), tự động reconnect nick này bằng cookie lưu trong DB,
+   thành công lúc 09:27:36. Log tiến trình local từ đó cho thấy dữ liệu thật
+   liên tục đổ về (typing, reaction, tin nhắn nhóm...) — nick THẬT SỰ đang
+   sống, nhưng chỉ sống trong bộ nhớ của TIẾN TRÌNH LOCAL, không phải Docker.
+
+6) Trong khi đó, CÙNG THỜI ĐIỂM 23/07 09:30, log Docker vẫn báo
+   "not connected (status: disconnected)" — vì Docker chưa từng biết nick đã
+   được tiến trình khác nối lại. 2 tiến trình đang có 2 "niềm tin" khác nhau
+   về trạng thái của CÙNG 1 nick, cùng lúc.
+
+TẠI SAO SỐ LIỆU DB CHO THẤY "MẤT KẾT NỐI ~90% THỜI GIAN" — CÓ THẬT KHÔNG?
+--------------------------------------------------------------------------
+Một phần thật, một phần là ẢO do 2 tiến trình ghi đè nhau:
+- Mỗi tiến trình có 1 cron "checkpoint" chạy mỗi 5 phút, tự so sánh trạng thái
+  Zalo nó ĐANG THẤY (trong bộ nhớ riêng của nó) với DB, rồi ghi đè DB nếu lệch.
+- Tiến trình Docker (tưởng nick đã chết từ 18/07) mỗi 5 phút ghi "disconnected"
+  vào DB. Tiến trình local (đang thấy nick sống) mỗi 5 phút ghi "connected"
+  vào DB. Hai cron không đồng bộ với nhau → DB bị 2 bên kéo qua kéo lại liên
+  tục → bảng log phình lên rất nhiều dòng "checkpoint" (đã đếm được 1827 dòng
+  checkpoint/disconnected và 1769 dòng checkpoint/connected) → khi tính %
+  uptime từ bảng log này, số "mất kết nối" bị đội lên giả tạo.
+- Nhưng sự kiện gốc ngày 18/07 (KICKOUT_BY_WORKER + circuit breaker) là THẬT,
+  không phải ảo — đó là lần 2 backend thật sự tranh nhau và bị Zalo đá.
+
+SO SÁNH VỚI PANCAKE
+--------------------
+Anh nói đúng: Pancake hầu như không mất kết nối, trừ khi tài khoản đăng nhập
+Zalo Web ở nơi khác. Đó chính xác là cơ chế KICKOUT_BY_WORKER — Zalo chỉ đá
+phiên khi có phiên thứ 2 xuất hiện. Pancake tránh được vì kiến trúc của họ chỉ
+chạy 1 backend instance duy nhất giữ 1 phiên/tài khoản. ZaloCRM hiện đang vô
+tình tự tạo ra chính xác tình huống "đăng nhập nơi khác" đó — không phải vì
+nick bị lộ hay ai đó đăng nhập trái phép, mà vì 2 tiến trình backend của CHÍNH
+hệ thống (Docker + dev local) cùng chạy song song và cùng giữ session cho
+cùng 1 tài khoản thật.
+
+HƯỚNG KHẮC PHỤC
+-----------------
+1. Trước mắt (làm ngay, không cần sửa code): KHÔNG chạy đồng thời cả Docker
+   container và tiến trình dev local khi cả 2 cùng trỏ vào tài khoản Zalo
+   THẬT (nick "Thiệp Cưới" production). Chỉ nên có 1 nơi giữ session sống tại
+   1 thời điểm. Nếu cần vừa dev vừa để production chạy, nên dùng 1 tài khoản
+   Zalo test riêng cho môi trường dev, tách khỏi nick thật đang bán hàng.
+2. Về sau (cần sửa code, nên làm để tránh lặp lại khi scale nhiều instance):
+   thêm 1 lớp khóa liên-tiến-trình theo accountId (advisory lock qua Postgres
+   hoặc Redis lock — Redis đã có sẵn trong hệ thống) để chỉ 1 tiến trình được
+   phép giữ phiên Zalo sống cho 1 accountId tại 1 thời điểm; tiến trình thứ 2
+   phát hiện đã có lock thì tự động KHÔNG login, chỉ đọc DB. Việc này quan
+   trọng hơn nữa nếu sau này scale ra nhiều container backend (load balancing)
+   vì lúc đó sẽ có nhiều instance production thật cùng chạy, không chỉ là vấn
+   đề dev-vs-production như hiện tại.
+3. Dọn lại số liệu: sau khi hết hiện tượng 2 tiến trình tranh nhau, số liệu
+   uptime trong ZaloAccountStatusLog sẽ phản ánh đúng thực tế hơn (bớt hẳn
+   phần "checkpoint" ảo do tranh chấp).
+
+TÍNH NĂNG "CHẾ ĐỘ AN TOÀN" (đã bàn ở báo cáo trước) — VẪN NÊN LÀM
+--------------------------------------------------------------------
+Việc tìm ra nguyên nhân mất kết nối không thay thế cho việc làm UI báo trạng
+thái. Ngay cả sau khi khắc phục dứt điểm vụ tranh nhau 2 tiến trình, nick vẫn
+có thể mất kết nối tạm thời vì lý do khác (mạng, Zalo bảo trì...). Sale vẫn cần
+thấy banner "nick đang xem đã mất kết nối, tin mới sẽ không tới" ngay trong màn
+hình Chat — phần này vẫn giữ trong kế hoạch làm tiếp sau báo cáo này.

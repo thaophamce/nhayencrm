@@ -1,0 +1,278 @@
+Bạn là Senior DevOps Engineer, Security Engineer và Full-stack Reviewer. Hãy kiểm tra toàn bộ dự án tại:
+
+D:\CTY TNHH THIEP CUOI\CLAUDE\ZaloCRM
+
+Mục tiêu: chuẩn bị deploy production lên VPS Linux với domain chính thức:
+
+https://nhayencrm.com
+
+Yêu cầu quan trọng:
+- Trước tiên chỉ audit và lập báo cáo, chưa tự ý sửa code.
+- Không xóa dữ liệu, reset database, thay đổi migration đã chạy, chạy lệnh phá hủy hoặc ghi đè file cấu hình.
+- Không hiển thị giá trị thật của password, token, API key, cookie hoặc secret trong báo cáo.
+- Không giả định dự án đã sẵn sàng. Mọi kết luận phải dựa trên code, cấu hình và kết quả lệnh kiểm tra thực tế.
+- Phân biệt rõ lỗi chắc chắn, rủi ro tiềm ẩn và đề xuất tối ưu.
+- Sau khi audit, hãy dừng lại và chờ tôi phê duyệt trước khi sửa.
+
+Thực hiện audit theo các giai đoạn sau.
+
+## 1. Khảo sát kiến trúc dự án
+
+- Đọc toàn bộ README, AGENTS.md, package.json, lockfile, Dockerfile, docker-compose, cấu hình frontend/backend, database, proxy và deployment nếu có.
+- Xác định:
+  - Công nghệ frontend và backend.
+  - Phiên bản Node.js/runtime cần dùng.
+  - Cách khởi động development và production.
+  - Cổng frontend, backend, database và các service liên quan.
+  - Cách frontend gọi API.
+  - Cơ chế authentication, authorization và phân quyền.
+  - Dữ liệu nào đang được lưu bằng database, localStorage hoặc bộ nhớ tạm.
+- Vẽ sơ đồ ngắn về luồng:
+  Browser → Nginx/Reverse proxy → Frontend/API → Database/External services.
+
+## 2. Kiểm tra khả năng build và chạy production
+
+Chạy các kiểm tra phù hợp với dự án:
+
+- Cài dependency theo đúng lockfile.
+- Type-check.
+- Lint.
+- Unit test/integration test nếu có.
+- Build frontend production.
+- Build backend production.
+- Kiểm tra các import, route và lazy-loaded chunk.
+- Kiểm tra lỗi console và lỗi runtime quan trọng.
+- Kiểm tra kích thước bundle và cảnh báo chunk quá lớn.
+- Xác nhận production không phụ thuộc vào Vite development server hoặc localhost.
+- Xác nhận lệnh start production thực sự chạy bản build production.
+- Kiểm tra dự án trên môi trường Linux có gặp lỗi do:
+  - Phân biệt chữ hoa/chữ thường của tên file.
+  - Đường dẫn Windows.
+  - Dấu `\`.
+  - Encoding.
+  - Quyền thực thi.
+  - Line ending.
+  - Dependency native.
+- Không bỏ qua lỗi chỉ vì build vẫn hoàn thành.
+
+## 3. Kiểm tra cấu hình domain nhayencrm.com
+
+Tìm toàn bộ chuỗi liên quan tới:
+
+- localhost
+- 127.0.0.1
+- IP cứng
+- URL development
+- ws://
+- http://
+- CORS origin
+- callback URL
+- redirect URL
+- cookie domain
+- websocket URL
+- API base URL
+
+Đánh giá cấu hình production cho:
+
+- `https://nhayencrm.com`
+- `https://www.nhayencrm.com` nếu sử dụng.
+- API dưới dạng `https://nhayencrm.com/api` hoặc subdomain riêng nếu kiến trúc yêu cầu.
+- WebSocket phải sử dụng `wss://`.
+- Redirect HTTP → HTTPS.
+- Redirect thống nhất www/non-www.
+- SPA history fallback.
+- Reverse proxy API và WebSocket.
+- Upload size.
+- Proxy timeout.
+- Cache header cho static assets.
+- Không cache sai `index.html`.
+- Cookie phải phù hợp với HTTPS: Secure, HttpOnly, SameSite và Domain/Path.
+- CORS không được dùng `*` khi gửi credential.
+- Trusted proxy phải được cấu hình đúng nếu backend chạy sau Nginx.
+
+Hãy đề xuất cấu hình Nginx production hoàn chỉnh nhưng chưa ghi file.
+
+## 4. Kiểm tra biến môi trường và secrets
+
+- Liệt kê tên các biến môi trường bắt buộc cho production, không in giá trị bí mật.
+- So sánh code với `.env.example`.
+- Phát hiện biến bị thiếu, sai tên hoặc có fallback nguy hiểm.
+- Kiểm tra secret/API key/password có bị hard-code hoặc commit vào Git hay không.
+- Kiểm tra `.gitignore`.
+- Kiểm tra frontend có vô tình bundle secret vào mã client không.
+- Phân loại rõ:
+  - Biến frontend được phép công khai.
+  - Biến chỉ được tồn tại ở backend.
+- Tạo đề xuất `.env.production.example` đã che toàn bộ secret.
+- Kiểm tra secret mặc định, tài khoản mặc định và mật khẩu yếu.
+
+## 5. Audit bảo mật
+
+Kiểm tra tối thiểu:
+
+- Authentication và session/token.
+- Refresh token và thời hạn token.
+- RBAC/phân quyền từng API.
+- IDOR: người dùng có thể truy cập dữ liệu của người khác bằng cách đổi ID không.
+- SQL/NoSQL injection.
+- XSS.
+- CSRF.
+- SSRF.
+- Path traversal.
+- Open redirect.
+- Upload file độc hại.
+- MIME type và giới hạn kích thước file.
+- Rate limiting.
+- Brute-force login.
+- Password hashing.
+- Logging có làm lộ token, password hoặc dữ liệu cá nhân không.
+- CORS.
+- WebSocket authentication.
+- Security headers:
+  - Content-Security-Policy
+  - HSTS
+  - X-Content-Type-Options
+  - Referrer-Policy
+  - Permissions-Policy
+  - frame-ancestors hoặc X-Frame-Options
+- Dependency vulnerabilities bằng công cụ phù hợp với package manager.
+- Source map production có làm lộ code hoặc thông tin nhạy cảm không.
+- Dev tools, debug endpoint, seed endpoint hoặc test account có bị bật trên production không.
+
+Mỗi vấn đề phải có:
+- Mức độ: Critical/High/Medium/Low.
+- File và dòng liên quan.
+- Kịch bản tác động thực tế.
+- Cách khắc phục cụ thể.
+- Không báo lỗi chung chung nếu không có bằng chứng.
+
+## 6. Database và dữ liệu production
+
+- Xác định loại database và cách kết nối.
+- Kiểm tra migration, seed và schema.
+- Kiểm tra migration có thể chạy lặp lại an toàn không.
+- Kiểm tra index quan trọng.
+- Kiểm tra transaction và tính toàn vẹn dữ liệu.
+- Kiểm tra connection pool.
+- Kiểm tra timezone; production sử dụng Asia/Bangkok.
+- Kiểm tra backup và restore.
+- Đề xuất quy trình backup trước deploy.
+- Đề xuất cách rollback database.
+- Không chạy seed hoặc migration ghi dữ liệu khi chưa được tôi cho phép.
+- Xác định rõ dữ liệu nào của module Tài chính hiện chỉ nằm trong localStorage và rủi ro mất/chia sẻ dữ liệu khi deploy.
+
+## 7. Audit module Tài chính mới
+
+Kiểm tra toàn bộ module Tài chính:
+
+- Route `/finance`.
+- Menu “Tài chính”.
+- Menu “Nhân sự”.
+- Sidebar và các site con:
+  - Tổng quan.
+  - Quỹ dự phòng.
+  - Quỹ lợi nhuận.
+  - Công nợ.
+  - Dòng tiền.
+- Các nút:
+  - Thêm giao dịch.
+  - Lịch sử.
+  - Nhập thêm.
+  - Chi.
+  - Rút.
+  - Phân bổ nhanh.
+- Dialog và validation.
+- Công thức tổng công nợ.
+- Công thức tiến độ trả nợ.
+- Thanh tiến độ phải hiển thị đúng phần trăm và màu sắc.
+- Công cụ phân bổ nhanh phải tính đúng 75%/15%/10%.
+- Kiểm tra định dạng tiền Việt Nam.
+- Kiểm tra bảng lịch sử và căn cột.
+- Kiểm tra màu nút đồng bộ tone xanh dương của dự án.
+- Kiểm tra responsive và không bị tràn/che nội dung.
+- Xác định nút nào đang hoạt động thật, nút nào chỉ có giao diện.
+- Xác định dữ liệu đang hard-code, fallback hoặc lưu localStorage.
+- Đánh giá xem module này đã đủ an toàn để dùng dữ liệu tài chính thật hay chưa.
+
+## 8. Kiểm tra chức năng trên trình duyệt
+
+Chạy ứng dụng và kiểm tra các luồng chính bằng trình duyệt ở trạng thái đăng nhập phù hợp:
+
+- Đăng nhập/đăng xuất.
+- Điều hướng các trang.
+- Refresh trực tiếp tại route con.
+- Phân quyền.
+- Các chức năng CRM quan trọng.
+- Module Tài chính.
+- Form, dialog, validation và thông báo lỗi.
+- Console errors.
+- Network request thất bại.
+- API trả 401/403/404/500.
+- WebSocket reconnect.
+- Responsive ở:
+  - 1440px
+  - 1024px
+  - 768px
+  - 375px
+- Không thay đổi hoặc tạo dữ liệu production thật trong quá trình test.
+
+Nếu không thể kiểm tra vì thiếu tài khoản hoặc service, ghi rõ phần nào chưa được xác minh; không tự kết luận là đạt.
+
+## 9. Khả năng vận hành trên VPS
+
+Đề xuất cấu hình production phù hợp:
+
+- Ubuntu LTS.
+- Node.js phiên bản cụ thể.
+- Nginx.
+- SSL Let’s Encrypt.
+- Firewall UFW.
+- Process manager phù hợp: systemd, PM2 hoặc Docker.
+- Service tự khởi động lại khi VPS reboot.
+- Health-check endpoint.
+- Log rotation.
+- Giới hạn kích thước log.
+- Monitoring CPU, RAM, disk và service.
+- Backup tự động.
+- Đồng bộ timezone.
+- Thư mục deploy và quyền sở hữu file.
+- Không chạy ứng dụng bằng root.
+- Quy trình gia hạn SSL.
+- Cách bảo vệ `.env`.
+- Cách rollback về bản build trước.
+- Zero/minimal downtime nếu có thể.
+
+## 10. Kết quả đầu ra bắt buộc
+
+Tạo báo cáo `PRE_DEPLOY_AUDIT.md` với cấu trúc:
+
+1. Executive summary.
+2. Kiến trúc được phát hiện.
+3. Kết quả build/test/lint.
+4. Danh sách lỗi Critical và High phải sửa trước deploy.
+5. Danh sách lỗi Medium và Low.
+6. Bảng cấu hình production cần thiết.
+7. Danh sách biến môi trường.
+8. Audit domain, HTTPS, CORS, cookie và WebSocket.
+9. Audit database và backup.
+10. Audit module Tài chính.
+11. Đề xuất cấu hình Nginx.
+12. Đề xuất service systemd/PM2/Docker.
+13. Checklist deploy từng bước.
+14. Checklist smoke test sau deploy.
+15. Kế hoạch rollback.
+16. Những phần chưa thể xác minh.
+17. Kết luận cuối cùng:
+    - GO: có thể deploy.
+    - CONDITIONAL GO: chỉ deploy sau khi hoàn thành các mục cụ thể.
+    - NO-GO: chưa được deploy.
+
+Ngoài báo cáo, cuối phiên hãy trả lời ngắn gọn:
+
+- Kết luận GO/CONDITIONAL GO/NO-GO.
+- Số lỗi Critical, High, Medium và Low.
+- 5 việc quan trọng nhất phải làm trước deploy.
+- Các lệnh chính đã chạy và trạng thái của chúng.
+- Danh sách file bạn đề xuất sửa.
+
+Không tự sửa code trong giai đoạn audit. Sau khi hoàn thành báo cáo, hãy hỏi tôi có muốn bạn triển khai lần lượt các bản sửa Critical/High hay không.

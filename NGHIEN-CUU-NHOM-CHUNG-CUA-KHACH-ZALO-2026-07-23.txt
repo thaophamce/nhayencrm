@@ -1,0 +1,238 @@
+﻿NGHIÊN CỨU CÁCH BIẾT KHÁCH ZALO ĐANG Ở NHÓM CHUNG NÀO
+Ngày kiểm tra: 23/07/2026
+
+======================================================================
+1. KẾT LUẬN NGẮN
+======================================================================
+
+Hệ thống hiện đã có nền tảng và giao diện “nhóm chung”, nhưng kết quả chưa bảo đảm đầy đủ trong mọi trường hợp.
+
+Cách xác định đúng về nguyên tắc:
+1. Lấy UID của khách theo đúng nick Zalo đang mở hội thoại.
+2. Lấy toàn bộ nhóm mà nick Zalo đó đang tham gia.
+3. Lấy danh sách thành viên từng nhóm.
+4. Nhóm nào có UID của khách thì đó là nhóm chung giữa nick Zalo và khách.
+
+Hệ thống đã có route thực hiện việc này:
+GET /api/v1/zalo-accounts/:accountId/groups/common/:memberUid
+
+Giao diện cũng đã có mục “N nhóm chung” trong cột Hồ sơ khách. Khi có kết quả, người dùng bấm vào để xem tên nhóm và mở hội thoại nhóm.
+
+Vấn đề chính: route hiện tại chỉ kiểm tra memVerList do getGroupInfo trả về. Với nhóm đông người, Zalo có thể chỉ trả một phần thành viên và báo hasMoreMember > 0. zca-js hiện không có API phân trang roster còn thiếu. Vì vậy hệ thống có thể trả 0 nhóm hoặc thiếu nhóm dù khách thật sự đang ở nhóm chung.
+
+======================================================================
+2. HỆ THỐNG HIỆN CÓ GÌ
+======================================================================
+
+2.1. Backend đã có API nhóm chung
+
+File: backend/src/modules/zalo/group-routes.ts
+
+Luồng hiện tại:
+- Gọi getAllGroups(accountId) để lấy ID toàn bộ nhóm nick đang tham gia.
+- Chia nhóm thành lô 50 ID.
+- Gọi getGroupInfo(accountId, chunk).
+- Đọc memVerList của từng nhóm.
+- Tách UID từ chuỗi dạng “uid_version”.
+- Nếu memberUid của khách nằm trong danh sách thì thêm nhóm vào kết quả.
+
+Kết quả trả về gồm:
+- id nhóm.
+- tên nhóm.
+- tổng số thành viên.
+
+2.2. Frontend đã hiển thị nhóm chung
+
+File: frontend/src/components/chat/ChatContactPanel.vue
+
+Frontend dùng:
+- activeZaloAccountId: ID nick Zalo đang mở.
+- externalThreadId: UID của khách trong góc nhìn nick Zalo đó.
+
+Sau đó gọi:
+/zalo-accounts/{accountId}/groups/common/{memberUid}
+
+Nếu có dữ liệu, cột Hồ sơ hiển thị “N nhóm chung”. Bấm mở danh sách tên nhóm; bấm từng nhóm để chuyển tới hội thoại nhóm.
+
+2.3. UID đang dùng là đúng loại
+
+Conversation.externalThreadId của hội thoại 1-1 chính là UID khách theo nick Zalo đang dùng. Đây là UID phù hợp để so với roster nhóm của cùng nick.
+
+Không nên dùng Contact.id, số điện thoại hoặc globalId thay cho memberUid trong phép so sánh trực tiếp này.
+
+======================================================================
+3. GIỚI HẠN QUAN TRỌNG CỦA ZALO VÀ ZCA-JS
+======================================================================
+
+getGroupInfo trả các trường chính:
+- memberIds.
+- memVerList.
+- currentMems.
+- totalMember.
+- hasMoreMember.
+
+Trong hệ thống thực tế, memberIds và currentMems có thể rỗng; roster thật thường nằm trong memVerList.
+
+Với nhóm đông:
+- memVerList có thể chỉ chứa một phần thành viên.
+- totalMember lớn hơn số UID nhận được.
+- hasMoreMember lớn hơn 0.
+
+getGroupMembersInfo không giải quyết phần thiếu. Hàm này chỉ nhận danh sách UID đã biết để lấy tên, avatar và hồ sơ. Nó không nhận groupId để tải trang thành viên tiếp theo.
+
+Vì vậy không thể khẳng định “không có nhóm chung” chỉ vì khách không xuất hiện trong memVerList chưa đầy đủ.
+
+======================================================================
+4. DỮ LIỆU THỰC TẾ TRONG DB
+======================================================================
+
+Tại thời điểm kiểm tra:
+
+- Nick “Nhà Yến Sport Áo Thun Thể Thao”:
+  + Trạng thái connected.
+  + Có 75 hội thoại nhóm.
+  + Chưa có roster GroupMember đã quét.
+
+- Nick “Thiệp Cưới”:
+  + Trạng thái connected.
+  + Có 135 hội thoại nhóm.
+  + Chưa có roster GroupMember đã quét.
+
+- Nick “Still Slow”:
+  + Trạng thái disconnected.
+  + Có 18 hội thoại nhóm.
+  + DB có roster của 7 nhóm, tổng 36 dòng thành viên.
+
+Lịch sử quét nhóm:
+- Chỉ có 2 lần quét.
+- Cả 2 đều ở trạng thái partial.
+- Một lần bị dừng vì nick mất kết nối.
+- Một lần bị giới hạn tốc độ: “Quá nhanh (>20 group_read/30s)”.
+
+Kết luận dữ liệu: bảng GroupMember hiện chưa đủ để dùng làm nguồn kết quả hoàn chỉnh cho toàn hệ thống.
+
+======================================================================
+5. LỖI THIẾT KẾ HIỆN TẠI
+======================================================================
+
+5.1. Âm thầm coi roster thiếu là kết quả đầy đủ
+
+Route common hiện chỉ kiểm tra memVerList và không đọc hasMoreMember hoặc so sánh với totalMember.
+
+Nếu khách không nằm trong phần roster được trả về, route trả danh sách rỗng. Frontend ẩn hẳn mục “nhóm chung”. Người dùng sẽ hiểu nhầm là không có nhóm chung.
+
+5.2. Không có trạng thái “chưa xác định đầy đủ”
+
+Kết quả cần phân biệt ba trạng thái:
+- Có nhóm chung.
+- Chắc chắn không có nhóm chung.
+- Chưa xác định đủ vì roster nhóm bị thiếu, nick offline hoặc Zalo giới hạn tốc độ.
+
+Hiện hệ thống chỉ thể hiện có hoặc không, nên thiếu tính trung thực dữ liệu.
+
+5.3. Mỗi lần mở khách có thể gọi nhiều API Zalo
+
+Một khách có thể làm backend:
+- Gọi getAllGroups.
+- Gọi getGroupInfo nhiều lô 50 nhóm.
+
+Với nick có 135 nhóm, một lần mở hồ sơ có thể cần khoảng 3 lệnh getGroupInfo, chưa tính getAllGroups. Mở nhiều khách liên tục dễ chạm giới hạn group_read.
+
+5.4. Bảng GroupMember có thể cũ
+
+GroupMember lưu lastSeenAt nhưng chưa có cơ chế mạnh để đánh dấu thành viên đã rời nhóm khi quét lại. Nếu chỉ tra DB mà không xét độ mới và trạng thái scan, kết quả có thể chứa nhóm cũ.
+
+======================================================================
+6. PHƯƠNG ÁN NÊN LÀM
+======================================================================
+
+Khuyến nghị mô hình hai tầng.
+
+Tầng 1 — Tra nhanh từ DB:
+- Query GroupMember theo zaloAccountId + memberUid.
+- Join Conversation nhóm để lấy tên, avatar và conversationId.
+- Trả kết quả ngay, không gọi Zalo mỗi lần mở khách.
+- Kèm lastSeenAt và độ tin cậy của lần quét.
+
+Tầng 2 — Xác minh live có kiểm soát:
+- Chỉ chạy khi người dùng bấm “Làm mới nhóm chung”.
+- Lấy danh sách nhóm từ getAllGroups.
+- Kiểm tra getGroupInfo theo lô nhỏ, qua rate limiter.
+- Cache kết quả theo accountId + memberUid khoảng 5–15 phút.
+- Nếu hasMoreMember > 0 hoặc rosterCount < totalMember, đánh dấu nhóm đó là truncated.
+- Không được kết luận chắc chắn “không có” khi còn nhóm truncated.
+
+Response API nên có dạng:
+{
+  "groups": [...],
+  "complete": false,
+  "checkedGroups": 120,
+  "totalGroups": 135,
+  "truncatedGroups": 8,
+  "source": "cache|database|live",
+  "checkedAt": "...",
+  "warning": "Một số nhóm đông chưa trả đủ thành viên"
+}
+
+======================================================================
+7. GIAO DIỆN ĐỀ XUẤT
+======================================================================
+
+Trong cột Hồ sơ khách:
+
+- Nếu có kết quả đầy đủ:
+  “3 nhóm chung”
+
+- Nếu không có và dữ liệu đầy đủ:
+  “Không có nhóm chung”
+
+- Nếu dữ liệu chưa đầy đủ:
+  “Chưa kiểm tra đủ nhóm chung”
+  Nút: “Kiểm tra lại”
+  Ghi chú: “Một số nhóm đông không trả đủ danh sách thành viên.”
+
+Mỗi nhóm nên hiển thị:
+- Tên nhóm.
+- Avatar nhóm.
+- Số thành viên.
+- Nick Zalo dùng để xác định.
+- Thời điểm kiểm tra gần nhất.
+- Nút mở hội thoại nhóm.
+
+Không nên tự động quét live toàn bộ mỗi lần đổi hội thoại. Cách đó chậm và dễ chạm giới hạn Zalo.
+
+======================================================================
+8. ĐỘ CHÍNH XÁC CÓ THỂ ĐẠT
+======================================================================
+
+Trường hợp nhóm nhỏ và memVerList đầy đủ:
+- Có thể xác định chính xác nhóm chung.
+
+Trường hợp nhóm đông, hasMoreMember > 0:
+- Nếu tìm thấy UID khách: chắc chắn đây là nhóm chung.
+- Nếu không tìm thấy UID khách: chưa thể kết luận khách không ở nhóm.
+
+Quy tắc quan trọng:
+- “Tìm thấy” là bằng chứng dương tính đáng tin.
+- “Không tìm thấy” chỉ đáng tin khi roster của tất cả nhóm đã đầy đủ.
+
+======================================================================
+9. KẾT LUẬN CUỐI
+======================================================================
+
+Tính năng này làm được và hệ thống đã có khoảng 60–70% nền tảng:
+- Có đúng UID khách theo từng nick.
+- Có API lấy nhóm và thông tin nhóm.
+- Có route nhóm chung.
+- Có UI hiển thị nhóm chung.
+- Có bảng GroupMember và luồng quét nhóm.
+
+Phần cần sửa để dùng tin cậy:
+- Không coi roster thiếu là “không có nhóm chung”.
+- Trả trạng thái complete/partial rõ ràng.
+- Tra DB trước, live refresh theo yêu cầu.
+- Cache kết quả và tuân thủ rate limiter.
+- Hoàn thiện quét roster cho các nick đang connected.
+- Hiển thị cảnh báo khi Zalo không trả đủ thành viên nhóm đông.
+
+Đánh giá: có thể triển khai tốt, nhưng không nên quảng cáo kết quả 100% chính xác với nhóm đông khi SDK hiện chưa hỗ trợ phân trang danh sách thành viên còn thiếu.

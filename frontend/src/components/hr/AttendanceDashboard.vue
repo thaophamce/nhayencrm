@@ -32,12 +32,15 @@
       <WeeklyAttendanceCard :days="weekDays" :loading="loading" />
       <AttendanceSidePanel
         :work-days="stats.workDays" :working-days="workingDays" :recent-leaves="recentLeaves"
-        :can-leave="canLeave" :can-history="canAttendance" :can-payroll="canPayroll" :loading="leavesLoading"
+        :can-leave="canLeave" :can-history="canAttendance" :can-payroll="canPayroll" :can-salary-advance="true" :loading="leavesLoading"
         @navigate="handleNavigate"
+        @salary-advance="salaryAdvanceDialog = true"
       />
     </div>
     <AttendanceHelpCard />
     <LeaveRequestDialog v-model="leaveDialog" @submitted="loadLeaves" />
+
+    <SalaryAdvanceModal v-model="salaryAdvanceDialog" @submitted="onSalaryAdvanceSubmitted" />
 
     <v-dialog v-model="historyDialog" max-width="1040" scrollable>
       <v-card class="history-dialog-card">
@@ -79,6 +82,7 @@ import WeeklyAttendanceCard, { type WeekDayView } from './attendance-dashboard/W
 import AttendanceSidePanel from './attendance-dashboard/AttendanceSidePanel.vue';
 import AttendanceHelpCard from './attendance-dashboard/AttendanceHelpCard.vue';
 import LeaveRequestDialog from './attendance-dashboard/LeaveRequestDialog.vue';
+import SalaryAdvanceModal from './attendance-dashboard/SalaryAdvanceModal.vue';
 import AttendanceHistoryTable from './AttendanceHistoryTable.vue';
 
 const emit = defineEmits<{ (e:'navigate', value:'leave'|'history'|'payroll'):void }>();
@@ -89,6 +93,7 @@ const period=ref(currentPeriod()); const records=ref<any[]>([]); const config=re
 const loading=ref(true); const leavesLoading=ref(false); const loadError=ref(''); const submitting=ref<ShiftKey|null>(null); const ipError=ref('');
 const networkState=ref<'open'|'unknown'|'valid'|'invalid'>('unknown'); const networkDetail=ref('');
 const selectedShift=ref<ShiftKey>('morning'); const leaveDialog=ref(false); const historyDialog=ref(false); const lateDialog=ref(false); const pendingShift=ref<ShiftKey|null>(null); const lateReason=ref(''); const lateReasonError=ref('');
+const salaryAdvanceDialog = ref(false);
 const now=ref(new Date());
 let clockTimer: ReturnType<typeof setInterval> | undefined;
 const todayKey=computed(()=>orgDayKey(now.value));
@@ -116,6 +121,7 @@ function changePeriod(value:string){if(!value)return;period.value=value;void loa
 async function attemptCheckin(shift:ShiftKey,reason?:string){const view=shiftViews.value.find(item=>item.key===shift);if(view?.state!=='active'){toast.warning(view?.state==='upcoming'?`Ca này mở lúc ${config.value?.shifts?.[shift]?.start}`:'Ca này hiện không thể chấm công');return}submitting.value=shift;ipError.value='';try{await api.post('/attendance/checkin',{shift,lateReason:reason});toast.success('Chấm công thành công');networkState.value='valid';networkDetail.value='Server đã xác minh IP thành công';lateDialog.value=false;lateReason.value='';pendingShift.value=null;await load()}catch(err:any){const data=err?.response?.data;if(data?.error==='late_reason_required'){pendingShift.value=shift;lateDialog.value=true}else if(data?.error==='shift_not_started'||data?.error==='shift_ended'){toast.warning(data.hint||'Ngoài khung giờ chấm công');now.value=new Date()}else if(data?.error==='ip_not_allowed'){networkState.value='invalid';networkDetail.value=data.hint||'IP không được phép';ipError.value=`${data.hint||'IP không được phép chấm công'} (IP của bạn: ${data.clientIp||'?'})`}else if(data?.error==='already_checked_in'){toast.warning('Bạn đã chấm công ca này rồi');await load()}else toast.error(data?.hint||data?.error||'Chấm công thất bại')}finally{submitting.value=null}}
 function confirmLate(){if(!lateReason.value.trim()){lateReasonError.value='Nhập lý do đi trễ';return}lateReasonError.value='';if(pendingShift.value)void attemptCheckin(pendingShift.value,lateReason.value.trim())}
 function cancelLate(){lateDialog.value=false;lateReason.value='';lateReasonError.value='';pendingShift.value=null}
+function onSalaryAdvanceSubmitted() { salaryAdvanceDialog.value = false; toast.success('Đã gửi đơn xin ứng lương'); }
 onMounted(()=>{clockTimer=setInterval(()=>{now.value=new Date();chooseSuggestedShift()},60_000);void Promise.all([load(),loadLeaves()])});
 onBeforeUnmount(()=>{if(clockTimer)clearInterval(clockTimer)});
 </script>

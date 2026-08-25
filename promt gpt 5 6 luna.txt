@@ -1,0 +1,251 @@
+# Upgrade OpenAI Integration to GPT-5.6 Luna
+
+You are a senior AI Platform Engineer.
+
+Your task is to refactor the existing OpenAI integration across this project.
+
+## Objectives
+
+1. Replace every GPT-4 / GPT-4o / GPT-4.1 model with **GPT-5.6 Luna**.
+2. Implement Prompt Caching for all stable system prompts.
+3. Preserve reasoning across conversations where appropriate.
+4. Reduce token usage without changing application behavior.
+5. Keep the architecture clean and production-ready.
+
+---
+
+## Model
+
+Use:
+
+```
+gpt-5.6-luna
+```
+
+Do NOT use:
+
+* GPT-4
+* GPT-4o
+* GPT-4.1
+* GPT-5.5
+
+unless there is an explicit compatibility requirement.
+
+---
+
+## Prompt Caching
+
+Identify every long-lived prompt such as:
+
+* AI assistant identity
+* Company knowledge
+* Sales instructions
+* Customer service rules
+* NLP instructions
+* Tool descriptions
+* SOP
+* Style guide
+
+These prompts rarely change.
+
+Refactor them into reusable cached prompt blocks instead of rebuilding them every request.
+
+If the SDK supports Prompt Caching, implement it.
+
+Otherwise:
+
+* separate static prompt
+* dynamic prompt
+* user message
+
+and cache the static section.
+
+The cache should automatically invalidate only when the prompt changes.
+
+---
+
+## Conversation Memory
+
+Where conversations continue across turns:
+
+Preserve reasoning context.
+
+Reuse previous responses whenever supported.
+
+Avoid forcing the model to reason from scratch.
+
+If the current implementation discards context every request, redesign it.
+
+---
+
+## Context Structure
+
+Separate prompts into three layers:
+
+### Layer 1
+
+Static System Prompt
+
+Contains:
+
+* Company rules
+* AI identity
+* Business SOP
+* Communication style
+
+Should remain constant.
+
+---
+
+### Layer 2
+
+Dynamic Context
+
+Contains
+
+* Customer information
+* Order status
+* Retrieved knowledge
+* Current workflow
+* Retrieved RAG results
+
+Changes frequently.
+
+---
+
+### Layer 3
+
+User Message
+
+Contains only the latest customer request.
+
+---
+
+Never duplicate Layer 1 inside Layer 2.
+
+---
+
+## Token Optimization
+
+Reduce repeated tokens.
+
+Remove duplicated instructions.
+
+Merge overlapping prompts.
+
+Avoid injecting identical knowledge multiple times.
+
+---
+
+## Maintainability
+
+Create a centralized OpenAI configuration.
+
+Avoid hardcoded model names.
+
+Example:
+
+```
+OPENAI_MODEL=gpt-5.6-luna
+```
+
+All requests should use this configuration.
+
+---
+
+## Architecture
+
+Refactor toward
+
+AI Client
+
+↓
+
+Prompt Builder
+
+↓
+
+Cache Manager
+
+↓
+
+Memory Manager
+
+↓
+
+OpenAI API
+
+↓
+
+Response Parser
+
+Each responsibility should be isolated.
+
+---
+
+## Error Handling
+
+Implement:
+
+* retry with exponential backoff
+* timeout
+* structured error logging
+* graceful fallback
+* request ID tracing
+
+---
+
+## Observability
+
+Add metrics for
+
+* prompt tokens
+* completion tokens
+* cached tokens
+* cache hit ratio
+* latency
+* cost estimation
+
+Log these for every request.
+
+---
+
+## Code Quality
+
+Remove duplicated OpenAI wrappers.
+
+Remove dead code.
+
+Simplify abstractions.
+
+Use strong typing.
+
+Document all public methods.
+
+---
+
+## Backward Compatibility
+
+The external API of the application should not change.
+
+Only improve the implementation.
+
+---
+
+## Deliverables
+
+1. Replace all legacy models with GPT-5.6 Luna.
+2. Add Prompt Caching.
+3. Preserve reasoning context.
+4. Centralize configuration.
+5. Reduce token usage.
+6. Keep behavior unchanged.
+7. Update documentation explaining:
+
+   * model selection
+   * cache strategy
+   * reasoning preservation
+   * configuration
+   * estimated cost savings
+
+Before modifying files, inspect the existing architecture and produce a migration plan. Then implement the refactor in small, reviewable commits while ensuring all tests continue to pass.

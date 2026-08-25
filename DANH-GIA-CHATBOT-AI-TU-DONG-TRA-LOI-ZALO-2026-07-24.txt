@@ -1,0 +1,161 @@
+﻿ĐÁNH GIÁ CHATBOT AI TỰ ĐỘNG TRẢ LỜI KHÁCH TRÊN ZALO
+Ngày: 24/07/2026
+Phạm vi: hệ thống ZaloCRM hiện tại
+
+======================================================================
+1. KẾT LUẬN NGẮN
+======================================================================
+
+Có thể xây chatbot AI tự đọc tin nhắn và tự trả lời về mặt kỹ thuật.
+
+Tuy nhiên, hệ thống hiện tại đăng nhập tài khoản Zalo cá nhân bằng QR và dùng thư viện zca-js 2.1.2. Đây không phải Zalo OA OpenAPI chính thức. Tự động đọc/gửi tin bằng tài khoản cá nhân có rủi ro cao vi phạm điều khoản hoặc cơ chế chống tự động hóa của Zalo.
+
+Không nên coi chatbot tự trả lời trên Zalo cá nhân là phương án được Zalo chính thức cho phép.
+
+Phương án an toàn hơn:
+- AI chỉ soạn câu trả lời, nhân viên kiểm tra và bấm gửi.
+- Nếu muốn tự động hoàn toàn, dùng Zalo Official Account và Zalo OA OpenAPI chính thức.
+
+======================================================================
+2. HỆ THỐNG HIỆN TẠI ĐANG DÙNG GÌ
+======================================================================
+
+Đối chiếu codebase:
+- Dependency: zca-js phiên bản 2.1.2.
+- Đăng nhập tài khoản Zalo bằng QR.
+- Duy trì session của tài khoản Zalo cá nhân.
+- Lắng nghe sự kiện tin nhắn bằng listener của zca-js.
+- Gửi tin bằng api.sendMessage qua zca-js.
+- Không thấy hệ thống dùng webhook và API gửi tin của Zalo OA OpenAPI làm kênh chat chính.
+
+README của chính dự án cũng cảnh báo:
+
+“Using automation tools may violate Zalo's Terms of Service and could result in account suspension or restrictions.”
+
+Nghĩa là thư viện có giấy phép mã nguồn mở không đồng nghĩa việc tự động hóa tài khoản Zalo cá nhân được Zalo cho phép.
+
+======================================================================
+3. RỦI RO KHI BOT TỰ TRẢ LỜI TRÊN ZALO CÁ NHÂN
+======================================================================
+
+Zalo có thể xem hành vi này là:
+- Dùng phần mềm hoặc API không chính thức.
+- Mô phỏng thao tác người dùng.
+- Điều khiển tài khoản cá nhân tự động.
+- Gửi tin với mẫu hành vi giống bot.
+- Gửi nội dung lặp hoặc quá nhanh.
+- Khai thác phiên đăng nhập ngoài ứng dụng Zalo chính thức.
+
+Hậu quả có thể gồm:
+- Hạn chế gửi tin.
+- Yêu cầu xác minh hoặc đăng nhập lại.
+- Mất session và phải quét QR lại.
+- Khóa một số chức năng.
+- Khóa tài khoản tạm thời hoặc vĩnh viễn.
+
+Rate limiter, thời gian chờ và giới hạn tin chỉ giảm nguy cơ kỹ thuật. Chúng không biến API không chính thức thành API được Zalo phê duyệt.
+
+======================================================================
+4. SO SÁNH CÁC PHƯƠNG ÁN
+======================================================================
+
+1. AI gợi ý câu trả lời, nhân viên bấm gửi
+   Rủi ro: Trung bình.
+   Lý do: thao tác gửi vẫn do người dùng quyết định, nhưng hệ thống vẫn dùng zca-js.
+
+2. AI tự trả lời trên tài khoản Zalo cá nhân
+   Rủi ro: Cao.
+   Lý do: bot tự quyết định và tự gửi qua API không chính thức.
+
+3. AI tự gửi hàng loạt trên tài khoản Zalo cá nhân
+   Rủi ro: Rất cao.
+   Lý do: dễ bị nhận diện là spam hoặc automation.
+
+4. AI tự tìm số, nhắn người lạ hoặc gửi kết bạn
+   Rủi ro: Rất cao.
+   Lý do: hành vi chủ động, không dựa trên yêu cầu vừa phát sinh từ khách.
+
+5. AI chatbot qua Zalo OA OpenAPI chính thức
+   Rủi ro: Thấp hơn.
+   Điều kiện: tuân thủ chính sách OA, loại tin, phạm vi tương tác, quyền dữ liệu và giới hạn API hiện hành.
+
+======================================================================
+5. PHƯƠNG ÁN CHÍNH THỨC NÊN DÙNG
+======================================================================
+
+Kiến trúc khuyến nghị:
+
+Khách nhắn Zalo Official Account
+→ Zalo gửi webhook chính thức tới backend
+→ Backend lưu tin nhắn
+→ AI đọc ngữ cảnh và knowledge base
+→ Bộ kiểm tra chính sách kiểm tra câu trả lời
+→ Zalo OA OpenAPI gửi phản hồi
+→ Lưu audit log
+→ Chuyển nhân viên khi AI không chắc
+
+Cần tuân thủ:
+- Chỉ gửi nội dung đúng mục đích OA.
+- Không spam hoặc gửi lặp.
+- Tuân thủ loại tin và cửa sổ tương tác Zalo OA quy định.
+- Dùng mẫu tin được duyệt nếu loại tin yêu cầu.
+- Có cơ chế chuyển nhân viên thật.
+- Bảo vệ dữ liệu cá nhân và lịch sử hội thoại.
+- Không dùng dữ liệu khách này để trả lời khách khác.
+- Báo rõ khi người dùng đang tương tác với trợ lý tự động nếu chính sách yêu cầu.
+
+======================================================================
+6. NẾU VẪN THỬ NGHIỆM TRÊN ZALO CÁ NHÂN
+======================================================================
+
+Các biện pháp dưới đây chỉ giảm nguy cơ, không bảo đảm tuân thủ:
+- Chỉ phản hồi sau khi khách chủ động nhắn.
+- Không tự mở hội thoại mới.
+- Không broadcast.
+- Không tự nhắn người lạ.
+- Không tự gửi lời mời kết bạn.
+- Chỉ bật cho một nick thử nghiệm.
+- Giới hạn số phản hồi mỗi hội thoại và mỗi giờ.
+- Gom nhiều tin liên tiếp trước khi trả lời.
+- Không trả lời ngay với tốc độ máy.
+- Dừng bot khi nhân viên tiếp quản.
+- Không để bot phản hồi chính tin do bot gửi.
+- Có nút dừng khẩn cấp.
+- Lưu toàn bộ quyết định, prompt, kết quả và lỗi gửi.
+- Không dùng nick kinh doanh quan trọng để thử nghiệm.
+
+======================================================================
+7. LỘ TRÌNH KHUYẾN NGHỊ
+======================================================================
+
+Giai đoạn 1 — AI soạn nháp:
+- AI đọc tin nhắn gần nhất.
+- AI tra knowledge base.
+- AI tạo gợi ý.
+- Nhân viên duyệt và bấm gửi.
+
+Giai đoạn 2 — Chế độ mô phỏng:
+- AI tự quyết định nhưng không gửi thật.
+- So sánh câu AI với câu nhân viên thực tế.
+- Đánh giá tỷ lệ đúng, bịa thông tin và trường hợp cần chuyển người.
+
+Giai đoạn 3 — Zalo OA chính thức:
+- Đăng ký và cấu hình OA.
+- Dùng webhook và OpenAPI chính thức.
+- Chỉ tự trả lời nhóm câu hỏi an toàn.
+- Confidence thấp thì tạo nháp hoặc chuyển nhân viên.
+
+======================================================================
+8. KẾT LUẬN CUỐI
+======================================================================
+
+Về kỹ thuật: làm được.
+
+Với tài khoản Zalo cá nhân và zca-js hiện tại: rủi ro vi phạm cao, không nên bật tự trả lời hoàn toàn cho nick đang kinh doanh.
+
+Hướng phù hợp nhất hiện nay:
+1. Dùng AI soạn nháp, nhân viên bấm gửi.
+2. Muốn tự động hoàn toàn thì triển khai qua Zalo Official Account và OpenAPI chính thức.
+3. Trước khi chạy production, đối chiếu điều khoản Zalo/OA mới nhất và nên xin xác nhận bằng văn bản từ Zalo/VNG.
+
+Tài liệu này là đánh giá kỹ thuật và rủi ro vận hành, không phải tư vấn pháp lý.

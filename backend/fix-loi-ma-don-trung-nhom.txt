@@ -1,0 +1,33 @@
+FIX: Lỗi "Mã đơn hàng này đã tồn tại trong hệ thống" khi gán trạng thái đơn cho hội thoại NHÓM
+=================================================================================================
+
+NGUYÊN NHÂN GỐC (đã xác minh trong code, không đoán):
+- Thanh trạng thái đơn "Trạng thái đơn:" nằm ở file TagCrmBar.vue.
+- Khi bạn bấm chọn trạng thái (VD: "đang thiết kế") cho một hội thoại CHƯA có đơn hàng,
+  component tự tạo đơn mới bằng cách gọi POST /orders với orderCode.
+- Với hội thoại NHÓM, component không có friendId (nhóm không phải bạn bè) nên KHÔNG lấy
+  được tên hiển thị riêng. Code cũ gán cứng orderCode = "Đơn Zalo" cho MỌI nhóm.
+- Backend có luật chặn trùng: mỗi org không được có 2 đơn cùng orderCode. Nhóm đầu tiên
+  tạo đơn "Đơn Zalo" thành công. Nhóm thứ hai gán trạng thái → POST lại orderCode
+  "Đơn Zalo" → backend từ chối vì trùng → hiện lỗi "Mã đơn hàng này đã tồn tại trong hệ thống".
+
+CÁCH SỬA:
+1. MessageThread.vue đã có sẵn biến headerName - tên hiển thị riêng cho từng hội thoại
+   (tên nhóm Zalo, hoặc tên khách hàng nếu là bạn bè). Truyền tên này xuống TagCrmBar
+   qua prop mới "default-name".
+2. TagCrmBar.vue: khi tự tạo đơn, dùng tên hội thoại (defaultName) làm gốc thay vì
+   chữ cứng "Đơn Zalo". Đồng thời gắn thêm hậu tố ngắn lấy từ 4 ký tự cuối của
+   conversationId (VD: "Nhóm Thiệp Cưới A #a1b2"), đảm bảo orderCode không bao giờ
+   trùng nhau dù 2 nhóm/khách có tên giống hệt nhau.
+
+KẾT QUẢ:
+- Mỗi hội thoại (nhóm hoặc bạn bè) khi tự động tạo đơn sẽ có orderCode riêng biệt,
+  không còn trùng lặp giữa các nhóm → gán trạng thái đơn cho nhóm thứ 2, thứ 3... hoạt
+  động bình thường, không còn báo lỗi.
+- Không ảnh hưởng đơn đã tồn tại (chỉ áp dụng khi tạo đơn mới lần đầu cho hội thoại).
+- Người dùng vẫn có thể tự sửa lại orderCode thủ công sau đó trong tab "QUẢN LÝ ĐƠN"
+  (OrderTabPanel) nếu muốn đặt tên khác.
+
+FILE ĐÃ SỬA:
+- frontend/src/components/chat/TagCrmBar.vue
+- frontend/src/components/chat/MessageThread.vue

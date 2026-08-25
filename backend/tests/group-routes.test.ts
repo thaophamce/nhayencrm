@@ -8,12 +8,14 @@ import { mockUser, mockZaloOps } from './test-helpers.js';
 
 // ── Hoisted mock state ─────────────────────────────────────────────────────────
 const zaloOpsMock = mockZaloOps();
+const realtimeEmitMock = vi.fn();
+const realtimeToMock = vi.fn(() => ({ emit: realtimeEmitMock }));
 
 const prismaMock = {
   zaloAccount: { findFirst: vi.fn() },
   zaloAccountAccess: { findFirst: vi.fn() },
   groupPoll: { create: vi.fn(), findFirst: vi.fn(), update: vi.fn() },
-  conversation: { updateMany: vi.fn() },
+  conversation: { updateMany: vi.fn(), findMany: vi.fn() },
   $transaction: vi.fn(),
 };
 vi.mock('../src/shared/database/prisma-client.js', () => ({ prisma: prismaMock }));
@@ -46,6 +48,7 @@ const BASE = '/api/v1/zalo-accounts/za-1/groups';
 
 function buildApp(): FastifyInstance {
   const app = Fastify({ logger: false });
+  app.decorate('io', { to: realtimeToMock });
   app.register(groupRoutes);
   return app;
 }
@@ -57,6 +60,7 @@ beforeEach(() => {
     groupMember: { createMany: vi.fn().mockResolvedValue({ count: 2 }) },
   }));
   prismaMock.conversation.updateMany.mockResolvedValue({ count: 1 });
+  prismaMock.conversation.findMany.mockResolvedValue([]);
 });
 
 // ── GET all groups ─────────────────────────────────────────────────────────────
@@ -70,6 +74,74 @@ describe('GET /api/v1/zalo-accounts/:accountId/groups', () => {
     expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.body)).toMatchObject({ groups: [{ id: 'g1', name: 'Group 1', totalMember: 2 }] });
     expect(zaloOpsMock.getAllGroups).toHaveBeenCalledWith('za-1');
+  });
+});
+
+describe('group leave candidates', () => {
+  it('filters by business date, inactivity, and OR status keywords', async () => {
+    zaloOpsMock.getAllGroups.mockResolvedValueOnce({
+      gridVerMap: { g1: 1, g2: 1 },
+      gridInfoMap: {
+        g1: { name: 'D010822 đang giao', totalMember: 6 },
+        g2: { name: 'D010823 chưa demo', totalMember: 5 },
+      },
+    });
+    prismaMock.conversation.findMany.mockResolvedValueOnce([
+      { externalThreadId: 'g1', groupName: 'D010822 đang giao', groupMembersCount: 6, lastMessageAt: new Date('2026-01-01T00:00:00Z') },
+      { externalThreadId: 'g2', groupName: 'D010823 chưa demo', groupMembersCount: 5, lastMessageAt: new Date('2026-01-01T00:00:00Z') },
+    ]);
+    const res = await buildApp().inject({ method: 'GET', url: `${BASE}/leave-candidates?beforeDate=2026-09-01&inactiveDays=60&statuses=shipping` });
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body);
+    expect(body.groups.map((g: any) => g.id)).toEqual(['g1']);
+    expect(body.summary).toMatchObject({ totalScanned: 2, eligible: 1 });
+    expect(body.summary.excludedByReason.keyword_not_matched).toBe(1);
+    expect(zaloOpsMock.getAllGroups).toHaveBeenCalledWith('za-1');
+    expect(prismaMock.conversation.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ externalThreadId: { in: ['g1', 'g2'] } }),
+    }));
+  });
+
+  it('excludes stale synced groups that are no longer in the live Zalo roster', async () => {
+    zaloOpsMock.getAllGroups.mockResolvedValueOnce({ gridVerMap: { current: 1 } });
+    prismaMock.conversation.findMany.mockResolvedValueOnce([
+      { externalThreadId: 'current', groupName: 'D010822 đang giao', groupMembersCount: 6, lastMessageAt: new Date('2026-01-01T00:00:00Z') },
+    ]);
+    const res = await buildApp().inject({ method: 'GET', url: `${BASE}/leave-candidates?beforeDate=2026-09-01&inactiveDays=60&statuses=shipping` });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body).groups.map((group: any) => group.id)).toEqual(['current']);
+    expect(prismaMock.conversation.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ externalThreadId: { in: ['current'] } }),
+    }));
+  });
+
+  it('rejects invalid filters', async () => {
+    const res = await buildApp().inject({ method: 'GET', url: `${BASE}/leave-candidates?beforeDate=bad&inactiveDays=0&statuses=shipping` });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it('revalidates staged ids directly without relying on the full Zalo catalog', async () => {
+    prismaMock.conversation.findMany.mockResolvedValueOnce([
+      { externalThreadId: 'g1', groupName: 'D010822 đang giao', groupMembersCount: 6, lastMessageAt: new Date('2026-01-01T00:00:00Z') },
+    ]);
+    const res = await buildApp().inject({ method: 'POST', url: `${BASE}/leave-candidates/revalidate`, payload: {
+      groupIds: ['g1'], beforeDate: '2026-09-01', inactiveDays: 60,
+      statuses: ['shipping'], customKeywords: [], search: '',
+    } });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body).valid).toBe(true);
+    expect(zaloOpsMock.getAllGroups).not.toHaveBeenCalled();
+    expect(zaloOpsMock.getGroupInfo).not.toHaveBeenCalled();
+  });
+
+  it('revalidates all staged ids fail-closed when any id is missing', async () => {
+    zaloOpsMock.getAllGroups.mockResolvedValueOnce({ gridVerMap: { g1: 1 }, gridInfoMap: { g1: { name: 'D010822 đang giao', totalMember: 6 } } });
+    prismaMock.conversation.findMany.mockResolvedValueOnce([{ externalThreadId: 'g1', lastMessageAt: new Date('2026-01-01T00:00:00Z') }]);
+    const res = await buildApp().inject({ method: 'POST', url: `${BASE}/leave-candidates/revalidate`, payload: {
+      groupIds: ['g1', 'missing'], beforeDate: '2026-09-01', inactiveDays: 60, statuses: ['shipping'], customKeywords: [], search: '',
+    } });
+    expect(res.statusCode).toBe(409);
+    expect(JSON.parse(res.body).valid).toBe(false);
   });
 });
 
@@ -116,6 +188,7 @@ describe('POST /api/v1/zalo-accounts/:accountId/groups', () => {
 // ── PATCH rename group ─────────────────────────────────────────────────────────
 describe('PATCH /api/v1/zalo-accounts/:accountId/groups/:groupId/name', () => {
   it('happy path — renames group', async () => {
+    prismaMock.conversation.findMany.mockResolvedValueOnce([{ id: 'conv-1' }]);
     const res = await buildApp().inject({
       method: 'PATCH', url: `${BASE}/g1/name`,
       payload: { name: 'Renamed' },
@@ -124,6 +197,11 @@ describe('PATCH /api/v1/zalo-accounts/:accountId/groups/:groupId/name', () => {
     // result is undefined → JSON serialises to {} (undefined keys are dropped)
     expect(JSON.parse(res.body)).toEqual({});
     expect(zaloOpsMock.renameGroup).toHaveBeenCalledWith('za-1', 'Renamed', 'g1');
+    expect(realtimeToMock).toHaveBeenCalledWith('org:org-1');
+    expect(realtimeEmitMock).toHaveBeenCalledWith('chat:group-info-updated', {
+      conversationId: 'conv-1',
+      groupName: 'Renamed',
+    });
   });
 
   it('returns 400 when name is missing', async () => {

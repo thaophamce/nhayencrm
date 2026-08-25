@@ -1,0 +1,74 @@
+﻿ĐÁNH GIÁ BÁO CÁO MẤT KẾT NỐI ZALO VÀ MIGRATION ẢNH PANCAKE
+Ngày kiểm tra: 23/07/2026
+
+======================================================================
+1. KẾT LUẬN
+======================================================================
+
+Claude giải thích đúng khoảng 85–90% về nguyên nhân mất kết nối Zalo.
+
+Phần đúng:
+- Docker backend cổng 3080 và backend dev cổng 3901 cùng chạy.
+- Hai backend dùng chung PostgreSQL và có thể đọc cùng session Zalo.
+- Log Docker có KICKOUT_BY_WORKER và kết nối, ngắt liên tục.
+
+Phần Claude nói quá chắc:
+- Chưa đủ bằng chứng để nói mọi loại đăng nhập Zalo chỉ cho một phiên hoạt động.
+- Chưa chứng minh tuyệt đối backend dev gây cú đá đúng lúc 15:26:29.
+- Không thể nói hoàn toàn “không phải lỗi code”; hệ thống thiếu khóa liên tiến trình.
+
+Migration ảnh Pancake thành công hoàn toàn theo dữ liệu hiện tại.
+
+======================================================================
+2. BẰNG CHỨNG CHÍNH
+======================================================================
+
+- 18/07/2026 15:05:02: Listener connected.
+- 18/07/2026 15:26:29: Listener disconnected (early): 3003 KICKOUT_BY_WORKER.
+- 18/07/2026 15:30:47: Circuit breaker phát hiện 5 lần ngắt trong 5 phút.
+- checkpoint / connected: 1.774 dòng.
+- checkpoint / disconnected: 1.832 dòng.
+- checkpoint / qr_pending: 6 dòng.
+
+Docker và backend dev giữ hai zaloPool riêng trong RAM. Một backend có thể báo connected trong khi backend còn lại báo disconnected. Hai process cũng có thể ghi trạng thái trái chiều vào cùng DB.
+
+Hai backend cùng chạy và dùng chung DB là nguyên nhân có xác suất rất cao. Tuy nhiên, muốn khẳng định backend dev gây sự kiện lúc 15:26:29, cần thêm log backend dev cùng thời điểm, process ID trong status log hoặc log khóa xác định process sở hữu session.
+
+======================================================================
+3. ĐÁNH GIÁ MIGRATION ẢNH PANCAKE
+======================================================================
+
+NativeCommandError đầu log không phải lỗi migration. Node in DeprecationWarning ra stderr; PowerShell hiển thị stderr thành NativeCommandError. Đây chỉ là cảnh báo công cụ.
+
+Kết quả đã đối chiếu:
+- Upload thành công: 26/26.
+- Upload thất bại: 0.
+- Mẫu cập nhật: 21/21.
+- URL content.pancake.vn còn lại trong DB: 0.
+- MediaAsset có tag migrated-pancake: 26.
+- MediaBlob R2 tương ứng: 26.
+
+Ảnh đã nằm trong kho CRM trên Cloudflare R2. Mẫu cũ không còn phụ thuộc máy chủ Pancake khi gửi.
+
+======================================================================
+4. RỦI RO HIỆN TẠI
+======================================================================
+
+Docker cổng 3080 và backend dev cổng 3901 vẫn cùng chạy. Link Cloudflare trỏ frontend Vite 5173, proxy API sang backend dev 3901. Docker 3080 vẫn có cron riêng. Cấu hình này còn nguy cơ tranh quyền session Zalo.
+
+======================================================================
+5. KHUYẾN NGHỊ
+======================================================================
+
+- Chỉ để một backend giữ session Zalo thật.
+- Không dừng PostgreSQL, Redis hoặc MinIO.
+- Thêm Redis lock hoặc PostgreSQL advisory lock theo accountId.
+- Backend không lấy được lock phải không login, không mở listener và không tự reconnect.
+- Thêm processInstanceId, hostname, PID, lockOwnerId, accountId và listener epoch vào log.
+
+======================================================================
+6. CHẤM ĐIỂM
+======================================================================
+
+- Báo cáo mất kết nối của Claude: đúng khoảng 85–90%.
+- Migration Pancake: đúng 100% theo dữ liệu DB hiện tại.

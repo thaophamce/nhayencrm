@@ -483,12 +483,22 @@ export async function friendRoutes(app: FastifyInstance) {
     try {
       if (!await checkAccess(request, reply, accountId, 'read')) return;
       await resolveAccount(accountId, user.orgId);
-      const raw: any = await zaloOps.getFriendRecommendations(accountId);
+      let raw: any = null;
+      try {
+        raw = await zaloOps.getFriendRecommendations(accountId);
+      } catch (error) {
+        // friend_read has a strict daily quota. A live read failure must not hide
+        // requests already captured by the listener and persisted below.
+        logger.warn('[friend-op] live received-request read unavailable; using persisted pending requests', {
+          accountId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
       const items = Array.isArray(raw) ? raw
         : Array.isArray(raw?.recommItems) ? raw.recommItems
         : Array.isArray(raw?.data?.recommItems) ? raw.data.recommItems
         : [];
-      const data = items
+      const liveData = items
         .map((item: any) => item?.dataInfo ?? item)
         .filter((info: any) => Number(info?.recommType ?? info?.type) === 2)
         .map((info: any) => ({
@@ -501,7 +511,39 @@ export async function friendRoutes(app: FastifyInstance) {
           isSeen: Boolean(info.isSeenFriendReq),
         }))
         .filter((info: { userId: string }) => info.userId);
-      return { data };
+      // The SDK recommendation list can be empty/partial even though its realtime
+      // friend_event was received. Merge listener-persisted pending requests so the
+      // popup does not silently lose invitations after reconnects or SDK drift.
+      const persisted = await prisma.friend.findMany({
+        where: {
+          orgId: user.orgId,
+          zaloAccountId: accountId,
+          friendshipStatus: 'pending_received',
+        },
+        select: {
+          zaloUidInNick: true,
+          zaloDisplayName: true,
+          zaloAvatarUrl: true,
+          updatedAt: true,
+        },
+        orderBy: { updatedAt: 'desc' },
+        take: 200,
+      });
+      const byUserId = new Map(liveData.map((item: any) => [item.userId, item]));
+      for (const item of persisted) {
+        if (!byUserId.has(item.zaloUidInNick)) {
+          byUserId.set(item.zaloUidInNick, {
+            userId: item.zaloUidInNick,
+            displayName: item.zaloDisplayName,
+            avatar: item.zaloAvatarUrl,
+            phone: null,
+            message: null,
+            requestedAt: item.updatedAt.toISOString(),
+            isSeen: false,
+          });
+        }
+      }
+      return { data: [...byUserId.values()] };
     } catch (err) {
       return handleError(reply, err, 'friend-op');
     }

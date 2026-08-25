@@ -1,0 +1,61 @@
+PHẦN B — CHÊNH LỆCH GIỮA CHẨN ĐOÁN BAN ĐẦU VÀ CODE THẬT
+Người viết: Claude (CTO) — 22/07/2026
+Cách làm: đọc trực tiếp endpoint GET /api/v1/conversations (chat-routes.ts dòng 514–1086),
+KHÔNG suy đoán. Báo cáo này để anh duyệt TRƯỚC khi tôi sửa 1 dòng nào.
+
+======================================================================
+1. CHẨN ĐOÁN CŨ NÓI GÌ
+======================================================================
+File CTO-CHAN-DOAN-GUI-TIN-LOAD-CHAM đề xuất cho phần load danh sách:
+  "Cắt bớt include không cần cho danh sách" + "Phân trang/lười tải theo trang thật sự".
+
+======================================================================
+2. THỰC TẾ CODE ĐÃ LÀM 2 VIỆC ĐÓ TỪ TRƯỚC
+======================================================================
+a) PHÂN TRANG: endpoint ĐÃ có skip/take, limit mặc định 50, chặn trần 200
+   (dòng 955–956). Không hề kéo "cả cụm lớn" — mỗi lần chỉ lấy 1 trang.
+b) CẮT INCLUDE: khối include contact ĐÃ được thu gọn từ trước (comment "M-tier
+   2026-05-21", dòng 910–943): chỉ chọn ~13 cột list-view cần, KHÔNG lấy hết
+   ~50 cột. contactAccess đã giới hạn take:5. messages đã take:1.
+
+=> Lời khuyên cũ ("cắt include + phân trang") PHẦN LỚN ĐÃ được áp dụng rồi.
+   Nếu tôi làm y hệt lời khuyên cũ thì gần như không cải thiện gì thêm.
+
+======================================================================
+3. VẬY CHỖ NẶNG THẬT NẰM Ở ĐÂU (theo cấu trúc code)
+======================================================================
+Với ca "admin gom 50 nick, mở danh sách mặc định" (KHÔNG bật filter đặc biệt),
+KHÔNG có $queryRaw/LATERAL nào chạy — các subquery LATERAL chỉ chạy khi bật bộ
+lọc "chưa trả lời"/messageReplyState hoặc sinh nhật. Nên với ca thường, 3 nguồn
+tải nặng còn lại là:
+
+  (1) prisma.conversation.count({ where }) — dòng 958. Chạy SONG SONG với findMany
+      nhưng đếm TOÀN BỘ hội thoại khớp where trên 50 nick (có thể hàng nghìn), kèm
+      điều kiện lồng contact/friend → đếm tốn kém, lặp lại MỖI lần đổi trang.
+  (2) FAN-OUT subquery của include — Prisma tách mỗi quan hệ thành 1 query phụ:
+      contactAccess (take:5) + _count contactAccess + messages(take:1)+reactions.
+      Với 50 dòng, đây là vài query phụ nối nhau, mỗi cái gánh 50 parent-id.
+  (3) friend.findMany OR-batch — dòng 1002–1003: WHERE OR của tối đa 50 cặp
+      (AND zaloAccountId + zaloUidInNick). OR 50 nhánh trên khóa ghép dễ khiến
+      planner quét index nhiều lần, chậm khi số cặp lớn.
+
+======================================================================
+4. TÔI ĐỀ NGHỊ HƯỚNG ĐI (chờ anh chốt, CHƯA làm)
+======================================================================
+Khác với lời khuyên cũ, tôi muốn tối ưu ĐÚNG CHỖ NẶNG, theo thứ tự rủi ro thấp→cao:
+
+  B1. Bỏ/*hoãn* count mỗi trang: FE cột 2 cuộn vô hạn, không cần "tổng chính xác"
+      mỗi lần. Thay bằng "có trang sau không" (lấy limit+1 rồi cắt) hoặc chỉ đếm
+      lần đầu. Đây là mảng cắt được NHIỀU thời gian nhất, rủi ro thấp.
+  B2. friend.findMany: đổi OR-of-AND 50 cặp sang cách match rẻ hơn (ví dụ lọc theo
+      zaloAccountId IN (...) rồi zaloUidInNick IN (...), lọc lại cặp trong JS; hoặc
+      dựng VALUES join). Cần đo EXPLAIN trước/sau để chắc.
+  B3. Chỉ khi B1+B2 chưa đủ mới xem lại fan-out include.
+
+======================================================================
+5. NGUYÊN TẮC
+======================================================================
+Tôi sẽ ĐO trước/sau (bật log thời gian query hoặc EXPLAIN ANALYZE trên DB thật),
+không tuyên bố "nhanh hơn" nếu không có số. Tôi CHƯA sửa gì — chờ anh chọn:
+  - Đồng ý hướng B1 trước (bỏ count nặng mỗi trang)?  hay
+  - Anh muốn tôi đo lường cụ thể 3 nguồn trên trước rồi mới quyết?

@@ -56,6 +56,13 @@ export const LEAVE_STATUS: Record<string, { label: string; color: string }> = {
   rejected: { label: 'Từ chối', color: 'error' },
 };
 
+/** ── Ứng lương (Salary Advance) ── */
+export const SALARY_ADVANCE_STATUS: Record<string, { label: string; color: string }> = {
+  pending: { label: 'Chờ duyệt', color: 'grey' },
+  approved: { label: 'Đã duyệt', color: 'success' },
+  rejected: { label: 'Từ chối', color: 'error' },
+};
+
 /** Format VND — mẫu DesignerSalaryReport (thay ₫ → đ). */
 export function formatVnd(value: number | null | undefined): string {
   if (value === undefined || value === null || Number.isNaN(value)) return '0đ';

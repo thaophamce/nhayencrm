@@ -1,0 +1,142 @@
+BÁO CÁO: Tối ưu ZaloCRM cho triển khai NỘI BỘ VĂN PHÒNG (không VPS, không cloud)
+================================================================================
+Bối cảnh: anh xác nhận sẽ KHÔNG deploy lên VPS/cloud nào, chỉ chạy trên 1 máy chủ
+vật lý trong văn phòng, dùng qua mạng LAN. Điều này đổi hẳn thứ tự ưu tiên tối ưu
+so với 1 SaaS public: không cần lo scale nhiều vùng/nhiều server, nhưng phải lo
+1 máy chủ duy nhất chịu tải TOÀN BỘ lâu dài — ổ cứng, RAM, CPU đều hữu hạn và
+không "bấm nút là có thêm" như cloud. Đã cho 4 nhánh nghiên cứu độc lập rà thẳng
+code + cấu hình (không đoán), tổng hợp dưới đây theo mức ưu tiên.
+
+===============================================================================
+PHẦN 1 — MẤT KẾT NỐI ZALO (bổ sung cho báo cáo trước)
+===============================================================================
+Báo cáo trước (bao-cao-nguyen-nhan-mat-ket-noi.txt) đã xác định nguyên nhân gốc:
+2 tiến trình backend (Docker + dev local) cùng giữ phiên cho 1 nick thật. Lần
+này rà thêm code zalo-pool.ts và xác nhận thêm:
+
+1. HOÀN TOÀN CHƯA CÓ khóa liên-tiến-trình nào trong code (đã grep kỹ, không có
+   Postgres advisory lock, không có Redis lock). Redis đã sẵn có trong hệ thống
+   (dùng cho queue/rate-limit) nhưng chưa dùng để khóa session Zalo.
+2. Lúc tắt server (SIGTERM, ví dụ khi anh `docker compose restart`), code KHÔNG
+   chủ động đóng các kết nối Zalo đang sống — cứ để OS cắt socket đột ngột, thay
+   vì gọi `zaloPool.disconnect()` cho từng nick trước khi thoát. Cắt đột ngột dễ
+   khiến Zalo phía server của họ chưa kịp nhận biết phiên đã đóng, gây trạng thái
+   "lửng lơ" làm phiên sau khó login sạch.
+3. Cơ chế retry hiện tại là delay CỐ ĐỊNH 30 giây (không tăng dần), circuit
+   breaker đúng (5 lần disconnect/5 phút thì dừng, cần bấm QR lại).
+
+ĐỀ XUẤT (vì chỉ 1 máy chủ, không multi-instance, nên rủi ro tranh chấp THẤP hơn
+nhiều so với lo lắng ban đầu — nhưng vẫn nên làm cho chắc):
+  a. Việc quan trọng nhất vẫn là quy tắc vận hành: KHÔNG chạy dev local nhắm vào
+     nick thật cùng lúc với Docker production (đã nêu ở báo cáo trước).
+  b. Sửa graceful shutdown (app.ts) để gọi zaloPool.disconnect() cho mọi nick
+     trước khi process.exit — việc nhỏ, giảm hẳn tình trạng "lửng lơ" mỗi lần
+     anh restart container để deploy bản mới.
+  c. Khóa Redis theo accountId là "nice to have" phòng xa (nếu sau này có ý định
+     chạy 2 container app song song để chịu tải) — KHÔNG cấp thiết nếu chỉ 1
+     container app như hiện tại.
+
+===============================================================================
+PHẦN 2 — DỮ LIỆU DB TĂNG KHÔNG KIỂM SOÁT (quan trọng NHẤT với máy tại văn phòng)
+===============================================================================
+Đây là rủi ro lớn nhất về lâu dài khi chạy nội bộ: ổ cứng máy chủ là hữu hạn,
+không "mua thêm" dễ như cloud. Rà toàn bộ schema + cron, phát hiện:
+
+CÁC BẢNG GHI LIÊN TỤC, KHÔNG CÓ CƠ CHẾ DỌN:
+  - ZaloAccountStatusLog: ghi mỗi lần connect/disconnect + mỗi lần cron 5 phút
+    phát hiện lệch trạng thái. Sau vài tháng vận hành nhiều nick, bảng này sẽ
+    phình to nhất trong số các bảng log (đã có index tốt, nhưng không có dọn).
+  - AutomationEventLog, ActivityLog, PhoneSearchEvent, WebhookLog,
+    FriendshipAttempt, CareSessionEvent: đều append-only, đều KHÔNG có cron dọn.
+  - Message: KHÔNG nên dọn (đây là lịch sử chat — dữ liệu kinh doanh cốt lõi,
+    sale cần xem lại). Không đề xuất xóa, chỉ cần đảm bảo index đủ tốt (đã ổn).
+
+MEDIA (ảnh/video):
+  - Đã tối ưu khá tốt sẵn: ảnh resize tối đa 2000px + nén WebP q82, dedup theo
+    SHA-256 (2 lớp: MinIO + DB) — không lưu trùng file giống nhau.
+  - Điểm CHƯA tối ưu: dọn "thùng rác" Media Library (30 ngày) hiện chỉ xóa
+    DÒNG DATABASE, KHÔNG xóa file vật lý trong MinIO — vì file media dùng
+    CHUNG với lịch sử chat (xóa nhầm sẽ mất ảnh trong tin nhắn cũ). Đây là
+    thiết kế có chủ đích, không phải lỗi, nhưng nghĩa là dung lượng ổ đĩa
+    KHÔNG tự giảm dù dọn Media Library — cần biết trước để dự trù ổ cứng.
+
+ĐỀ XUẤT (ưu tiên cao vì ảnh hưởng trực tiếp tuổi thọ máy chủ):
+  a. Thêm retention (ví dụ giữ 6-12 tháng rồi xóa) cho: ZaloAccountStatusLog,
+     WebhookLog, PhoneSearchEvent, FriendshipAttempt, AutomationEventLog,
+     ActivityLog — đây là log/audit, không phải dữ liệu kinh doanh cần giữ
+     vĩnh viễn. Làm 1 cron dọn định kỳ, tương tự cron media-trash-gc đã có.
+  b. Theo dõi dung lượng ổ đĩa MinIO định kỳ (media KHÔNG tự giảm dù dọn DB) —
+     cân nhắc chính sách nén/hạ chất lượng ảnh cũ hơn X năm nếu ổ đầy dần.
+  c. Tune Postgres theo RAM THẬT của máy chủ văn phòng: hiện `shared_buffers`
+     chỉ 128MB, `effective_cache_size` 256MB — đây là mức cho máy RẤT NHỎ. Nếu
+     máy chủ văn phòng có 8-16GB RAM dành riêng cho DB, nên tăng lên tương ứng
+     (ví dụ shared_buffers=2GB, effective_cache_size=6GB) để query nhanh hơn
+     đáng kể khi bảng Message/log ngày càng lớn. Cần biết RAM thật của máy để
+     tính số cụ thể.
+
+===============================================================================
+PHẦN 3 — TỐC ĐỘ TẢI TRANG (frontend)
+===============================================================================
+ĐIỂM ĐÁNG LO NHẤT: main.css dòng 1 load font chữ (Quicksand) từ Google Fonts
+qua internet ngoài (`fonts.googleapis.com`). Nếu văn phòng dùng mạng LAN có
+internet ra ngoài chập chờn hoặc chậm, MỌI LẦN tải trang đều phải chờ Google
+Fonts trả lời — chặn hiển thị (render-blocking). Nên tự lưu font ngay trong
+dự án (self-host), bỏ phụ thuộc mạng ngoài hoàn toàn — vừa nhanh hơn, vừa không
+lỗi khi mất mạng ngoài.
+
+Các điểm khác:
+  - Icon font MDI (@mdi/font) nặng ~3.5MB, xuất cả 4 định dạng (ttf/eot/woff/
+    woff2) trong khi trình duyệt hiện đại chỉ cần woff2 (~396KB). Có thể cắt
+    bớt qua build config, giảm ~2.9MB tải không cần thiết mỗi lần vào app lần
+    đầu.
+  - Router đã code-split tốt (mỗi trang 1 file JS riêng, load theo nhu cầu).
+    exceljs (929KB, dùng cho export Excel) đã lazy-load đúng cách, không nằm
+    trong bundle chính. Đây là điểm ĐÃ LÀM TỐT, không cần sửa.
+  - CSS chính (index-*.css) nặng 802KB — có thể rà lại xem có CSS thừa không
+    dùng (việc này cần công cụ phân tích riêng, chưa đo trong lần này).
+  - Chưa có cache-control cho file JS/CSS build (chỉ /files/ ảnh có cache dài
+    hạn). Vite đã đặt tên file theo hash nội dung (an toàn để cache vĩnh viễn) —
+    nên thêm header cache dài hạn cho thư mục static build, giảm tải lại không
+    cần thiết ở các lần mở app sau.
+  - 2 file logo (zalocrm-logo.png, hs-monogram.png) đều ~1.1MB — khá nặng cho
+    ảnh logo, nên nén/resize lại (dùng WebP hoặc PNG tối ưu, có thể giảm xuống
+    dưới 100KB mà không mất chất lượng nhìn thấy được).
+  - PWA/service worker đang bị TẮT trong code (comment "chờ vite-plugin-pwa hỗ
+    trợ Vite 8") — nếu bật lại sẽ cache tài nguyên tĩnh ở máy sale, giảm tải lại
+    mỗi lần mở app. Ưu tiên thấp vì LAN vốn đã nhanh, lợi ích không lớn bằng
+    2 việc trên.
+
+===============================================================================
+PHẦN 4 — HẠ TẦNG DOCKER / MÁY CHỦ
+===============================================================================
+  - KHÔNG có giới hạn CPU/RAM cho bất kỳ container nào (app, db, redis, minio).
+    Trên máy chủ chia sẻ dùng lâu dài, nếu 1 container có lúc dùng tải nặng
+    (ví dụ xử lý ảnh/video hàng loạt) có thể chiếm hết RAM làm container khác
+    (DB) bị ảnh hưởng. Nên đặt giới hạn memory hợp lý cho từng container dựa
+    theo RAM thật của máy chủ.
+  - Fastify chưa có compression (gzip/brotli) cho response — với LAN nội bộ
+    tốc độ cao thì ảnh hưởng nhỏ, ưu tiên thấp hơn 2 phần trên.
+  - Không dùng pm2/systemd riêng — nhưng Docker `restart: unless-stopped` +
+    tini (PID 1 xử lý signal đúng chuẩn) đã đủ cho quy mô 1 máy chủ, KHÔNG cần
+    thêm gì ở đây.
+  - Postgres port/Redis port đều bind `127.0.0.1` (chỉ máy chủ tự gọi được,
+    không lộ ra mạng LAN) — đây là điểm ĐÃ AN TOÀN, giữ nguyên.
+
+===============================================================================
+ĐỀ XUẤT THỨ TỰ LÀM (theo mức ảnh hưởng thực tế / công sức)
+===============================================================================
+  1. Tự lưu font Quicksand trong dự án, bỏ phụ thuộc Google Fonts ngoài — nhỏ,
+     nhanh, ảnh hưởng trực tiếp tốc độ load mọi trang.
+  2. Nén lại 2 file logo (~1.1MB → dưới 100KB) — rất nhỏ, làm ngay được.
+  3. Thêm cron dọn định kỳ cho các bảng log/audit không cần giữ vĩnh viễn
+     (ZaloAccountStatusLog, WebhookLog, PhoneSearchEvent, FriendshipAttempt,
+     AutomationEventLog, ActivityLog) — quan trọng cho sức khỏe ổ đĩa dài hạn.
+  4. Sửa graceful shutdown để đóng sạch kết nối Zalo trước khi process thoát.
+  5. Tune Postgres theo RAM thật của máy chủ (cần anh cho biết RAM/CPU máy chủ
+     văn phòng để tính số cụ thể).
+  6. Cắt icon font MDI chỉ giữ woff2, thêm cache-control cho static build.
+  7. (Thấp ưu tiên) Đặt giới hạn RAM/CPU container, bật lại PWA nếu cần.
+
+Anh muốn em bắt tay làm theo thứ tự trên không, hay ưu tiên phần nào trước?
+Riêng mục 5 em cần biết RAM/CPU thực tế của máy chủ văn phòng mới tính được số
+cụ thể.

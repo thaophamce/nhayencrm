@@ -398,7 +398,7 @@ const primaryTabs: NavTab[] = [
     icon: 'mdi-calendar-account-outline',
     subItems: [
       { path: '/salary?tab=checkin', label: 'Chấm công', icon: 'mdi-clock-check-outline', resource: 'attendance', action: 'access' },
-      { path: '/salary?tab=leaveAdmin', label: 'Duyệt nghỉ phép', icon: 'mdi-calendar-check-outline', resource: 'leave', action: 'edit' },
+      { path: '/salary?tab=leaveAdmin', label: 'Duyệt đơn', icon: 'mdi-calendar-check-outline', resource: 'leave', action: 'edit' },
       { path: '/salary?tab=config', label: 'Cấu hình chấm công', icon: 'mdi-cog-outline', resource: 'attendance', action: 'view_all' },
       { path: '/salary?tab=table', label: 'Bảng lương', icon: 'mdi-table-account', resource: 'payroll', action: 'view_all' },
       { path: '/salary?tab=salaryMine', label: 'Phiếu lương của tôi', icon: 'mdi-file-document-outline', resource: 'payroll', action: 'access' },

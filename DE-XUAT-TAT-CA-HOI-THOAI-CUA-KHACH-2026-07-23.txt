@@ -1,0 +1,258 @@
+﻿ĐỀ XUẤT TÍNH NĂNG “TẤT CẢ HỘI THOẠI CỦA KHÁCH”
+Tham khảo giao diện Pancake
+Ngày tổng hợp: 23/07/2026
+
+======================================================================
+1. KẾT LUẬN
+======================================================================
+
+Nên làm gần giống Pancake:
+
+- Có một nút biểu tượng danh sách hội thoại trên thanh tiêu đề khung chat.
+- Tooltip: “Tất cả hội thoại của khách này”.
+- Khi bấm, cột danh sách hội thoại bên trái chuyển sang chỉ hiển thị những hội thoại liên quan khách đang mở.
+- Danh sách bao gồm hội thoại cá nhân qua các nick Zalo và các hội thoại nhóm có khách là thành viên.
+- Bấm một dòng thì khung giữa mở hội thoại đó.
+- Bấm lại nút hoặc bấm “Quay lại” thì trở về danh sách hội thoại trước đó.
+
+Đây là hướng tốt nhất vì nhân viên có thể chuyển nhanh giữa chat cá nhân và nhóm của cùng khách mà không phải tự tìm tên nhóm.
+
+======================================================================
+2. VỊ TRÍ NÚT
+======================================================================
+
+Vị trí chính:
+- Đặt nút trên thanh tiêu đề khung chat, gần nút mở cột thông tin bên phải.
+- Dùng icon danh sách hội thoại giống ý nghĩa trong ảnh Pancake.
+- Tooltip: “Tất cả hội thoại của khách này”.
+- Khi đang bật, nút đổi màu xanh để người dùng biết đang ở chế độ lọc theo khách.
+
+Vị trí phụ:
+- Trong cột Hồ sơ bên phải có thêm dòng “Tất cả hội thoại · N”.
+- Bấm vị trí chính hoặc phụ đều mở cùng một chế độ.
+- Không tạo hai chức năng khác nhau.
+
+======================================================================
+3. GIAO DIỆN SAU KHI BẤM
+======================================================================
+
+Cột danh sách hội thoại bên trái đổi tiêu đề thành:
+
+“← Hội thoại của Ngọc (5)”
+
+Danh sách hiển thị chung và sắp theo tin mới nhất:
+
+- Ngọc — hội thoại cá nhân qua nick Thiệp Cưới.
+- Ngọc — hội thoại cá nhân qua nick Nhà Yến Sport.
+- D230704 - đang thiết kế — hội thoại nhóm.
+- Nhóm Thiết kế demo Ngọc — hội thoại nhóm.
+- Các nhóm khác đã xác định khách là thành viên.
+
+Mỗi dòng nên có:
+- Avatar hội thoại.
+- Tên hội thoại.
+- Tin nhắn cuối.
+- Thời gian tin cuối.
+- Số tin chưa đọc.
+- Badge “Cá nhân” hoặc “Nhóm”.
+- Badge tên nick Zalo đang quản lý hội thoại.
+- Trạng thái nick đang kết nối hoặc mất kết nối.
+
+Không nên chia thành hai khối lớn “Cá nhân” và “Nhóm”. Nên trộn tất cả theo tin mới nhất, dùng badge để phân biệt. Cách này giống Pancake và phù hợp thao tác chăm sóc khách thực tế.
+
+======================================================================
+4. HÀNH VI KHI SỬ DỤNG
+======================================================================
+
+- Bấm hội thoại nào thì khung giữa mở nội dung hội thoại đó.
+- Danh sách “Hội thoại của khách” vẫn giữ nguyên để chuyển qua lại nhanh.
+- Bấm nút lần nữa hoặc bấm mũi tên quay lại để thoát chế độ.
+- Khi thoát, khôi phục đúng tab, bộ lọc, từ khóa tìm kiếm và vị trí cuộn trước đó.
+- Giữ nguyên hội thoại đang mở nếu nó thuộc danh sách của khách.
+- Nếu đổi sang khách khác khi chế độ đang bật, hệ thống tải danh sách của khách mới.
+- Có thể lưu trạng thái vào URL để F5 không mất chế độ, ví dụ:
+  ?contactConversations=<contactId>
+
+======================================================================
+5. CÁCH XÁC ĐỊNH HỘI THOẠI CÁ NHÂN
+======================================================================
+
+Hội thoại cá nhân lấy từ tất cả Conversation có cùng contactId.
+
+Điều này giúp tìm được:
+- Cùng một khách đang nói chuyện qua nick Thiệp Cưới.
+- Cùng khách đó đang nói chuyện qua nick Nhà Yến Sport.
+- Các nick Zalo khác trong tổ chức có liên kết với cùng Contact.
+
+Chỉ trả những hội thoại thuộc nick người dùng có quyền xem.
+
+Không được để người dùng nhìn thấy hội thoại của nick riêng tư hoặc nick ngoài phạm vi quyền hạn.
+
+======================================================================
+6. CÁCH XÁC ĐỊNH HỘI THOẠI NHÓM
+======================================================================
+
+Mỗi khách có thể có UID khác nhau theo từng nick Zalo. Vì vậy phải dùng đúng cặp:
+
+zaloAccountId + zaloUidInNick
+
+Luồng xác định nhóm:
+
+1. Lấy các Friend của Contact.
+2. Với từng Friend, lấy zaloAccountId và zaloUidInNick.
+3. Tìm GroupMember có cùng zaloAccountId và memberUid.
+4. Lấy groupId từ GroupMember.
+5. Nối groupId với Conversation.externalThreadId của hội thoại nhóm cùng zaloAccountId.
+6. Trả hội thoại nhóm cho giao diện.
+
+Không dùng Contact.id, số điện thoại hoặc globalId để so trực tiếp với roster nhóm.
+
+Nếu cùng một nhóm xuất hiện qua hai nick Zalo, nên hiển thị hai dòng riêng và có badge tên nick. Lý do: mỗi nick có quyền gửi, trạng thái kết nối và lịch sử đồng bộ riêng.
+
+======================================================================
+7. GIỚI HẠN DỮ LIỆU NHÓM
+======================================================================
+
+Dữ liệu nhóm Zalo có giới hạn:
+
+- Nhóm đông có thể chỉ trả một phần thành viên.
+- getGroupInfo có thể báo hasMoreMember > 0.
+- zca-js hiện chưa có API tải trang thành viên còn thiếu.
+- Không tìm thấy khách trong roster thiếu không có nghĩa khách chắc chắn không ở nhóm.
+
+Vì vậy giao diện phải phân biệt:
+
+- “Đã kiểm tra đầy đủ”.
+- “Có thể còn thiếu nhóm”.
+- “Nick mất kết nối — chưa làm mới được”.
+- “Chưa quét dữ liệu nhóm”.
+
+Không được âm thầm hiển thị “0 nhóm chung” nếu dữ liệu chưa đầy đủ.
+
+======================================================================
+8. API ĐỀ XUẤT
+======================================================================
+
+Nên tạo một endpoint tổng hợp:
+
+GET /api/v1/contacts/:contactId/conversations
+
+Kết quả mẫu:
+
+{
+  "items": [
+    {
+      "conversationId": "...",
+      "threadType": "user",
+      "name": "Ngọc",
+      "zaloAccountId": "...",
+      "zaloAccountName": "Thiệp Cưới",
+      "lastMessageAt": "...",
+      "unreadCount": 0
+    },
+    {
+      "conversationId": "...",
+      "threadType": "group",
+      "name": "D230704 - đang thiết kế",
+      "zaloAccountId": "...",
+      "zaloAccountName": "Thiệp Cưới",
+      "lastMessageAt": "...",
+      "unreadCount": 2
+    }
+  ],
+  "groupCoverage": {
+    "complete": false,
+    "warning": "Một số nhóm đông chưa trả đủ thành viên",
+    "checkedAt": "..."
+  }
+}
+
+Endpoint phải:
+- Kiểm tra quyền xem từng nick.
+- Trả hội thoại cá nhân từ Contact.
+- Trả hội thoại nhóm từ GroupMember.
+- Loại dữ liệu trùng.
+- Sắp xếp theo lastMessageAt mới nhất.
+- Trả trạng thái độ đầy đủ của dữ liệu nhóm.
+
+======================================================================
+9. CÁCH LÀM NHANH VÀ AN TOÀN
+======================================================================
+
+Không gọi live Zalo mỗi lần bấm nút.
+
+Luồng tốt nhất:
+
+1. Bấm nút.
+2. Đọc dữ liệu từ DB hoặc cache và hiển thị ngay.
+3. Nếu dữ liệu nhóm chưa đầy đủ, hiện cảnh báo.
+4. Người dùng chủ động bấm “Kiểm tra lại nhóm chung”.
+5. Backend mới gọi Zalo có kiểm soát qua rate limiter.
+6. Cache kết quả theo khách và nick khoảng 5–15 phút.
+
+Cách này giúp:
+- Nút phản hồi nhanh.
+- Không làm chậm giao diện.
+- Không gọi API Zalo quá nhiều.
+- Giảm nguy cơ bị giới hạn group_read.
+
+======================================================================
+10. TRƯỜNG HỢP ĐẶC BIỆT
+======================================================================
+
+Nhóm có trong Zalo nhưng CRM chưa có Conversation:
+- Hiển thị nhóm ở trạng thái “Chưa đồng bộ hội thoại”.
+- Có nút “Đồng bộ và mở”.
+- Không tạo hội thoại giả nếu chưa xác nhận người dùng có quyền và nick còn trong nhóm.
+
+Nick mất kết nối:
+- Vẫn cho xem lịch sử hội thoại đã có trong DB.
+- Hiện badge “Mất kết nối”.
+- Không cho gửi tin cho tới khi nick kết nối lại.
+
+Nhóm có roster chưa đầy đủ:
+- Nếu tìm thấy UID khách, có thể khẳng định đây là nhóm chung.
+- Nếu không tìm thấy UID khách, chưa được khẳng định khách không ở nhóm.
+
+======================================================================
+11. THỨ TỰ TRIỂN KHAI
+======================================================================
+
+Giai đoạn 1:
+- Làm API tổng hợp hội thoại cá nhân theo contactId.
+- Làm chế độ danh sách bên trái.
+- Thêm nút trên header và dòng trong Hồ sơ.
+- Làm quay lại và khôi phục bộ lọc cũ.
+
+Giai đoạn 2:
+- Bổ sung hội thoại nhóm từ GroupMember.
+- Trả trạng thái complete/partial.
+- Hiển thị cảnh báo dữ liệu nhóm.
+
+Giai đoạn 3:
+- Thêm nút “Kiểm tra lại nhóm chung”.
+- Thêm cache và rate limiter.
+- Hoàn thiện quét roster cho các nick đang kết nối.
+
+Giai đoạn 4:
+- Hỗ trợ nhóm chưa có Conversation.
+- Lưu chế độ vào URL.
+- Tối ưu tìm kiếm và phân trang khi một khách có nhiều hội thoại.
+
+======================================================================
+12. HƯỚNG ĐI TỐT NHẤT
+======================================================================
+
+Chốt đề xuất:
+
+- Làm giống hành vi trong ảnh Pancake.
+- Một nút trên header mở “Tất cả hội thoại của khách này”.
+- Cột danh sách bên trái chuyển sang toàn bộ hội thoại liên quan khách.
+- Trộn cá nhân và nhóm theo tin mới nhất.
+- Dùng badge để phân biệt loại hội thoại và nick Zalo.
+- Có nút quay lại, giữ bộ lọc cũ.
+- Đọc DB trước để phản hồi nhanh.
+- Chỉ kiểm tra live khi người dùng yêu cầu.
+- Luôn báo rõ dữ liệu nhóm đầy đủ hay có thể còn thiếu.
+
+Không nên làm popup riêng. Không nên chỉ hiển thị danh sách nhóm trong cột phải. Giá trị lớn nhất của tính năng là biến cột danh sách bên trái thành không gian chuyển nhanh giữa mọi hội thoại của cùng một khách, giống trải nghiệm Pancake.

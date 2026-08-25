@@ -1,0 +1,75 @@
+ĐÁNH GIÁ CTO — BÁO CÁO KIỂM TRA VÀ SỬA ĐỒNG BỘ ZALO 0777107860
+Người duyệt: Claude (CTO) — Ngày 22/07/2026
+Cách duyệt: KHÔNG tin lời báo cáo. Tự đọc code, tự chạy lại build/test, tự đối chiếu git diff.
+
+======================================================================
+KẾT LUẬN: DUYỆT. Báo cáo TRUNG THỰC, khớp code thực tế trên mọi điểm kiểm tra.
+======================================================================
+
+======================================================================
+1. PARSER DANH SÁCH NHÓM (mục 3.1, 4.1) — ĐÚNG
+======================================================================
+Đọc backend/src/modules/zalo/zalo-history-backfill.ts dòng 75-84:
+groupIdsFromCatalog() gộp key của cả gridVerMap lẫn gridInfoMap qua Set, loại trùng.
+Khớp chính xác 3 test trong zalo-history-backfill.test.ts.
+Tự chạy: npx vitest run tests/zalo-history-backfill.test.ts → 3/3 PASS.
+
+======================================================================
+2. THỨ TỰ ĐỒNG BỘ FRIEND TRƯỚC NHÃN (mục 3.2, 4.2) — ĐÚNG
+======================================================================
+Đọc friend-sync-service.ts dòng 457-506: syncAccountFullyImpl await xong
+syncFriendsForAccount() (Promise.allSettled riêng) rồi MỚI gọi syncLabelsIfStale()
+(Promise.allSettled riêng thứ hai) — không còn chạy song song như trước.
+Mỗi nhánh bọc allSettled riêng → 1 nhánh lỗi không sập nhánh kia. Khớp báo cáo.
+
+Tự chạy git diff -- friend-sync-service.ts: xác nhận thay đổi CHỈ nằm trong
+syncAccountFullyImpl (tách 1 mảng Promise.allSettled thành 2, đúng thứ tự),
+không đụng logic bên trong syncFriendsForAccount.
+
+======================================================================
+3. CHỐNG BACKFILL CHẠY TRÙNG (mục 3.3, 4.3) — ĐÚNG
+======================================================================
+backfillInFlight (Map in-flight dedup) + recentBackfills (Map completedAt/result)
++ BACKFILL_REPEAT_GUARD_MS = 30_000 — đúng "30 giây" báo cáo nêu.
+
+======================================================================
+4. GIẢM SPAM 404 LỊCH SỬ NHÓM (mục 3.4, 4.4) — ĐÚNG
+======================================================================
+Dòng 396: bắt lỗi 404 qua regex /status code 404|\b404\b/i → set groupHistoryUnavailable.
+Conversation nhóm vẫn upsert từ catalog TRƯỚC khi check cờ này (dòng ~306-345) →
+nhóm không bao giờ bị mất dù API lịch sử 404 toàn bộ. Khớp báo cáo.
+
+======================================================================
+5. GIỚI HẠN LỊCH SỬ DM CŨ (mục 3.5) — ĐÚNG, LÀ GIỚI HẠN SDK
+======================================================================
+Dòng 401-414: gọi api.listener.requestOldMessages qua pumpOldMessages, ghi nhận
+dmPagesRequested/messagesReceived thật, không tự bịa dữ liệu. Nếu API không tồn tại
+thì log warn và bỏ qua, không throw. Đây là giới hạn nền tảng, không phải bug che giấu.
+
+======================================================================
+6. KIỂM TRA KỸ THUẬT — TỰ CHẠY LẠI, SỐ CỦA TÔI
+======================================================================
+- npx tsc --noEmit (toàn backend): PASS, không lỗi.
+- npx vitest run tests/zalo-history-backfill.test.ts: 3/3 PASS.
+- npx vitest run tests/friend-sync-service.test.ts: 5 FAIL / 4 PASS — ĐÚNG như báo cáo
+  tự khai. Đối chiếu git diff xác nhận 5 test fail (emittedCount, applyFriendTransition,
+  createdContacts) nằm trong syncFriendsForAccount — hàm KHÔNG bị đổi bởi bản sửa này.
+  → Kết luận: lỗi test có sẵn từ trước (mock/expectation lệch code), không do parser
+  nhóm hay thứ tự đồng bộ gây ra. Khớp lời khai báo cáo.
+
+======================================================================
+7. QUYẾT ĐỊNH CỦA CTO
+======================================================================
+[x] DUYỆT báo cáo. Mọi tuyên bố kỹ thuật đối chiếu đúng với code, build sạch,
+    test liên quan đến bản sửa PASS 100%, test fail có sẵn được xác minh không
+    liên quan và không bị giấu.
+
+Ghi nhận tích cực: báo cáo tự nêu rõ giới hạn SDK (DM cũ không khôi phục được)
+thay vì im lặng bỏ qua, và tự khai 5 test fail có sẵn thay vì giấu — đúng chuẩn
+minh bạch như 2 báo cáo trước.
+
+Không có hạng mục nào cần production action (đây là fix backend logic + đồng bộ
+tài khoản 0777107860 đã chạy thật, không phải thay đổi cần deploy riêng).
+
+Đề xuất không bắt buộc: dọn 5 test fail có sẵn trong friend-sync-service.test.ts
+ở lần sửa sau, để tránh nhiễu tín hiệu khi review các bản vá tiếp theo.

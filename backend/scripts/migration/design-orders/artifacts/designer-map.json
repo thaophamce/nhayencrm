@@ -1,0 +1,146 @@
+{
+  "generatedAt": "2026-08-04T15:19:29.086Z",
+  "orgId": "4189574a-f0f9-46a5-be49-e5119dcc7376",
+  "totalDesigners": 17,
+  "activeMatched": 17,
+  "inactiveMatched": 0,
+  "unmatchedCount": 0,
+  "mappings": [
+    {
+      "firebaseUsername": "quangtruong",
+      "trackerName": "Phạm Quang Trường",
+      "userId": "e928f1e4-14c4-47d6-8fdd-1df945dbb9d3",
+      "crmFullName": "Phạm Quang Trường",
+      "isActive": true,
+      "status": "active_matched"
+    },
+    {
+      "firebaseUsername": "hoangvy",
+      "trackerName": "Phạm Vũ Hoàng Vy",
+      "userId": "5cd97cb4-434f-4955-988c-3e0d14ebb21e",
+      "crmFullName": "Phạm Vũ Hoàng Vy",
+      "isActive": true,
+      "status": "active_matched"
+    },
+    {
+      "firebaseUsername": "thienbinh",
+      "trackerName": "Vũ Thiên Bình",
+      "userId": "41a70630-e29e-4d08-9fb1-c94e481aef4b",
+      "crmFullName": "Vũ Thiên Bình",
+      "isActive": true,
+      "status": "active_matched"
+    },
+    {
+      "firebaseUsername": "baoanh",
+      "trackerName": "Hoàng Đình Bảo Anh",
+      "userId": "c0567987-8d4b-40a3-8e6c-e1fa48f4f1d3",
+      "crmFullName": "Hoàng Đình Bảo Anh",
+      "isActive": true,
+      "status": "active_matched"
+    },
+    {
+      "firebaseUsername": "anhminh",
+      "trackerName": "Phạm Công Anh Minh",
+      "userId": "56fbcdb3-423a-41d6-94fd-13bc5e103545",
+      "crmFullName": "Phạm Công Anh Minh",
+      "isActive": true,
+      "status": "active_matched"
+    },
+    {
+      "firebaseUsername": "datthanh",
+      "trackerName": "Dương Đạt Thành",
+      "userId": "682480bc-94d4-48da-957d-def5c1b48bb3",
+      "crmFullName": "Dương Đạt Thành",
+      "isActive": true,
+      "status": "active_matched"
+    },
+    {
+      "firebaseUsername": "tiendat",
+      "trackerName": "Phạm Tiến Đạt",
+      "userId": "88d0bb5f-505a-41cf-a5f8-854f6a69a718",
+      "crmFullName": "Phạm Tiến Đạt",
+      "isActive": true,
+      "status": "active_matched"
+    },
+    {
+      "firebaseUsername": "hongthuy",
+      "trackerName": "Nguyễn Thị Hồng Thủy",
+      "userId": "3a2b6f92-cc7d-454c-8dc4-b755e0a0fbd3",
+      "crmFullName": "Nguyễn Thị Hồng Thủy",
+      "isActive": true,
+      "status": "active_matched"
+    },
+    {
+      "firebaseUsername": "huuthuan",
+      "trackerName": "Trần Quốc Hữu Thuận",
+      "userId": "28f7d0fe-7c5f-4485-880d-86dca14e0f91",
+      "crmFullName": "Trần Quốc Hữu Thuận",
+      "isActive": true,
+      "status": "active_matched"
+    },
+    {
+      "firebaseUsername": "hoanglam",
+      "trackerName": "Đào Hoàng Lâm",
+      "userId": "694004e7-91c3-458c-99cb-6ce64ee3eac3",
+      "crmFullName": "Đào Hoàng Lâm",
+      "isActive": true,
+      "status": "active_matched"
+    },
+    {
+      "firebaseUsername": "anhtu",
+      "trackerName": "Trần Lê Anh Tú",
+      "userId": "2dd8f929-84c3-4fdb-9b4a-ac72d3c088eb",
+      "crmFullName": "Trần Lê Anh Tú",
+      "isActive": true,
+      "status": "active_matched"
+    },
+    {
+      "firebaseUsername": "baosang",
+      "trackerName": "Trần Hồ Bảo Sang",
+      "userId": "94eca239-714b-4705-b512-df9ab3b4e7d7",
+      "crmFullName": "Trần Hồ Bảo Sang",
+      "isActive": true,
+      "status": "active_matched"
+    },
+    {
+      "firebaseUsername": "metuan",
+      "trackerName": "Mè Tuấn",
+      "userId": "1ff44600-fe06-4235-bcf5-945c76c89074",
+      "crmFullName": "Mè Tuấn",
+      "isActive": true,
+      "status": "active_matched"
+    },
+    {
+      "firebaseUsername": "minhkhang",
+      "trackerName": "Dương Minh Khang",
+      "userId": "a7f8d7c4-cde0-4cf4-8cfd-dfe07b16eab2",
+      "crmFullName": "Dương Minh Khang",
+      "isActive": true,
+      "status": "active_matched"
+    },
+    {
+      "firebaseUsername": "nguyenrola",
+      "trackerName": "Nguyễn Rola",
+      "userId": "1e4eb122-6ac1-4a26-aebb-d3ab4cb613e6",
+      "crmFullName": "Nguyễn Rola",
+      "isActive": true,
+      "status": "active_matched"
+    },
+    {
+      "firebaseUsername": "theanh",
+      "trackerName": "Trần Thế Anh",
+      "userId": "671aabde-471d-4aa0-bbee-b3cdc76f6d05",
+      "crmFullName": "Trần Thế Anh",
+      "isActive": true,
+      "status": "active_matched"
+    },
+    {
+      "firebaseUsername": "khanhlinh",
+      "trackerName": "Bùi Khánh Linh",
+      "userId": "75f38c45-b679-44ef-ab75-cd11be1c9a80",
+      "crmFullName": "Bùi Khánh Linh",
+      "isActive": true,
+      "status": "active_matched"
+    }
+  ]
+}

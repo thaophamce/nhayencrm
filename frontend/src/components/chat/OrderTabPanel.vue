@@ -84,11 +84,28 @@
     </main>
 
     <footer class="order-footer"><strong>{{ money(total) }}</strong><div><button @click="reset">Thiết lập lại</button><button :disabled="submitting || syncing || (!!linkedOrder && !currentOrderCode)" @click="submitOrder">{{ submitting ? (currentOrderCode ? 'Đang lưu…' : 'Đang tạo…') : (currentOrderCode ? 'Lưu thay đổi' : linkedOrder ? 'Đã tạo đơn' : 'Tạo đơn') }}</button></div></footer>
+    <div
+      v-if='priceSavePromptOpen'
+      class='price-save-prompt'
+      role='dialog'
+      aria-modal='true'
+      aria-labelledby='price-save-prompt-title'
+    >
+      <div class='price-save-prompt-card'>
+        <v-icon size='28' color='#316bc5'>mdi-content-save-alert-outline</v-icon>
+        <strong id=price-save-prompt-title>Lưu thay đổi đơn hàng?</strong>
+        <p>Đơn giá vừa được cập nhật. Bạn có muốn lưu toàn bộ thay đổi của đơn không?</p>
+        <div class='price-save-prompt-actions'>
+          <button type='button' class='price-save-prompt-later' @click='dismissPriceSavePrompt'>Để sau</button>
+          <button type='button' class='price-save-prompt-confirm' :disabled='submitting' @click='confirmPriceSave'>Đồng ý lưu</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { api } from '@/api';
 import { useToast } from '@/composables/use-toast';
 import type { Contact } from '@/composables/use-contacts';
@@ -99,6 +116,10 @@ const warehouseId=ref(''), search=ref(''), showProducts=ref(false), productLoadi
 const highlightedProductIndex=ref(-1);
 const shippingFee=ref(0), discount=ref(0), deposit=ref(0), note=ref(''), printNote=ref('');
 const customer=ref({name:'',phone:'',address:''});
+const PRICE_SAVE_PROMPT_DELAY_MS = 10_000;
+const priceSavePromptOpen=ref(false);
+let priceSavePromptTimer:ReturnType<typeof setTimeout>|null=null;
+let priceSavePromptOrderCode='';
 const subtotal=computed(()=>items.value.reduce((s,i)=>s+i.price*i.quantity,0)); const totalQuantity=computed(()=>items.value.reduce((s,i)=>s+i.quantity,0));
 const total=computed(()=>Math.max(0,subtotal.value+(Number(shippingFee.value)||0)-(Number(discount.value)||0)));
 const amountDue=computed(()=>Math.max(0,total.value-(Number(deposit.value)||0)));
@@ -114,7 +135,26 @@ function dateTime(value:string){if(!value)return '';const date=new Date(value);r
 function money(v:number){return new Intl.NumberFormat('vi-VN').format(Number(v)||0)+' đ'}
 function formatNumber(v:number){return new Intl.NumberFormat('en-US',{maximumFractionDigits:0}).format(Number(v)||0)}
 function digits(value:string){return value.replace(/\D/g,'')}
-function setPrice(item:any,event:Event){const el=event.target as HTMLInputElement;item.price=Number(digits(el.value))||0;el.value=formatNumber(item.price)}
+function clearPriceSavePrompt(){
+  if(priceSavePromptTimer){clearTimeout(priceSavePromptTimer);priceSavePromptTimer=null}
+  priceSavePromptOrderCode='';
+  priceSavePromptOpen.value=false;
+}
+function schedulePriceSavePrompt(){
+  if(priceSavePromptTimer)clearTimeout(priceSavePromptTimer);
+  priceSavePromptTimer=null;
+  priceSavePromptOpen.value=false;
+  const orderCode=currentOrderCode.value;
+  if(!orderCode)return;
+  priceSavePromptOrderCode=orderCode;
+  priceSavePromptTimer=setTimeout(()=>{
+    priceSavePromptTimer=null;
+    if(currentOrderCode.value===priceSavePromptOrderCode&&!submitting.value)priceSavePromptOpen.value=true;
+  },PRICE_SAVE_PROMPT_DELAY_MS);
+}
+function dismissPriceSavePrompt(){priceSavePromptOpen.value=false;priceSavePromptOrderCode=''}
+async function confirmPriceSave(){priceSavePromptOpen.value=false;await savePancakeOrder()}
+function setPrice(item:any,event:Event){const el=event.target as HTMLInputElement;item.price=Number(digits(el.value))||0;el.value=formatNumber(item.price);schedulePriceSavePrompt()}
 function setQuantity(item:any,event:Event){const el=event.target as HTMLInputElement;item.quantity=Math.max(1,Number(digits(el.value))||1);el.value=String(item.quantity)}
 function selectInput(e:FocusEvent){(e.target as HTMLInputElement)?.select()}
 function initials(v:string){return (v||'KH').trim().split(/\s+/).slice(-2).map(x=>x[0]).join('').toUpperCase()}
@@ -143,14 +183,15 @@ function addProduct(p:any){const old=items.value.find(i=>i.variation_id===p.id);
 async function onProductKeydown(event:KeyboardEvent){if(event.key==='Escape'){showProducts.value=false;highlightedProductIndex.value=-1;return}if(event.key==='Enter'){event.preventDefault();if(showProducts.value&&highlightedProductIndex.value>=0&&products.value[highlightedProductIndex.value])addProduct(products.value[highlightedProductIndex.value]);else void loadProducts();return}if(event.key!=='ArrowDown'&&event.key!=='ArrowUp')return;event.preventDefault();if(!showProducts.value){void loadProducts();return}const count=products.value.length;if(!count)return;highlightedProductIndex.value=event.key==='ArrowDown'?(highlightedProductIndex.value+1+count)%count:(highlightedProductIndex.value-1+count)%count;await nextTick();document.querySelector('.product-results button.active')?.scrollIntoView({block:'nearest'})}
 function orderPayload(){const paid=Math.max(0,Number(deposit.value)||0);return {warehouse_id:warehouseId.value,bill_full_name:customer.value.name.trim(),bill_phone_number:customer.value.phone.trim(),shipping_address:{address:customer.value.address.trim(),full_address:customer.value.address.trim(),full_name:customer.value.name.trim(),phone_number:customer.value.phone.trim()},note:note.value,note_print:printNote.value,items:items.value.map(i=>({variation_id:i.variation_id,product_id:i.product_id,quantity:i.quantity,variation_info:{name:i.name,detail:i.detail,retail_price:i.price}})),shipping_fee:shippingFee.value,total_discount:discount.value,is_free_shipping:false,charged_by_qrpay:paid}}
 function validateOrder(){if((Number(deposit.value)||0)>total.value){toast.error('Tiền đặt cọc không được lớn hơn tổng giá trị đơn hàng');return false}return true}
-async function submitOrder(){if(currentOrderCode.value)return savePancakeOrder();return createPancakeOrder()}
+async function submitOrder(){clearPriceSavePrompt();if(currentOrderCode.value)return savePancakeOrder();return createPancakeOrder()}
 async function createPancakeOrder(){if(submitting.value||!validateOrder())return;submitting.value=true;try{const {data}=await api.post(`/orders/pancake/from-conversation/${props.conversationId}`,orderPayload());linkedOrder.value=data.link;toast.success(data.renameSucceeded&&props.threadType==='group'?`Đã tạo đơn ${data.link?.orderCode} và đổi tên nhóm`:`Đã tạo đơn ${data.link?.orderCode}`);await syncPancakeOrder()}catch(e:any){toast.error(e.response?.data?.error||'Tạo đơn thất bại');await loadLink()}finally{submitting.value=false}}
 async function savePancakeOrder(){if(submitting.value||!validateOrder())return;submitting.value=true;try{const {data}=await api.put(`/orders/pancake/detail/${encodeURIComponent(currentOrderCode.value)}`,orderPayload());const order=data.order||data;syncedOrder.value=order;applyPancakeOrder(order);toast.success(`Đã lưu thay đổi đơn ${currentOrderCode.value}`)}catch(e:any){toast.error(e.response?.data?.error||'Lưu thay đổi thất bại')}finally{submitting.value=false}}
 async function retryRename(){try{const {data}=await api.post(`/orders/pancake/from-conversation/${props.conversationId}/retry-rename`);linkedOrder.value=data.link;toast.success('Đã đổi tên nhóm')}catch(e:any){toast.error(e.response?.data?.error||'Không đổi được tên nhóm')}}
-function reset(){items.value=[];shippingFee.value=0;discount.value=0;deposit.value=0;note.value='';printNote.value='';prefill()}
+function reset(){clearPriceSavePrompt();items.value=[];shippingFee.value=0;discount.value=0;deposit.value=0;note.value='';printNote.value='';prefill()}
 let searchTimer:ReturnType<typeof setTimeout>|null=null;
 watch(search,(value)=>{if(searchTimer)clearTimeout(searchTimer);highlightedProductIndex.value=-1;if(!value.trim()){products.value=[];showProducts.value=false;productRequestId++;return}searchTimer=setTimeout(()=>void loadProducts(),150)});
-watch(()=>props.conversationId,()=>{reset();syncedOrder.value=null;loadLink();syncPancakeOrder()}); watch(()=>props.groupName,()=>{syncedOrder.value=null;syncPancakeOrder()}); watch(()=>props.contact,()=>{if(!syncedOrder.value)prefill()},{deep:false}); onMounted(async()=>{prefill();await loadWarehouses();loadLink();syncPancakeOrder()});
+watch(()=>props.conversationId,()=>{clearPriceSavePrompt();reset();syncedOrder.value=null;loadLink();syncPancakeOrder()}); watch(()=>props.groupName,()=>{clearPriceSavePrompt();syncedOrder.value=null;syncPancakeOrder()}); watch(()=>props.contact,()=>{if(!syncedOrder.value)prefill()},{deep:false}); onMounted(async()=>{prefill();await loadWarehouses();loadLink();syncPancakeOrder()});
+onBeforeUnmount(()=>{clearPriceSavePrompt();if(searchTimer)clearTimeout(searchTimer)});
 </script>
 
 <style scoped>
@@ -161,4 +202,8 @@ watch(()=>props.conversationId,()=>{reset();syncedOrder.value=null;loadLink();sy
 .quantity-input{min-width:48px}
 .product-row .line-total,.money-red,.amount-due b{color:#e02020}
 .product-results button.active{background:#edf3ff;outline:1px solid #9dbcf0}
+.price-save-prompt{position:fixed;inset:0;z-index:3000;display:grid;place-items:center;padding:16px;background:rgba(15,23,42,.34);backdrop-filter:blur(2px)}
+.price-save-prompt-card{width:min(360px,calc(100vw - 32px));padding:22px;border:1px solid #dce5f2;border-radius:16px;background:#fff;box-shadow:0 20px 55px rgba(15,23,42,.25);display:flex;flex-direction:column;align-items:center;gap:10px;text-align:center;color:#172033}
+.price-save-prompt-card strong{font-size:16px}.price-save-prompt-card p{margin:0;color:#667085;font-size:13px;line-height:1.5}
+.price-save-prompt-actions{display:grid;grid-template-columns:1fr 1fr;width:100%;gap:8px;margin-top:5px}.price-save-prompt-actions button{height:36px;border:0;border-radius:7px;font:inherit;font-weight:700;cursor:pointer}.price-save-prompt-later{background:#eef0f5;color:#667085}.price-save-prompt-confirm{background:#316bc5;color:#fff}.price-save-prompt-actions button:disabled{opacity:.55;cursor:default}
 </style>

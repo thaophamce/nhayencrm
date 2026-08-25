@@ -1,0 +1,8 @@
+Cloudflare:
+https://freebsd-autos-boss-vehicle.trycloudflare.com
+
+Local:
+http://localhost:5173
+
+Cap nhat: 2026-07-31 22:36:41
+Link Cloudflare thay doi sau moi lan restart.

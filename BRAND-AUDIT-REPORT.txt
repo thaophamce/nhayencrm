@@ -1,0 +1,157 @@
+BRAND AUDIT — Nhà Yến CRM
+==========================
+
+## Brand Audit
+
+### Da sua
+
+--- Metadata / SEO / PWA ---
+- frontend/public/manifest.json — name, short_name, description -> Nha Yen CRM
+- frontend/src/router/index.ts:368 — BRAND = 'Nha Yen CRM' (browser tab title)
+- backend/package.json — description -> "Nha Yen CRM Backend API"
+- frontend/index.html — da dung brand moi tu truoc (title Thiep Cuoi Nha Yen CRM, favicon /brand/logovip.png)
+
+--- UI hien thi ---
+- frontend/src/views/LoginView.vue — fallback brand 'HS Holding' -> 'Nha Yen CRM' + comment banner
+- frontend/src/views/ForcePasswordChangeView.vue:141,150 — 2 fallback brand
+- frontend/src/components/settings/OrgSettings.vue — placeholder slogan / copyright / preview fallback
+- frontend/src/views/AppointmentActionView.vue:11 — trang cong khai gui cho khach: logo HS + ZaloCRM -> NY + Nha Yen CRM
+- frontend/src/views/settings/TagTaxonomyV2Page.vue — 4 cho text/alert "zalocrm" -> "Nha Yen CRM"
+- backend/src/modules/integrations/providers/telegram-bot.ts:40 — tieu de digest Telegram
+
+--- Demo / fake data ---
+- backend/scripts/seed-demo-data.ts — cong ty mau Thien Phuc -> Nha Yen, email fake @nhayencrm.local
+
+--- Tai lieu ---
+- README.md — tieu de, mo ta, dong giay phep, disclaimer VI + EN
+- CHANGELOG.md:3, docs/architecture/README.md, docs/HUONG-DAN-CAU-HINH-CLOUDFLARE-R2.md,
+  docs/HUONG-DAN-TRIEN-KHAI-PRODUCTION-COMMUNITY.md, HUONG-DAN-CAI-DAT.md:1
+- docs/zalocrm-api/api-documentation{,-vi}.md, postman-collection.json — chi prose description + payload vi du (JSON da validate)
+
+--- Comment branding + dev script ---
+- 15 file comment "HS Holding" -> "Nha Yen" (CSS/theme/layout/view comments)
+- backend/src/modules/rbac/permission-types.ts:11, backend/src/shared/voice-sender.ts:4
+- bin/dev-setup, bin/dev-teardown — dong echo
+
+
+### Chua sua vi co nguy co anh huong code
+
+| Cho | Ly do |
+|---|---|
+| localStorage keys: zalocrm.notes.enterToSave, zalocrm.friends.state.v1, zalocrm-offline-queue, zalocrm:listDetail:visibleColumns:v5 | Doi = mat state/queue offline cua user dang dung |
+| window.__zaloCRMConvCache* (use-chat.ts:302) | Debug global, code khac tham chieu |
+| zcrm_ prefix API key (webhook-settings-routes.ts:82) | API CONTRACT — key da phat cho he thong ngoai |
+| DB name zalocrm, bucket zalocrm-attachments (config/index.ts:47,72, .env.example, docker-compose*.yml) | Doi = mat ket noi DB / mat file da upload |
+| tmpdir prefix zalocrm-* (4 file) | Runtime path |
+| User-Agent: ZaloCRM/1.0 (zinstant-proxy-routes.ts:126) | Header goi Zalo, doi co the bi chan |
+| capacitor.config.ts appId: com.zalocrm.app, Info.plist, project.pbxproj | Doi appId = MAT CHU KY iOS, app cu khong update duoc |
+| backend/package.json "name": "zalo-sales-crm-backend" | Khop package-lock.json |
+| Prisma migration SQL (5 file) + schema.prisma comment path | Migration da chay production, khong sua lich su |
+| backend/tests/*.test.ts ('HS Holding' fixtures) | Yeu cau khong dung test logic |
+| media-service.ts:475 watermark static/brand/zalocrm-logo-ngang.png | Duong dan file thuc (dir gitignored) |
+| .github/workflows/build-ios-ipa.yml | Ten artifact IPA khop step build |
+| scripts/install.{sh,ps1}, zalocrm-deploy.sh, migrate-storage-*.sh | Chua DB name / MinIO creds / bucket / ten file backup |
+| theme name 'hsLight' (plugins/vuetify.ts) | Runtime key cua Vuetify |
+
+
+### Can toi xac nhan
+
+1. Dang co 2 ten brand song song: "Thiep Cuoi Nha Yen" (co san o index.html, DefaultLayout.vue,
+   backend org-branding-routes.ts DEFAULTS) va "Nha Yen CRM" (moi ap). Can thong nhat mot ten.
+2. Khoi license/AGPL — KHONG duoc tu xoa: LICENSE, NOTICE, THIRD-PARTY-LICENSES.md, DCO,
+   ~533 SPDX header "Copyright (C) 2026 Nguyen Tien Loc", va dieu khoan trademark "ZCRM" o
+   README.md:520-551. Xoa = vi pham giay phep. Can quyet dinh phap ly/kinh doanh.
+3. CONTRIBUTING.md — toan bo la quy trinh dong gop + CLA + email thuong mai cua tac gia upstream
+   (locnt@locnguyendata.com). Giu nguyen? Hay xoa file vi repo rieng cua cong ty khong nhan
+   contribution ngoai?
+4. README.md:466-476 — khoi lien he dich vu cua tac gia cu (website locnguyendata.com, email,
+   Telegram group) va README.md:414 link docs.locnguyendata.com. Xoa hay thay bang thong tin cong ty?
+5. CHANGELOG.md — cac entry v3.4.0 tro ve truoc la lich su upstream, van ghi ZCRM. Giu lam lich su
+   hay viet lai?
+6. Sai lech giay phep: docs/HUONG-DAN-TRIEN-KHAI-PRODUCTION-COMMUNITY.md:255 ghi GPL-3.0, con ca
+   repo ghi AGPL-3.0. La text phap ly nen khong tu sua.
+7. frontend/src/views/LoginView.vue:60-65 — footer "ZaloCRM — phan mem tu do / AGPL-3.0 / Ma nguon"
+   dang bi comment tat (TAM AN 2026-06-23). AGPL dieu 13 yeu cau chao ma nguon khi chay SaaS. Bat
+   lai (doi text) hay de tat?
+8. .env.example line 21,24,59,103 — zalocrm.locnguyendata.com, email lien he license. Doi domain
+   thanh domain cong ty duoc khong?
+9. Thu muc docs/zalocrm-api/ — ten thu muc mang brand cu; doi ten se vo link trong docs. Doi khong?
+10. Asset chua thay (can file thiet ke):
+    - frontend/public/brand/: zalocrm.ico, zalocrm-logo.png, zalocrm-logo-ngang.png,
+      zalocrm-logo-ngang-co-slogan.png, zalocrm-lockup-vertical.png, hs-monogram.png
+    - assets/brand/: 14 file zcrm-*.png + zcrm.ico
+    - frontend/public/: favicon.svg, pwa-192x192.svg, pwa-512x512.svg,
+      "Giao Dien Tinh Nang Zalo Tool CRM.xlsx"
+11. assets/posts/facebook/ — 4 file bai marketing ra mat ZaloCRM cu. Xoa?
+
+
+### File da chinh
+
+frontend/public/manifest.json
+frontend/src/router/index.ts
+frontend/src/views/LoginView.vue
+frontend/src/views/ForcePasswordChangeView.vue
+frontend/src/views/AppointmentActionView.vue
+frontend/src/views/settings/TagTaxonomyV2Page.vue
+frontend/src/views/marketing/ListDetailView.vue
+frontend/src/views/marketing/ListsView.vue
+frontend/src/components/settings/OrgSettings.vue
+frontend/src/components/appointments/AppointmentEditor.vue
+frontend/src/components/chat/ConversationList.vue
+frontend/src/components/chat/FollowUpCard.vue
+frontend/src/components/friends/FriendsFilterBar.vue
+frontend/src/components/media/MediaReviewDialog.vue
+frontend/src/layouts/AuthLayout.vue
+frontend/src/layouts/DefaultLayout.vue
+frontend/src/assets/hs-crm-theme.css
+frontend/src/assets/airtable.css
+frontend/src/assets/report-kit.css
+frontend/src/main.ts
+frontend/src/plugins/vuetify.ts
+backend/package.json
+backend/scripts/seed-demo-data.ts
+backend/src/modules/integrations/providers/telegram-bot.ts
+backend/src/modules/rbac/permission-types.ts
+backend/src/modules/tags/zalo-label-queue.ts
+backend/src/shared/voice-sender.ts
+bin/dev-setup
+bin/dev-teardown
+README.md
+CHANGELOG.md
+HUONG-DAN-CAI-DAT.md
+docs/architecture/README.md
+docs/HUONG-DAN-CAU-HINH-CLOUDFLARE-R2.md
+docs/HUONG-DAN-TRIEN-KHAI-PRODUCTION-COMMUNITY.md
+docs/zalocrm-api/api-documentation.md
+docs/zalocrm-api/api-documentation-vi.md
+docs/zalocrm-api/postman-collection.json
+
+
+### Tu khoa branding cu con sot
+
+| Tu khoa | Con | O dau |
+|---|---|---|
+| Thien Phuc | 0 | da sach |
+| HS Holding | 4 | 1 migration SQL comment + 3 test fixtures |
+| ZaloCRM / zalocrm | ~200 | license header, migration SQL, localStorage/bucket/DB/tmpdir, iOS appId,
+                              script deploy, URL github, assets/posts/, ten thu muc docs/zalocrm-api/ |
+| ZCRM / zcrm | 40 | /root/0project/ZCRM (path server), ZCRM_DIR (env var), zcrm_ API key prefix,
+                     trademark clause, CHANGELOG lich su |
+| locnguyendata | 43 | NOTICE/LICENSE, .env.example, README lien he tac gia, docs R2 (domain thuc cua moi truong cu) |
+| locphamnguyen | 42 | URL repo upstream (clone/install commands, CHANGELOG, CONTRIBUTING) |
+| Nguyen Tien Loc | ~533 | SPDX copyright header (PHAP LY — khong xoa) |
+| zalo-sales-crm-backend | 3 | package.json + package-lock.json |
+
+Tat ca phan con sot deu thuoc 1 trong 3 nhom: phap ly AGPL, runtime/ha tang, hoac can quyet dinh
+(muc "Can toi xac nhan" o tren).
+
+
+### Kiem tra cuoi
+
+- backend: tsc --noEmit -> 0 loi
+- frontend: vue-tsc --noEmit -> 0 loi
+- frontend: vite build -> thanh cong (chi warning chunk >500kB, co tu truoc)
+- JSON da sua (manifest.json, postman-collection.json, package.json) -> parse OK
+- Khong co script lint trong package.json nen khong chay duoc lint
+
+Chua test UI tren browser truoc bao cao nay — dang chay dev server, se kiem tra ngay sau.

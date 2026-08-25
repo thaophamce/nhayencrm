@@ -3,6 +3,7 @@ FROM node:22-alpine AS frontend-builder
 WORKDIR /app/frontend
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci --legacy-peer-deps
+RUN npm install --no-save --legacy-peer-deps --ignore-scripts lightningcss-linux-x64-musl@1.32.0
 COPY frontend/ ./
 RUN NODE_OPTIONS="--max-old-space-size=4096" npm run build
 

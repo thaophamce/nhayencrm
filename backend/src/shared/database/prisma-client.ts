@@ -63,12 +63,15 @@ function createPrismaClient() {
 
   const adapter = new PrismaPg({ connectionString });
 
+  // Query logging is extremely verbose on a busy CRM and can fill the local
+  // disk within hours. Enable it only for a short, explicit diagnostic run.
+  const prismaLogLevels = process.env.PRISMA_QUERY_LOG === 'true'
+    ? (['query', 'error', 'warn'] as const)
+    : (['error', 'warn'] as const);
+
   const base = new PrismaClient({
     adapter,
-    log:
-      process.env.NODE_ENV === 'development'
-        ? ['query', 'error', 'warn']
-        : ['error'],
+    log: [...prismaLogLevels],
   });
 
   return base.$extends({
