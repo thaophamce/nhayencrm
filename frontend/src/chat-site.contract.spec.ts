@@ -30,9 +30,22 @@ describe('Nhà Yến Chat standalone site contract', () => {
 
   it('owns the standalone header dimensions instead of relying on scoped CRM CSS', () => {
     expect(layout).toMatch(/\.chat-site-header\s*\{[\s\S]*height:\s*52px/);
-    expect(layout).toMatch(/\.header-wordmark img\s*\{[\s\S]*width:\s*132px/);
+    expect(layout).toMatch(/\.header-wordmark img\s*\{[\s\S]*width:\s*28px/);
     expect(layout).toMatch(/\.header-wordmark img\s*\{[\s\S]*height:\s*34px/);
     expect(layout).toMatch(/\.chat-site-main\s*\{[\s\S]*overflow:\s*hidden/);
+  });
+
+  it('uses the existing work scope for the centered Zalo nick picker', () => {
+    expect(layout).toContain('const workScope = useWorkScope()');
+    expect(layout).toContain('workScope.lockToNick(accountId)');
+    expect(layout).toContain('Tất cả nick Zalo');
+    expect(layout).toContain('activeNickStatusText');
+  });
+
+  it('moves CRM and logout actions into the employee account menu', () => {
+    expect(layout).toContain('<v-list-item :href="crmUrl">');
+    expect(layout).toContain('<v-list-item @click="logout">');
+    expect(layout).toContain('class="chat-site-user"');
   });
 
   it('ships as an isolated static service that proxies the existing backend', () => {
