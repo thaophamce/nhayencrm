@@ -1107,4 +1107,62 @@ onUnmounted(() => { observer?.disconnect(); });
   position: absolute; inset: 0; z-index: 9998;
   background: transparent;
 }
+
+/* Mobile keeps the primary selection action inside the visual viewport. */
+@media (max-width: 600px) {
+  .cmp-overlay {
+    align-items: center;
+    padding: max(8px, env(safe-area-inset-top)) 8px max(8px, env(safe-area-inset-bottom));
+  }
+
+  .cmp-modal {
+    width: 100%;
+    max-width: 100%;
+    height: calc(100dvh - max(16px, env(safe-area-inset-top)) - max(16px, env(safe-area-inset-bottom)));
+    max-height: 100%;
+  }
+
+  .cmp-header { padding-inline: 12px; }
+  .cmp-title { flex: 0 0 76px; }
+  .cmp-header-actions { flex: 1; min-width: 0; gap: 6px; }
+  .cmp-search-wrap--header { width: auto; flex: 1; min-width: 0; }
+
+  .cmp-sidebar { width: min(42vw, 190px); }
+  .cmp-main { padding: 8px; }
+  .cmp-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+
+  .cmp-footer {
+    min-width: 0;
+    gap: 8px;
+    padding: 8px max(10px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left));
+  }
+  .cmp-footer-left { min-width: 0; flex: 1; gap: 0; }
+  .cmp-footer-left > :not(.cmp-picked-badge) { display: none; }
+  .cmp-picked-badge {
+    max-width: 100%;
+    margin: 0;
+    padding-inline: 8px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .cmp-footer-right { flex: 0 0 auto; gap: 6px; }
+  .cmp-btn-more-options { display: none; }
+  .cmp-upload-btn-group .cmp-btn-upload-footer {
+    border: 1px solid var(--hairline);
+    border-radius: 6px;
+    padding-inline: 10px;
+    white-space: nowrap;
+  }
+  .cmp-btn-confirm-action {
+    min-width: 64px;
+    padding-inline: 14px;
+    white-space: nowrap;
+  }
+}
+
+@media (max-width: 380px) {
+  .cmp-btn-upload-footer { display: none; }
+  .cmp-title { flex-basis: 68px; }
+}
 </style>
