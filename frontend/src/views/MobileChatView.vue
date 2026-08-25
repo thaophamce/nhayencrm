@@ -106,7 +106,6 @@
               :ai-summary-loading="false"
               :ai-sentiment="(null as any)"
               :ai-sentiment-loading="false"
-              :hide-profile="true"
               @close="closeProfileSheet"
               @saved="fetchConversations()"
             />
