@@ -109,22 +109,22 @@ model Organization {
   phoneSearchEvents           PhoneSearchEvent[]
   // Phase Privacy v2 2026-05-23 — nick chuyên dùng GỬI system notification cho cả org.
   // Admin pick bất kỳ nick connected. FK SET NULL khi nick bị xóa.
-  systemNotifyZaloAccountId   String?                 @map("system_notify_zalo_account_id")
-  systemNotifyNick            ZaloAccount?            @relation("OrgSystemNotify", fields: [systemNotifyZaloAccountId], references: [id], onDelete: SetNull)
+  systemNotifyZaloAccountId   String?                  @map("system_notify_zalo_account_id")
+  systemNotifyNick            ZaloAccount?             @relation("OrgSystemNotify", fields: [systemNotifyZaloAccountId], references: [id], onDelete: SetNull)
   systemNotifyRecipients      SystemNotifyRecipient[]
   systemNotifications         SystemNotification[]
   // CareSession 2026-06-07 — UID nhóm Zalo nhận thông báo "đích nhóm" (nhìn từ góc
   // nick hệ thống gửi, giống per-nick UID 1-1). Admin nhập tay ở Settings. Gửi qua
   // sendMessage(threadId, threadType=1). null = đích nhóm tắt.
-  internalNotifyGroupThreadId String?                 @map("internal_notify_group_thread_id")
+  internalNotifyGroupThreadId String?                  @map("internal_notify_group_thread_id")
   // CareSession 2026-06-07 (anh chốt): "Lắng nghe & Nhắc chăm sóc" là cấu hình CHUNG
   // toàn tổ chức (KHÔNG per-trigger). 1 bộ quy tắc cho mọi Mục tiêu.
   //   careNotifyChannels: { "<eventKey>": { owner, manager, zaloGroup } }
   //     eventKey care event: reply|reactionPositive|reactionNegative|lead|block|friendAccept|friendReject
   //   careCloseConditions: { onStatusIds, onFriendTagIds, onCrmTagIds, silenceDays }
   // (Field cùng tên trên AutomationTrigger giữ lại làm legacy, backend đọc ORG trước.)
-  careNotifyChannels          Json?                   @map("care_notify_channels")
-  careCloseConditions         Json?                   @map("care_close_conditions")
+  careNotifyChannels          Json?                    @map("care_notify_channels")
+  careCloseConditions         Json?                    @map("care_close_conditions")
 
   // Phase user-create-with-zalo 2026-05-27 — config dùng cho welcome message tự động
   // khi admin tạo sale mới. Admin sửa toàn bộ template trong UI Thông báo hệ thống,
@@ -333,12 +333,13 @@ model User {
 
   designerOrders        Order[]              @relation("DesignerOrders")
   orderHistories        OrderStatusHistory[] @relation("UserOrderHistories")
+  orderActivities       OrderActivity[]      @relation("UserOrderActivities")
   createdDeliveryOrders DeliveryOrder[]      @relation("DeliveryOrderCreator")
 
   // Phase HR 2026-07-17 — chấm công / nghỉ phép / lương
   attendanceRecords     AttendanceRecord[]
-  leaveRequests         LeaveRequest[]     @relation("LeaveRequester")
-  reviewedLeaveRequests LeaveRequest[]     @relation("LeaveReviewer")
+  leaveRequests         LeaveRequest[]           @relation("LeaveRequester")
+  reviewedLeaveRequests LeaveRequest[]           @relation("LeaveReviewer")
   salaryRecords         SalaryRecord[]
   hrCompensationPlans   HrEmployeeCompensation[]
 
@@ -777,23 +778,23 @@ model Status {
 
 // A chat thread between a Zalo account and a contact (or group)
 model Conversation {
-  id                String    @id @default(uuid())
-  orgId             String    @map("org_id")
-  zaloAccountId     String    @map("zalo_account_id")
-  contactId         String?   @map("contact_id")
-  threadType        String    @default("user") // user, group
-  externalThreadId  String?   @map("external_thread_id")
+  id                   String    @id @default(uuid())
+  orgId                String    @map("org_id")
+  zaloAccountId        String    @map("zalo_account_id")
+  contactId            String?   @map("contact_id")
+  threadType           String    @default("user") // user, group
+  externalThreadId     String?   @map("external_thread_id")
   // Group-specific (chỉ set khi threadType=group; resolve qua getGroupInfo từ zca-js)
-  groupName         String?   @map("group_name")
-  groupAvatarUrl    String?   @map("group_avatar_url")
-  groupMembersCount Int?      @map("group_members_count")
-  lastMessageAt     DateTime? @map("last_message_at")
+  groupName            String?   @map("group_name")
+  groupAvatarUrl       String?   @map("group_avatar_url")
+  groupMembersCount    Int?      @map("group_members_count")
+  lastMessageAt        DateTime? @map("last_message_at")
   // MVP phân loại theo ngày im (2026-07-19): nhãn hot/warm/cool/cold cho CẢ
   // SALES (threadType=user) lẫn DESIGN (threadType=group). Quét ngày ghi vào đây;
   // danh sách đọc thẳng vẽ badge. null = chưa xếp (im < 4 ngày hoặc chưa có mốc).
-  silenceLabel      String?   @map("silence_label")
-  unreadCount       Int       @default(0) @map("unread_count")
-  isReplied         Boolean   @default(true) @map("is_replied")
+  silenceLabel         String?   @map("silence_label")
+  unreadCount          Int       @default(0) @map("unread_count")
+  isReplied            Boolean   @default(true) @map("is_replied")
   // P1-03: denormalized from Message timestamps by PostgreSQL triggers. Keeping
   // the three maxima makes out-of-order Zalo events deterministic and lets the
   // list endpoint compose reply state with every Prisma filter/pagination mode.
@@ -801,15 +802,15 @@ model Conversation {
   lastSelfMessageAt    DateTime? @map("last_self_message_at")
   lastSaleMessageAt    DateTime? @map("last_sale_message_at")
   messageReplyState    String?   @map("message_reply_state")
-  tab               String    @default("main") @map("tab") // main, other
+  tab                  String    @default("main") @map("tab") // main, other
   // M53 (2026-05-30): Virtual conversation cho KH no-Zalo. isVirtual=true → chat-routes skip
   // Zalo SDK send, lưu thẳng Message isLocal=true. externalThreadId synthetic 'virtual:{contactId}:{nickId}'.
   // Memory M53: anh chốt Approach A — sale có 1 chỗ duy nhất xem TẤT CẢ KH trong /chat.
-  isVirtual         Boolean   @default(false) @map("is_virtual")
+  isVirtual            Boolean   @default(false) @map("is_virtual")
   // 2026-06-11 — Xóa mềm hội thoại từ cột 2 (anh chốt: ẩn đi, khôi phục được).
   // Khi != null → mọi query list/count loại trừ. KHÔNG xóa Message vật lý.
-  deletedAt         DateTime? @map("deleted_at")
-  createdAt         DateTime  @default(now()) @map("created_at")
+  deletedAt            DateTime? @map("deleted_at")
+  createdAt            DateTime  @default(now()) @map("created_at")
 
   org              Organization         @relation(fields: [orgId], references: [id], onDelete: Cascade)
   zaloAccount      ZaloAccount          @relation(fields: [zaloAccountId], references: [id], onDelete: Cascade)
@@ -4201,9 +4202,9 @@ model Order {
   updatedAt      DateTime  @updatedAt @map("updated_at")
 
   // --- Design order salary fields (migrated from TRACKER Firebase) ---
-  timestamps          Json?     @map("timestamps")           // {demo?,designing?,approved?,cancelled?} ISO strings
-  fileCountHistory    Json?     @map("file_count_history")   // [{count,changedAt}]
-  designFeeTickedAt   DateTime? @map("design_fee_ticked_at")
+  timestamps             Json?     @map("timestamps") // {demo?,designing?,approved?,cancelled?} ISO strings
+  fileCountHistory       Json?     @map("file_count_history") // [{count,changedAt}]
+  designFeeTickedAt      DateTime? @map("design_fee_ticked_at")
   outsourceKpiTickedAt   DateTime? @map("outsource_kpi_ticked_at")
   outsourceKpiFileCount  Int?      @map("outsource_kpi_file_count")
   outsourceApprovedAt    DateTime? @map("outsource_approved_at")
@@ -4212,7 +4213,7 @@ model Order {
   approvedDesignerId     String?   @map("approved_designer_id") // audit-only, NOT used in salary formula
 
   // --- Migration provenance ---
-  sourceSystem     String?   @map("source_system")      // 'donnhayen_firebase'
+  sourceSystem     String?   @map("source_system") // 'donnhayen_firebase'
   sourceExternalId String?   @map("source_external_id") // Firebase push key e.g. -OD123abc
   rawSnapshot      Json?     @map("raw_snapshot")
   checksumSha256   String?   @map("checksum_sha256")
@@ -4221,16 +4222,17 @@ model Order {
 
   designer      User?                @relation("DesignerOrders", fields: [designerId], references: [id], onDelete: SetNull)
   statusHistory OrderStatusHistory[]
+  activities    OrderActivity[]
   conversation  Conversation?        @relation(fields: [conversationId], references: [id], onDelete: SetNull)
 
+  @@unique([orgId, orderCode])
+  @@unique([orgId, sourceSystem, sourceExternalId])
   @@index([designerId])
   @@index([orgId])
   @@index([orgId, createdAt])
   @@index([orgId, designerId, createdAt])
   @@index([sourceSystem])
   @@index([importRunId])
-  @@unique([orgId, orderCode])
-  @@unique([orgId, sourceSystem, sourceExternalId])
   @@map("orders")
 }
 
@@ -4276,6 +4278,23 @@ model OrderStatusHistory {
 
   @@index([orderId])
   @@map("order_status_histories")
+}
+
+model OrderActivity {
+  id          String   @id @default(uuid())
+  orderId     String   @map("order_id")
+  type        String
+  oldValue    String?  @map("old_value")
+  newValue    String   @map("new_value")
+  changedAt   DateTime @default(now()) @map("changed_at")
+  changedById String   @map("changed_by_id")
+
+  order     Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  changedBy User  @relation("UserOrderActivities", fields: [changedById], references: [id], onDelete: Cascade)
+
+  @@index([orderId, changedAt])
+  @@index([changedAt])
+  @@map("order_activities")
 }
 
 // ════════════════════════════════════════════════════════════════════════
@@ -4370,7 +4389,7 @@ model HrEmployeeCompensation {
   orgId         String   @map("org_id")
   userId        String   @map("user_id")
   effectiveFrom String   @map("effective_from") // YYYY-MM
-  effectiveTo   String?  @map("effective_to")   // YYYY-MM, null = open-ended
+  effectiveTo   String?  @map("effective_to") // YYYY-MM, null = open-ended
   baseSalary    Int      @map("base_salary")
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @updatedAt @map("updated_at")
@@ -4382,4 +4401,3 @@ model HrEmployeeCompensation {
   @@index([orgId, userId])
   @@map("hr_employee_compensation")
 }
-
