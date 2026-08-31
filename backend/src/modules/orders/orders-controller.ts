@@ -75,6 +75,11 @@ export async function getOrders(request: FastifyRequest, reply: FastifyReply) {
             },
             orderBy: { changedAt: 'desc' },
             take: 50,
+          },
+          activities: {
+            include: { changedBy: { select: { fullName: true } } },
+            orderBy: { changedAt: 'desc' },
+            take: 50,
           }
         },
         orderBy: { createdAt: 'desc' },
@@ -104,7 +109,12 @@ export async function getOrderByConversation(request: FastifyRequest, reply: Fas
         statusHistory: {
           include: { changedBy: { select: { fullName: true } } },
           orderBy: { changedAt: 'asc' }
-        }
+        },
+        activities: {
+          include: { changedBy: { select: { fullName: true } } },
+          orderBy: { changedAt: 'desc' },
+          take: 50,
+        },
       }
     });
     return { order: order || null };
@@ -185,6 +195,12 @@ export async function createOrder(request: FastifyRequest, reply: FastifyReply) 
         status: orderStatus,
         changedById: user.id,
       }});
+      await tx.orderActivity.create({ data: {
+        orderId: created.id,
+        type: 'status',
+        newValue: orderStatus,
+        changedById: user.id,
+      }});
       return created;
     });
 
@@ -208,6 +224,13 @@ export async function updateOrder(request: FastifyRequest, reply: FastifyReply) 
 
   if (status && !ORDER_STATUS_VALUES.includes(status)) {
     return reply.status(400).send({ error: 'Trạng thái đơn hàng không hợp lệ' });
+  }
+
+  if (fileCount !== undefined) {
+    const parsedFileCount = Number(fileCount);
+    if (!Number.isInteger(parsedFileCount) || parsedFileCount < 0) {
+      return reply.status(400).send({ error: 'Số mẫu thiết kế phải là số nguyên không âm' });
+    }
   }
 
   try {
@@ -271,6 +294,26 @@ export async function updateOrder(request: FastifyRequest, reply: FastifyReply) 
     const updated = await prisma.$transaction(async tx => {
       if (status && status !== existing.status) {
         await tx.orderStatusHistory.create({ data: { orderId: id, status, changedById: user.id } });
+        await tx.orderActivity.create({
+          data: {
+            orderId: id,
+            type: 'status',
+            oldValue: existing.status,
+            newValue: status,
+            changedById: user.id,
+          },
+        });
+      }
+      if (fileCount !== undefined && nextFileCount !== existing.fileCount) {
+        await tx.orderActivity.create({
+          data: {
+            orderId: id,
+            type: 'file_count',
+            oldValue: String(existing.fileCount),
+            newValue: String(nextFileCount),
+            changedById: user.id,
+          },
+        });
       }
       return tx.order.update({ where: { id }, data: updateData, include: { designer: true } });
     });
@@ -278,6 +321,28 @@ export async function updateOrder(request: FastifyRequest, reply: FastifyReply) 
   } catch (error) {
     console.error('[OrdersController] updateOrder error:', error);
     return reply.status(500).send({ error: 'Cập nhật đơn hàng thất bại' });
+  }
+}
+
+export async function getRecentOrderActivities(request: FastifyRequest, reply: FastifyReply) {
+  const user = request.user!;
+  const parsedLimit = Number((request.query as { limit?: number | string }).limit ?? 10);
+  const limit = Number.isFinite(parsedLimit) ? Math.min(50, Math.max(1, Math.trunc(parsedLimit))) : 10;
+
+  try {
+    const activities = await prisma.orderActivity.findMany({
+      where: { order: { orgId: user.orgId } },
+      include: {
+        changedBy: { select: { id: true, fullName: true } },
+        order: { select: { id: true, orderCode: true } },
+      },
+      orderBy: { changedAt: 'desc' },
+      take: limit,
+    });
+    return { activities };
+  } catch (error) {
+    console.error('[OrdersController] getRecentOrderActivities error:', error);
+    return reply.status(500).send({ error: 'Không thể tải lịch sử hoạt động' });
   }
 }
 

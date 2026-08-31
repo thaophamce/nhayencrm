@@ -106,19 +106,19 @@
               </div>
             </section>
 
-            <section v-if="order?.statusHistory?.length" class="form-card history-card">
+            <section v-if="orderedActivities.length" class="form-card history-card">
               <div class="section-heading history-heading">
                 <span class="section-icon"><v-icon size="19">mdi-history</v-icon></span>
-                <div><h3>Lịch sử chuyển trạng thái</h3><p>{{ order.statusHistory.length }} lần cập nhật</p></div>
+                <div><h3>Lịch sử hoạt động</h3><p>{{ orderedActivities.length }} lần cập nhật</p></div>
               </div>
               <div class="history-list">
-                <article v-for="h in orderedStatusHistory" :key="h.id" class="history-item">
+                <article v-for="h in orderedActivities" :key="h.id" class="history-item">
                   <div class="history-status-icon" aria-hidden="true">
-                    <v-icon size="18">mdi-swap-horizontal</v-icon>
+                    <v-icon size="18">{{ h.type === 'file_count' ? 'mdi-file-multiple-outline' : 'mdi-swap-horizontal' }}</v-icon>
                   </div>
                   <div class="history-copy">
-                    <span class="history-label">Chuyển trạng thái sang</span>
-                    <strong>{{ getStatusLabel(h.status) }}</strong>
+                    <span class="history-label">{{ activityLabel(h) }}</span>
+                    <strong>{{ activityValue(h) }}</strong>
                     <div class="history-actor">
                       <v-icon size="14">mdi-account-outline</v-icon>
                       <span>{{ h.changedBy?.fullName || 'Hệ thống' }}</span>
@@ -166,7 +166,17 @@ const submitting = ref(false);
 const designers = ref<Array<{ id: string; fullName: string }>>([]);
 const formData = ref({ orderCode: '', fileCount: 0, deadline: '', isUrgent: false, hasDesignFee: false, isOutsource: false, designerId: null as string | null, status: 'demo', notes: '' });
 const statusOptions = ORDER_STATUS_OPTIONS;
-const orderedStatusHistory = computed(() => [...(props.order?.statusHistory || [])].sort((a, b) => new Date(b.changedAt).getTime() - new Date(a.changedAt).getTime()));
+const orderedActivities = computed(() => {
+  const activities = props.order?.activities;
+  if (Array.isArray(activities)) {
+    return [...activities].sort((a, b) => new Date(b.changedAt).getTime() - new Date(a.changedAt).getTime());
+  }
+  return (props.order?.statusHistory || []).map((history: any) => ({
+    ...history,
+    type: 'status',
+    newValue: history.status,
+  })).sort((a: any, b: any) => new Date(b.changedAt).getTime() - new Date(a.changedAt).getTime());
+});
 const isAdminOrManager = computed(() => {
   const user = authStore.user;
   return user?.role === 'owner' || user?.role === 'admin' || authStore.canAccess('orders', 'edit');
@@ -201,6 +211,16 @@ async function submit() {
 }
 function close() { visible.value = false; }
 function getStatusLabel(s: string) { return getOrderStatusLabel(s); }
+function activityLabel(activity: any) {
+  return activity.type === 'file_count' ? 'Thay đổi số mẫu thiết kế' : 'Chuyển trạng thái';
+}
+function activityValue(activity: any) {
+  if (activity.type === 'file_count') {
+    return `${activity.oldValue ?? '—'} → ${activity.newValue}`;
+  }
+  const next = getStatusLabel(activity.newValue || activity.status);
+  return activity.oldValue ? `${getStatusLabel(activity.oldValue)} → ${next}` : next;
+}
 function formatDeadline(d: string) {
   if (!d) return 'Chưa cài đặt';
   return new Date(d).toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit', year: 'numeric' });

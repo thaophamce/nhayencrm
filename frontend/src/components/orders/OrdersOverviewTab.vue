@@ -165,6 +165,33 @@
             </div>
           </div>
         </div>
+
+        <section class="activity-card" aria-labelledby="activity-title">
+          <div class="activity-header">
+            <div>
+              <h3 id="activity-title"><v-icon size="19" color="#2F80ED">mdi-history</v-icon>Lịch sử hoạt động</h3>
+              <p>Các thay đổi mới nhất của đơn thiết kế trong toàn bộ hệ thống</p>
+            </div>
+            <v-btn variant="text" color="#2F80ED" size="small" :loading="activityLoading" @click="loadActivities">
+              Làm mới
+            </v-btn>
+          </div>
+
+          <div v-if="activityLoading && !activities.length" class="activity-empty">Đang tải lịch sử...</div>
+          <div v-else-if="!activities.length" class="activity-empty">Chưa có hoạt động nào được ghi nhận</div>
+          <div v-else class="activity-list">
+            <article v-for="activity in activities" :key="activity.id" class="activity-item">
+              <span class="activity-icon" :class="activity.type">
+                <v-icon size="18">{{ activity.type === 'file_count' ? 'mdi-file-multiple-outline' : 'mdi-swap-horizontal' }}</v-icon>
+              </span>
+              <div class="activity-copy">
+                <strong>{{ activityText(activity) }}</strong>
+                <span>{{ activity.changedBy?.fullName || 'Hệ thống' }} · {{ formatActivityTime(activity.changedAt) }}</span>
+              </div>
+              <span class="activity-order">{{ activity.order?.orderCode }}</span>
+            </article>
+          </div>
+        </section>
       </template>
     </div>
 
@@ -213,8 +240,10 @@ const selectedMonth = ref(getOrderStatsMonthValue());
 const loading = ref(false);
 const stats = ref<any>(null);
 const alertPanelRef = ref<any>(null);
+const activities = ref<any[]>([]);
+const activityLoading = ref(false);
 
-onMounted(loadStats);
+onMounted(() => { loadStats(); loadActivities(); });
 watch(selectedMonth, loadStats);
 
 async function loadStats() {
@@ -237,6 +266,37 @@ function onEditOrder(order: any) {
 
 function onAlertChanged() {
   loadStats();
+  loadActivities();
+}
+
+async function loadActivities() {
+  activityLoading.value = true;
+  try {
+    const res = await api.get<{ activities: any[] }>('/orders/activities', { params: { limit: 10 } });
+    activities.value = res.data.activities || [];
+  } catch (err) {
+    console.error('Cannot load order activities:', err);
+  } finally {
+    activityLoading.value = false;
+  }
+}
+
+function activityText(activity: any) {
+  const code = activity.order?.orderCode || 'Đơn hàng';
+  if (activity.type === 'file_count') {
+    return `${code}: đổi số mẫu từ ${activity.oldValue ?? '—'} thành ${activity.newValue}`;
+  }
+  const next = ORDER_STATUS_OPTIONS.find(option => option.value === activity.newValue)?.label || activity.newValue;
+  const previous = activity.oldValue
+    ? ORDER_STATUS_OPTIONS.find(option => option.value === activity.oldValue)?.label || activity.oldValue
+    : null;
+  return previous ? `${code}: chuyển từ ${previous} sang ${next}` : `${code}: chuyển trạng thái sang ${next}`;
+}
+
+function formatActivityTime(value: string) {
+  return new Intl.DateTimeFormat('vi-VN', {
+    hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit', year: 'numeric',
+  }).format(new Date(value));
 }
 
 function getPercent(statusKey: string): number {
@@ -561,6 +621,35 @@ const donutOptions = {
   flex-direction: column;
 }
 
+.activity-card {
+  overflow: hidden;
+  background: #fff;
+  border: 1px solid #eaecef;
+  border-radius: 16px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.02);
+}
+
+.activity-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 18px;
+  border-bottom: 1px solid #edf0f5;
+}
+
+.activity-header h3 { display: flex; align-items: center; gap: 8px; margin: 0; color: #1e202c; font-size: 15px; font-weight: 800; }
+.activity-header p { margin: 3px 0 0; color: #64748b; font-size: 12px; }
+.activity-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; padding: 14px 16px 16px; }
+.activity-item { display: grid; grid-template-columns: 38px minmax(0, 1fr) auto; align-items: center; gap: 11px; min-height: 68px; padding: 11px 13px; background: #f8fafc; border: 1px solid #e3e8ef; border-radius: 12px; }
+.activity-icon { width: 38px; height: 38px; display: grid; place-items: center; color: #2f80ed; background: #eaf3ff; border-radius: 11px; }
+.activity-icon.file_count { color: #7c3aed; background: #f1eafe; }
+.activity-copy { min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+.activity-copy strong { overflow: hidden; color: #253248; font-size: 13px; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
+.activity-copy span { color: #69768a; font-size: 11.5px; font-weight: 600; }
+.activity-order { padding: 4px 8px; color: #1a6fd4; background: #ebf3ff; border-radius: 7px; font-size: 11.5px; font-weight: 800; }
+.activity-empty { padding: 34px 18px; color: #94a3b8; text-align: center; font-size: 13px; }
+
 .chart-header {
   display: flex;
   align-items: center;
@@ -689,5 +778,8 @@ const donutOptions = {
   .kpi-cards-grid {
     grid-template-columns: repeat(2, 1fr);
   }
+  .activity-list { grid-template-columns: 1fr; }
+  .activity-item { grid-template-columns: 36px minmax(0, 1fr); }
+  .activity-order { grid-column: 2; justify-self: start; }
 }
 </style>

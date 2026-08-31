@@ -14,6 +14,7 @@ import {
   deleteOrder,
   getSalaryReport,
   getOrderStats,
+  getRecentOrderActivities,
 } from './orders-controller.js';
 
 export async function ordersRoutes(app: FastifyInstance): Promise<void> {
@@ -84,4 +85,6 @@ export async function ordersRoutes(app: FastifyInstance): Promise<void> {
 
   // Thống kê tổng quan (thẻ số liệu + biểu đồ)
   app.get('/api/v1/orders/stats', { preHandler: requireGrant('orders', 'access') }, getOrderStats);
+  // Shared organization feed: every user with Orders access sees the same activities.
+  app.get('/api/v1/orders/activities', { preHandler: requireGrant('orders', 'access') }, getRecentOrderActivities);
 }
